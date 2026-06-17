@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
+    host: '0.0.0.0',  // Listen on all interfaces for VPN compatibility
     proxy: {
       '/api': {
         target: 'http://localhost:8000',
@@ -14,6 +15,7 @@ export default defineConfig({
       '/ws': {
         target: 'ws://localhost:8000',
         ws: true,
+        changeOrigin: true,
       },
       '/files': {
         target: 'http://localhost:8000',
