@@ -49,6 +49,20 @@ if defined LOCAL_IP (
     echo.
 )
 
+
+REM Show local IP for VPN/network access
+for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do (
+    set LOCAL_IP=%%a
+    goto :found
+)
+:found
+if defined LOCAL_IP (
+    set LOCAL_IP=%LOCAL_IP: =%
+    echo With VPN or from other devices:
+    echo   http://%LOCAL_IP%:5173
+    echo.
+)
+
 echo Two terminal windows are now open.
 echo Close them to stop ClipForge.
 echo.
