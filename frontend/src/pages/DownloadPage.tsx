@@ -30,8 +30,10 @@ export default function DownloadPage() {
       const { data } = await axios.post('/api/download', { url })
       const jobId = data.job_id
 
-      const wsBase = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`
-      const ws = new WebSocket(`${wsBase}/ws/download/${jobId}`)
+      // Connect directly to backend port 8000 (bypass Vite proxy for WebSocket)
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
+      const wsHost = window.location.hostname
+      const ws = new WebSocket(`${wsProtocol}://${wsHost}:8000/ws/download/${jobId}`)
 
       ws.onmessage = (event) => {
         const message = JSON.parse(event.data)

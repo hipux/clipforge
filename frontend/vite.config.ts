@@ -13,9 +13,8 @@ export default defineConfig({
         changeOrigin: true,
       },
       '/ws': {
-        target: 'ws://localhost:8000',
+        target: 'http://localhost:8000',  // Use http://, Vite handles the upgrade
         ws: true,
-        changeOrigin: true,
       },
       '/files': {
         target: 'http://localhost:8000',

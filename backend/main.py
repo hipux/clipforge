@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
+from starlette.types import ASGIApp, Receive, Scope, Send
 from backend.db import init_db
 from backend.api import download, moments, process, publish
 from backend.config import OUTPUT_DIR, DOWNLOADS_DIR
@@ -28,6 +29,28 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down ClipForge")
 
 
+class WebSocketCORSMiddleware:
+    """Allow WebSocket connections from any origin.
+    
+    CORSMiddleware does NOT apply to WebSocket connections in Starlette.
+    This middleware fixes Origin header issues for WebSocket connections.
+    """
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] == "websocket":
+            # Starlette checks Origin against Host - set them to match
+            headers = dict(scope.get("headers", []))
+            host = headers.get(b"host", b"localhost:8000")
+            # Remove existing origin and add one that matches the host
+            scope["headers"] = [
+                (k, v) for k, v in scope.get("headers", [])
+                if k.lower() != b"origin"
+            ] + [(b"origin", b"http://" + host)]
+        await self.app(scope, receive, send)
+
+
 app = FastAPI(
     title="ClipForge API",
     description="Local video clip processing and publishing tool",
@@ -35,7 +58,10 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware - allow all origins (needed for WebSocket via proxy and VPN scenarios)
+# WebSocket CORS middleware - MUST come BEFORE CORSMiddleware
+app.add_middleware(WebSocketCORSMiddleware)
+
+# CORS middleware - allow all origins (needed for VPN scenarios)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
