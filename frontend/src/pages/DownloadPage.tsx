@@ -16,7 +16,7 @@ function formatBytes(bytes: number): string {
 
 export default function DownloadPage() {
   const navigate = useNavigate()
-  const { currentVideo, setVideo } = useAppStore()
+  const { currentVideo, setVideo, setCurrentStep } = useAppStore()
   const [url, setUrl] = useState('')
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -74,6 +74,7 @@ export default function DownloadPage() {
           setProgress(100)
           setStatus('Download complete!')
           setVideo(message.video)
+          setCurrentStep(1) // Save that we're on step 1 (download)
           ws.close()
           setLoading(false)
         } else if (message.status === 'error') {

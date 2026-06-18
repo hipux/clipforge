@@ -4,32 +4,32 @@
 
 ---
 
-> **💰 100% БЕСПЛАТНО — Никаких платных сервисов, подписок, стоимости API.**
+> **💰 100% FREE — No paid services, no subscriptions, no API costs.**
 
-Локальный инструмент для обработки и публикации видеоклипов. Скачивайте длинные видео с YouTube, Rutube или VK Video, автоматически находите интересные моменты с помощью локальных AI-моделей, применяйте профессиональные видеоэффекты и публикуйте готовые клипы прямо на YouTube Shorts — всё из одного веб-интерфейса, запущенного на вашем компьютере.
+Local video clip processing & publishing tool that lets you download long-form videos from YouTube, Rutube, or VK Video, automatically detect interesting moments using fully local AI models, apply professional video effects, and publish finished clips directly to YouTube Shorts — all from a single web interface running on your machine.
 
-### ✨ Возможности
+### ✨ Features
 
-- **Скачивание видео** с YouTube, Rutube, VK Video (используя yt-dlp)
-- **AI-определение интересных моментов** с помощью локального анализа:
-  - Пики энергии аудио (librosa)
-  - Определение смены сцен (OpenCV)
-  - Оценка речевого контента (faster-whisper + эвристика)
-- **Видеоэффекты** (FFmpeg):
-  - Автоматические субтитры (faster-whisper AI) — 5 стилей на выбор:
-    - **Karaoke**: 1-2 слова, жёлтая подсветка текущего слова (стиль TikTok)
-    - **Bold White**: 2-3 слова, жирный белый текст с толстой обводкой
-    - **Neon**: 1-2 слова, голубое свечение с тёмной полупрозрачной рамкой
-    - **Minimal**: 3-4 слова, небольшой чистый белый текст, тонкая обводка
-    - **Cinematic**: 2-3 слова, буквенный интервал, полупрозрачная чёрная полоса
-  - Динамический размытый фон (формат 9:16 вертикальный)
-  - Зеркальное отображение
-  - Тонкая коррекция цвета
-  - Наложение баннера/водяного знака
-- **Публикация**:
-  - Прямая загрузка на YouTube Shorts (бесплатный YouTube Data API v3)
-  - Локальный экспорт для TikTok, Instagram Reels, VK Клипы и т.д.
-- **Сохранение сессии**: продолжайте работу с того места, где остановились (после перезагрузки страницы)
+- **Video Download** from YouTube, Rutube, VK Video (using yt-dlp)
+- **AI Moment Detection** using local analysis:
+  - Audio energy peaks (librosa)
+  - Scene change detection (OpenCV)
+  - Speech content scoring (faster-whisper + keyword heuristics)
+- **Video Effects** (FFmpeg):
+  - Auto-generated subtitles (faster-whisper AI) — 5 styles to choose from:
+    - **Karaoke**: 1-2 words, yellow highlight on current word (TikTok style)
+    - **Bold White**: 2-3 words, bold white text with thick outline
+    - **Neon**: 1-2 words, cyan glow with dark semi-transparent box
+    - **Minimal**: 3-4 words, small clean white text, thin outline
+    - **Cinematic**: 2-3 words, letter-spacing, semi-transparent black bar
+  - Dynamic blurred background (9:16 vertical format)
+  - Mirror effect
+  - Subtle color enhancement
+  - Banner/watermark overlay
+- **Publishing**:
+  - Direct upload to YouTube Shorts (free YouTube Data API v3)
+  - Local export for TikTok, Instagram Reels, VK Clips, etc.
+- **Session Persistence**: Resume your work from where you left off (after page reload)
 
 ### 🆓 Гарантия нулевой стоимости
 

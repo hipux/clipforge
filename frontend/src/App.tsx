@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Layout from './components/Layout'
+import SessionResume from './components/SessionResume'
 import DownloadPage from './pages/DownloadPage'
 import MomentsPage from './pages/MomentsPage'
 import EffectsPage from './pages/EffectsPage'
@@ -9,6 +10,7 @@ import PublishPage from './pages/PublishPage'
 function App() {
   return (
     <BrowserRouter>
+      <SessionResume />
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<Navigate to="/download" replace />} />

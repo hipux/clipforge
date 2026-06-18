@@ -1,114 +1,70 @@
-import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
+import { RotateCcw, X } from 'lucide-react'
 import { useAppStore } from '../store/useAppStore'
-import { RefreshCw, X, Play } from 'lucide-react'
-
-interface SessionState {
-  step: number
-  video_id: string | null
-  moments_count: number
-  selected_moments_count: number
-  processed_clips_count: number
-}
-
-const stepNames = ['Download', 'Moments', 'Effects', 'Process', 'Publish']
-const stepPaths = ['/download', '/moments', '/effects', '/process', '/publish']
 
 export default function SessionResume() {
-  const [sessionState, setSessionState] = useState<SessionState | null>(null)
-  const [dismissed, setDismissed] = useState(false)
   const navigate = useNavigate()
-  const { currentStep, setCurrentStep } = useAppStore()
+  const location = useLocation()
+  const { currentVideo, currentStep } = useAppStore()
+  const [show, setShow] = useState(false)
+  const [checked, setChecked] = useState(false)
 
   useEffect(() => {
-    // Fetch current session on mount
-    fetch('/api/session/current')
-      .then(res => res.json())
-      .then((data: SessionState) => {
-        // Only show resume banner if we have a saved session AND it's different from step 1
-        if (data.step > 1 && data.video_id) {
-          setSessionState(data)
-        }
-      })
-      .catch(err => console.error('Failed to fetch session state:', err))
-  }, [])
+    if (checked) return
 
-  const handleResume = () => {
-    if (!sessionState) return
-    
-    setCurrentStep(sessionState.step)
-    navigate(stepPaths[sessionState.step - 1])
-    setDismissed(true)
+    // Check if there's a stored session (currentVideo means we have a session)
+    // Only show if we're on /download and have a saved session
+    if (currentVideo && currentStep > 1 && location.pathname === '/download') {
+      setShow(true)
+    }
+    setChecked(true)
+  }, [currentVideo, currentStep, location.pathname, checked])
+
+  const handleRestore = () => {
+    // Navigate to the saved step
+    const steps = ['download', 'download', 'moments', 'effects', 'process', 'publish']
+    const path = `/${steps[currentStep] || 'download'}`
+    navigate(path)
+    setShow(false)
   }
 
-  const handleStartFresh = () => {
-    // Clear store and localStorage
-    localStorage.removeItem('clipforge-session')
-    window.location.reload()
+  const handleDismiss = () => {
+    setShow(false)
   }
 
-  if (!sessionState || dismissed || currentStep > 1) {
-    return null
-  }
+  if (!show) return null
+
+  const stepNames = ['', 'Download', 'Moments', 'Effects', 'Process', 'Publish']
+  const stepName = stepNames[currentStep] || 'Download'
 
   return (
-    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 max-w-xl w-full px-4">
-      <div className="card border-accent/30 shadow-xl">
-        <div className="flex items-start gap-4">
-          {/* Icon */}
-          <div className="w-12 h-12 rounded-xl bg-accent/10 flex items-center justify-center shrink-0">
-            <RefreshCw size={20} className="text-accent" />
+    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-full max-w-md px-4">
+      <div className="bg-gradient-to-r from-accent/20 to-accent/10 backdrop-blur-sm border border-accent/30 rounded-2xl shadow-xl p-4 flex items-center gap-3 animate-in fade-in slide-in-from-top duration-300">
+        <div className="w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center flex-shrink-0">
+          <RotateCcw size={20} className="text-accent" />
+        </div>
+        <div className="flex-1">
+          <div className="font-semibold text-slate-100 text-sm mb-0.5">
+            Resume previous session?
           </div>
-
-          {/* Content */}
-          <div className="flex-1 min-w-0">
-            <h3 className="font-semibold text-slate-100 mb-1">
-              Resume Previous Session?
-            </h3>
-            <p className="text-sm text-slate-400 mb-3">
-              You have an in-progress session at step{' '}
-              <span className="text-accent font-medium">
-                {sessionState.step}: {stepNames[sessionState.step - 1]}
-              </span>
-            </p>
-            
-            {/* Stats */}
-            <div className="flex items-center gap-4 text-xs text-slate-500 mb-4">
-              {sessionState.moments_count > 0 && (
-                <span>{sessionState.moments_count} moments detected</span>
-              )}
-              {sessionState.selected_moments_count > 0 && (
-                <span className="text-accent">{sessionState.selected_moments_count} selected</span>
-              )}
-              {sessionState.processed_clips_count > 0 && (
-                <span className="text-green-400">{sessionState.processed_clips_count} clips ready</span>
-              )}
-            </div>
-
-            {/* Actions */}
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleResume}
-                className="btn btn-primary text-sm px-4 py-2 h-auto"
-              >
-                <Play size={14} />
-                Continue
-              </button>
-              <button
-                onClick={handleStartFresh}
-                className="btn btn-secondary text-sm px-4 py-2 h-auto"
-              >
-                Start Fresh
-              </button>
-            </div>
+          <div className="text-slate-400 text-xs">
+            Continue from <span className="text-slate-300 font-medium">{stepName}</span> step
           </div>
-
-          {/* Dismiss */}
+        </div>
+        <div className="flex gap-2 flex-shrink-0">
           <button
-            onClick={() => setDismissed(true)}
-            className="text-slate-500 hover:text-slate-300 transition-colors shrink-0"
+            onClick={handleRestore}
+            className="px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white text-sm font-medium transition-colors"
           >
-            <X size={18} />
+            Restore
+          </button>
+          <button
+            onClick={handleDismiss}
+            className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors"
+            aria-label="Dismiss"
+          >
+            <X size={16} className="text-slate-400" />
           </button>
         </div>
       </div>

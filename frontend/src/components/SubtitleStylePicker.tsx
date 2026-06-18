@@ -3,21 +3,9 @@ import { useAppStore } from '../store/useAppStore'
 
 const styles = [
   {
-    id: 'classic',
-    name: 'Classic',
-    description: 'White text, black outline, clean',
-    preview: (
-      <div className="bg-gradient-to-b from-slate-800 to-slate-900 rounded-lg p-4 h-24 flex items-end justify-center">
-        <span className="text-white font-medium text-lg" style={{ textShadow: '2px 2px 4px rgba(0,0,0,0.8)' }}>
-          SAMPLE TEXT
-        </span>
-      </div>
-    ),
-  },
-  {
     id: 'karaoke',
     name: 'Karaoke',
-    description: 'Yellow highlight, TikTok style',
+    description: '1-2 words, yellow highlight, TikTok style',
     preview: (
       <div className="bg-gradient-to-b from-slate-800 to-slate-900 rounded-lg p-4 h-24 flex items-end justify-center">
         <span className="font-bold text-lg">
@@ -28,29 +16,24 @@ const styles = [
     ),
   },
   {
-    id: 'box',
-    name: 'Box',
-    description: 'Dark background, modern',
+    id: 'bold',
+    name: 'Bold White',
+    description: '2-3 words, large white, thick outline',
     preview: (
       <div className="bg-gradient-to-b from-slate-800 to-slate-900 rounded-lg p-4 h-24 flex items-end justify-center">
-        <span className="text-white text-lg px-4 py-1.5 bg-black/60 rounded">
+        <span className="text-white font-bold text-xl" style={{ textShadow: '3px 3px 0 #000, -3px -3px 0 #000, 3px -3px 0 #000, -3px 3px 0 #000' }}>
           SAMPLE TEXT
         </span>
       </div>
     ),
   },
   {
-    id: 'outlined',
-    name: 'Outlined',
-    description: 'Thick cyan outline, bold',
+    id: 'neon',
+    name: 'Neon',
+    description: '1-2 words, cyan glow, dark box',
     preview: (
       <div className="bg-gradient-to-b from-slate-800 to-slate-900 rounded-lg p-4 h-24 flex items-end justify-center">
-        <span
-          className="text-white font-bold text-xl"
-          style={{
-            textShadow: '0 0 8px #06b6d4, 0 0 12px #06b6d4, 2px 2px 0 #06b6d4, -2px -2px 0 #06b6d4, 2px -2px 0 #06b6d4, -2px 2px 0 #06b6d4',
-          }}
-        >
+        <span className="text-cyan-400 font-bold text-lg px-3 py-1.5 bg-black/70 rounded" style={{ textShadow: '0 0 10px #06b6d4, 0 0 20px #06b6d4' }}>
           SAMPLE TEXT
         </span>
       </div>
@@ -59,11 +42,23 @@ const styles = [
   {
     id: 'minimal',
     name: 'Minimal',
-    description: 'Subtle, clean aesthetic',
+    description: '3-4 words, small clean white, subtle',
     preview: (
       <div className="bg-gradient-to-b from-slate-800 to-slate-900 rounded-lg p-4 h-24 flex items-end justify-center">
-        <span className="text-slate-400 text-sm">
-          sample text
+        <span className="text-white text-sm" style={{ textShadow: '1px 1px 2px rgba(0,0,0,0.4)' }}>
+          sample text here
+        </span>
+      </div>
+    ),
+  },
+  {
+    id: 'cinematic',
+    name: 'Cinematic',
+    description: '2-3 words, letter-spacing, black bar',
+    preview: (
+      <div className="bg-gradient-to-b from-slate-800 to-slate-900 rounded-lg p-4 h-24 flex items-end justify-center">
+        <span className="text-white text-lg font-medium px-6 py-2 bg-black/60" style={{ letterSpacing: '0.1em' }}>
+          SAMPLE TEXT
         </span>
       </div>
     ),

@@ -36,7 +36,7 @@ const effectConfig = [
 
 export default function EffectsPage() {
   const navigate = useNavigate()
-  const { selectedMomentIds, globalEffects, updateGlobalEffects } = useAppStore()
+  const { selectedMomentIds, globalEffects, updateGlobalEffects, setCurrentStep } = useAppStore()
 
   if (selectedMomentIds.length === 0) {
     navigate('/moments')
@@ -118,7 +118,10 @@ export default function EffectsPage() {
           Back
         </button>
         <button
-          onClick={() => navigate('/process')}
+          onClick={() => {
+            setCurrentStep(4) // Save that we're on step 4 (process)
+            navigate('/process')
+          }}
           className="btn btn-primary px-6"
         >
           Start Processing

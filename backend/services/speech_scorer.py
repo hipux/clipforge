@@ -345,19 +345,33 @@ def get_subtitle_style_definition(style_name: str) -> str:
     """
     Return ASS style definition for the given style name.
     
-    Styles:
-    - classic: White text, black outline, centered bottom. Clean and readable.
-    - karaoke: Current word highlighted yellow, rest white. Bold. TikTok style.
-    - box: Text inside a semi-transparent dark rectangle background. Modern.
-    - outlined: Large white text with thick colored outline (cyan). Bold, punchy.
-    - minimal: Small, light gray text, no outline, subtle. Clean aesthetic.
+    5 Styles for 1080x1920 vertical format:
+    - karaoke: 1-2 words, yellow highlight on current word, white text, black outline, TikTok style
+    - bold: 2-3 words, all-white bold text, thick black outline, large font
+    - neon: 1-2 words, cyan colored text with glow effect, dark semi-transparent box
+    - minimal: 3-4 words, small clean white text, thin outline, subtle
+    - cinematic: 2-3 words, white text with letter-spacing, semi-transparent black bar
+    
+    ASS Style Format:
+    Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour,
+    Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle,
+    BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
     """
     styles = {
-        "classic": "Style: Default,Arial,72,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,3,1,2,60,60,320,1",
+        # Karaoke: Bold 72pt, white primary, yellow secondary (for \kf tags), black 2px outline
         "karaoke": "Style: Default,Arial,72,&H00FFFFFF,&H0000D7FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,2,1,2,60,60,320,1",
-        "box": "Style: Default,Arial,68,&H00FFFFFF,&H00FFFFFF,&H00000000,&H99000000,0,0,0,0,100,100,0,0,4,1,0,2,60,60,320,1",
-        "outlined": "Style: Default,Arial,80,&H00FFFFFF,&H00FFFFFF,&H00D4B606,&H00000000,1,0,0,0,100,100,0,0,1,5,0,2,60,60,320,1",
-        "minimal": "Style: Default,Arial,54,&H99FFFFFF,&H99FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,2,60,60,380,1",
+        
+        # Bold White: Bold 80pt, white, thick 4px black outline, large font
+        "bold": "Style: Default,Arial,80,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,4,2,2,60,60,320,1",
+        
+        # Neon: Bold 72pt, cyan text (&H00FFD700 = cyan), cyan outline for glow, semi-transparent dark box
+        "neon": "Style: Default,Arial,72,&H00FFD706,&H00FFD706,&H00FFD706,&HB0000000,1,0,0,0,100,100,0,0,4,3,0,2,60,60,320,1",
+        
+        # Minimal: Normal 60pt, white, very thin 1px outline, clean
+        "minimal": "Style: Default,Arial,60,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,1,0,2,60,60,360,1",
+        
+        # Cinematic: Medium 72pt, white, letter-spacing 10, semi-transparent black box background
+        "cinematic": "Style: Default,Arial,72,&H00FFFFFF,&H00FFFFFF,&H00000000,&H99000000,0,0,0,0,100,100,10,0,4,1,0,2,60,60,320,1",
     }
     return styles.get(style_name, styles["karaoke"])  # Default to karaoke if unknown
 
@@ -412,8 +426,7 @@ def generate_subtitles_file(video_path: str, output_path: str, style: str = "kar
                     text = segment['text'].strip().upper()
                     text_words = text.split()
                     
-                    # Split into 1-2 word chunks
-                    chunk_size = 2
+                    # Split into chunks based on style
                     if len(text_words) > 0:
                         num_chunks = (len(text_words) + chunk_size - 1) // chunk_size
                         chunk_duration = (end_time - start_time) / max(num_chunks, 1)
@@ -426,8 +439,7 @@ def generate_subtitles_file(video_path: str, output_path: str, style: str = "kar
                             
                             f.write(f"Dialogue: 0,{format_ass_time(chunk_start)},{format_ass_time(chunk_end)},Default,,0,0,0,,{chunk_text}\n")
                 else:
-                    # Word-level karaoke: max 1-2 words per line with \k tags
-                    chunk_size = 2
+                    # Word-level timing: max N words per line based on style
                     for chunk_idx in range(0, len(words), chunk_size):
                         chunk_words = words[chunk_idx:chunk_idx + chunk_size]
                         if not chunk_words:

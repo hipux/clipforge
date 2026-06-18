@@ -24,6 +24,7 @@ export default function MomentsPage() {
     selectedMomentIds,
     toggleMoment,
     setSelectedMoments,
+    setCurrentStep,
   } = useAppStore()
 
   const [detecting, setDetecting] = useState(false)
@@ -84,6 +85,7 @@ export default function MomentsPage() {
           setStatus('Detection complete!')
           setMoments(message.moments)
           setSelectedMoments(message.moments.map((m: any) => m.id))
+          setCurrentStep(2) // Save that we're on step 2 (moments)
           ws.close()
           setDetecting(false)
           detectingRef.current = false
