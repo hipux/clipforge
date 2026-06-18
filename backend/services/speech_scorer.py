@@ -416,6 +416,16 @@ def generate_subtitles_file(video_path: str, output_path: str, style: str = "kar
             f.write("[Events]\n")
             f.write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
             
+            # Determine chunk size (words per subtitle line) based on style
+            chunk_size_map = {
+                'karaoke': 2,    # 1-2 words, fast pacing
+                'bold': 2,       # 2-3 words, bold style
+                'neon': 2,       # 1-2 words, neon glow
+                'minimal': 3,    # 3-4 words, clean minimal
+                'cinematic': 2,  # 2-3 words, letter-spaced
+            }
+            chunk_size = chunk_size_map.get(style, 2)  # Default to 2 words
+            
             # Process each segment
             for segment in segments:
                 words = segment.get('words', [])
