@@ -378,8 +378,8 @@ def generate_subtitles_file(video_path: str, output_path: str) -> bool:
             # SecondaryColour: yellow/orange for karaoke (&H0000D7FF in BGR format)
             # BorderStyle: 1 (outline + shadow, NOT opaque box)
             # Alignment: 2 (bottom center)
-            # MarginV: 200 (distance from bottom)
-            f.write("Style: Default,Arial,62,&H00FFFFFF,&H0000D7FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,3,1,2,80,80,200,1\n\n")
+            # MarginV: 420 (distance from bottom — subtitles just below main video area)
+            f.write("Style: Default,Arial,62,&H00FFFFFF,&H0000D7FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,3,1,2,80,80,420,1\n\n")
             
             f.write("[Events]\n")
             f.write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
