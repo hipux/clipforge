@@ -375,11 +375,12 @@ def generate_subtitles_file(video_path: str, output_path: str) -> bool:
             f.write("[V4+ Styles]\n")
             f.write("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
             # PrimaryColour: white (&H00FFFFFF)
-            # SecondaryColour: yellow/orange for karaoke (&H0000D7FF in BGR format)
+            # SecondaryColour: yellow for karaoke highlight (&H0000FFFF in BGR format)
             # BorderStyle: 1 (outline + shadow, NOT opaque box)
             # Alignment: 2 (bottom center)
-            # MarginV: 420 (distance from bottom — subtitles just below main video area)
-            f.write("Style: Default,Arial,62,&H00FFFFFF,&H0000D7FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,3,1,2,80,80,420,1\n\n")
+            # MarginV: 320 (distance from bottom — subtitles just below main video area, raised above bottom)
+            # Font size: 88px for good readability on 1080x1920 vertical
+            f.write("Style: Default,Arial,88,&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,4,2,2,60,60,320,1\n\n")
             
             f.write("[Events]\n")
             f.write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
@@ -418,13 +419,13 @@ def generate_subtitles_file(video_path: str, output_path: str) -> bool:
                         chunk_start = chunk_words[0].start
                         chunk_end = chunk_words[-1].end
                         
-                        # Build karaoke text with \k tags
+                        # Build karaoke text with \kf tags (fill-mode karaoke for smooth highlighting)
                         karaoke_parts = []
                         for word in chunk_words:
                             word_text = word.word.strip().upper()
                             # Calculate duration in centiseconds (10ms units)
                             word_duration_cs = int((word.end - word.start) * 100)
-                            karaoke_parts.append(f"{{\\k{word_duration_cs}}}{word_text}")
+                            karaoke_parts.append(f"{{\\kf{word_duration_cs}}}{word_text}")
                         
                         karaoke_text = ' '.join(karaoke_parts)
                         

@@ -94,11 +94,11 @@ async def process_clip(
             progress_callback(0.1, "Applying blur background...")
         
         # Create dynamic blurred background:
-        # - bg layer: scale up to fill 1080x1920, apply very strong blur (sigma=80), darken slightly
+        # - bg layer: scale up to fill 1080x1920, apply very strong blur (sigma=60), darken slightly
         # - fg layer: scale original to fit within 1080 width, maintaining aspect ratio
         # - overlay fg centered on bg
         filters.append(
-            "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=80,colorlevels=rimin=0:rimax=0.7:gimin=0:gimax=0.7:bimin=0:bimax=0.7[bg];"
+            "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=60,colorlevels=rimax=0.7:gimax=0.7:bimax=0.7[bg];"
             "[0:v]scale=1080:-2:force_original_aspect_ratio=decrease[fg];"
             "[bg][fg]overlay=(W-w)/2:(H-h)/2[v1]"
         )
@@ -131,10 +131,10 @@ async def process_clip(
         success = generate_subtitles_file(input_path, str(subtitle_file))
         
         if success:
-            # Escape path for FFmpeg filter
-            subtitle_path_escaped = str(subtitle_file).replace('\\', '\\\\').replace(':', '\\:')
-            # Use ASS file directly - all styling is baked into the .ass file
-            filters.append(f"[v3]subtitles='{subtitle_path_escaped}'[vout]")
+            # Escape path for FFmpeg filter (ASS filter uses forward slashes, escape drive colon on Windows)
+            subtitle_path_str = str(subtitle_file).replace('\\', '/').replace(':', '\\:')
+            # Use 'ass=' filter for ASS files - all styling is baked into the .ass file
+            filters.append(f"[v3]ass='{subtitle_path_str}'[vout]")
         else:
             print("Subtitle generation failed, skipping subtitles")
             filters.append("[v3]null[vout]")
