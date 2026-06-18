@@ -4,11 +4,45 @@ import cv2
 import numpy as np
 import librosa
 import uuid
+import subprocess
+import tempfile
+import os
 from pathlib import Path
 from typing import List, Dict, Any, Tuple
-from backend.config import DEFAULT_MIN_DURATION, DEFAULT_MAX_DURATION, DEFAULT_MAX_MOMENTS
+from backend.config import DEFAULT_MIN_DURATION, DEFAULT_MAX_DURATION, DEFAULT_MAX_MOMENTS, DOWNLOADS_DIR
 
 logger = logging.getLogger(__name__)
+
+
+def extract_audio_with_ffmpeg(video_path: str) -> str:
+    """
+    Extract audio from video using FFmpeg to avoid PySoundFile dependency.
+    
+    Returns:
+        Path to temporary WAV file
+    """
+    temp_audio = tempfile.mktemp(suffix=".wav")
+    try:
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-i", video_path,
+                "-vn",  # No video
+                "-ar", "22050",  # Sample rate
+                "-ac", "1",  # Mono
+                "-y",  # Overwrite
+                temp_audio
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        return temp_audio
+    except Exception as e:
+        logger.error(f"FFmpeg audio extraction failed: {e}")
+        if os.path.exists(temp_audio):
+            os.unlink(temp_audio)
+        raise
 
 
 def extract_audio_features(video_path: str) -> Dict[str, np.ndarray]:
@@ -18,9 +52,13 @@ def extract_audio_features(video_path: str) -> Dict[str, np.ndarray]:
     Returns:
         Dict with 'energy' (RMS) and 'onsets' arrays with timestamps
     """
+    audio_file = None
     try:
-        # Load audio from video
-        y, sr = librosa.load(video_path, sr=22050, mono=True)
+        # Extract audio using FFmpeg first (avoids PySoundFile dependency issues on Windows)
+        audio_file = extract_audio_with_ffmpeg(video_path)
+        
+        # Load audio from extracted WAV
+        y, sr = librosa.load(audio_file, sr=22050, mono=True)
         
         # Compute RMS energy
         rms = librosa.feature.rms(y=y, frame_length=2048, hop_length=512)[0]
@@ -42,6 +80,13 @@ def extract_audio_features(video_path: str) -> Dict[str, np.ndarray]:
             'energy_times': np.array([]),
             'onsets': np.array([]),
         }
+    finally:
+        # Clean up temporary audio file
+        if audio_file and os.path.exists(audio_file):
+            try:
+                os.unlink(audio_file)
+            except:
+                pass
 
 
 def detect_scene_changes(video_path: str, sample_interval: float = 2.0) -> List[float]:
@@ -125,7 +170,8 @@ def score_audio_energy(
     # Combine mean and peak (peak is more important)
     score = 0.4 * mean_score + 0.6 * peak_score
     
-    return min(100, score * 30)  # Scale to 0-100
+    # Convert to Python float to avoid numpy serialization issues
+    return float(min(100, score * 30))  # Scale to 0-100
 
 
 def score_scene_density(scene_changes: List[float], start: float, end: float) -> float:
@@ -143,7 +189,8 @@ def score_scene_density(scene_changes: List[float], start: float, end: float) ->
     # Typical video has 2-5 scene changes per minute
     score = min(100, changes_per_minute * 15)
     
-    return score
+    # Convert to Python float to avoid numpy serialization issues
+    return float(score)
 
 
 def generate_candidate_windows(
@@ -167,7 +214,54 @@ def generate_candidate_windows(
     return windows
 
 
-async def detect_moments_from_video(
+def generate_thumbnail(video_path: str, video_id: str, moment_id: str, timestamp: float) -> str:
+    """
+    Generate a thumbnail image at the specified timestamp using FFmpeg.
+    
+    Args:
+        video_path: Path to video file
+        video_id: Video ID
+        moment_id: Moment ID
+        timestamp: Timestamp in seconds to extract frame
+        
+    Returns:
+        Relative URL path to the thumbnail
+    """
+    try:
+        # Create thumbnails directory
+        video_dir = DOWNLOADS_DIR / video_id
+        thumbnails_dir = video_dir / "thumbnails"
+        thumbnails_dir.mkdir(exist_ok=True)
+        
+        # Output path
+        thumbnail_path = thumbnails_dir / f"{moment_id}.jpg"
+        
+        # Extract frame using FFmpeg
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-ss", str(timestamp),  # Seek to timestamp
+                "-i", video_path,
+                "-vframes", "1",  # Extract 1 frame
+                "-q:v", "2",  # High quality
+                "-y",  # Overwrite
+                str(thumbnail_path)
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        
+        # Return URL path relative to /downloads mount
+        return f"/downloads/{video_id}/thumbnails/{moment_id}.jpg"
+    
+    except Exception as e:
+        logger.error(f"Thumbnail generation failed for moment {moment_id}: {e}")
+        # Return a default/placeholder path
+        return f"/api/thumbnail/{video_id}/{moment_id}"
+
+
+def detect_moments_from_video(
     video_path: str,
     video_id: str,
     video_duration: float,
@@ -238,12 +332,12 @@ async def detect_moments_from_video(
         reason = ", ".join(reason_parts) if reason_parts else "Potential moment"
         
         scored_windows.append({
-            'start': start,
-            'end': end,
-            'score': combined_score,
-            'audio_score': audio_score,
-            'scene_score': scene_score,
-            'speech_score': speech_score,
+            'start': float(start),
+            'end': float(end),
+            'score': float(combined_score),
+            'audio_score': float(audio_score),
+            'scene_score': float(scene_score),
+            'speech_score': float(speech_score),
             'reason': reason,
         })
     
@@ -263,14 +357,19 @@ async def detect_moments_from_video(
         
         if not overlaps:
             moment_id = str(uuid.uuid4())
+            
+            # Generate thumbnail at midpoint of moment
+            midpoint = (window['start'] + window['end']) / 2
+            thumbnail_url = generate_thumbnail(video_path, video_id, moment_id, midpoint)
+            
             final_moments.append({
                 'id': moment_id,
                 'video_id': video_id,
-                'start': window['start'],
-                'end': window['end'],
-                'score': round(window['score'], 2),
+                'start': float(window['start']),
+                'end': float(window['end']),
+                'score': round(float(window['score']), 2),
                 'reason': window['reason'],
-                'thumbnail_url': f"/api/thumbnail/{video_id}/{moment_id}",
+                'thumbnail_url': thumbnail_url,
                 'approved': False,
             })
         

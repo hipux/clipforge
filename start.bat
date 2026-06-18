@@ -8,6 +8,11 @@ echo.
 echo Keep both windows open while using ClipForge.
 echo.
 
+REM Optional: Force Whisper to use a specific language (uncomment to use)
+REM Useful for mixed-language videos where auto-detection is unreliable
+REM set WHISPER_LANGUAGE=ru
+REM set WHISPER_LANGUAGE=en
+
 REM Start backend in a new cmd window (from clipforge root)
 echo Starting backend...
 start "ClipForge Backend" cmd /k "cd /d %~dp0 && call venv\Scripts\activate.bat && echo Backend starting on http://localhost:8000 && uvicorn backend.main:app --host 0.0.0.0 --port 8000"

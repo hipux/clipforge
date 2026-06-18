@@ -83,7 +83,8 @@ chmod +x setup.sh start.sh
 The setup script will:
 - Install FFmpeg
 - Create Python virtual environment
-- Install all Python dependencies
+- Install all Python dependencies (including faster-whisper)
+- **Download Whisper AI model (~150MB, one-time)** — runs fully offline after this
 - Install frontend dependencies
 - Create workspace directories
 
@@ -235,12 +236,32 @@ Free tier quota: 10,000 units/day. Resets at midnight Pacific Time. If exceeded,
 - Try using a VPN if geo-restricted
 - Ensure URL format is correct
 
-### Whisper model download slow
-First run downloads ~150MB model (base). This is one-time. Use smaller model for faster startup:
+### Whisper model issues
+The Whisper model (~150MB) is downloaded **once during setup** and stored in `workspace/models/whisper-base/`. After that, it runs **100% offline** — no network calls to HuggingFace.
+
+If setup failed to download the model, it will be downloaded on first use (moment detection). To manually download:
 ```bash
-export WHISPER_MODEL=tiny  # or base, small, medium, large
+python -c "from huggingface_hub import snapshot_download; snapshot_download('Systran/faster-whisper-base', local_dir='workspace/models/whisper-base')"
+```
+
+### Mixed-language videos / Wrong language detection
+If you're working with videos that have mixed languages (e.g., Russian dubbing with English songs), Whisper may auto-detect the wrong language, leading to incorrect subtitles and moment detection.
+
+**Solution:** Force a specific language by setting the `WHISPER_LANGUAGE` environment variable.
+
+**On Windows** (in `start.bat`):
+1. Open `start.bat` in a text editor
+2. Uncomment the line: `REM set WHISPER_LANGUAGE=ru`
+3. Change to: `set WHISPER_LANGUAGE=ru` (or `en` for English)
+4. Save and run `start.bat`
+
+**On Linux/Mac** (in terminal):
+```bash
+export WHISPER_LANGUAGE=ru  # or 'en' for English
 ./start.sh
 ```
+
+This forces Whisper to transcribe in the specified language regardless of audio content.
 
 ## 📊 Performance
 

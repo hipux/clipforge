@@ -73,6 +73,11 @@ echo "📁 Creating workspace directories..."
 mkdir -p workspace/downloads
 mkdir -p workspace/output
 mkdir -p workspace/temp
+mkdir -p workspace/models
+
+echo ""
+echo "🤖 Downloading Whisper AI model (one-time, ~150MB)..."
+python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Systran/faster-whisper-base', local_dir='workspace/models/whisper-base')" && echo "✅ Whisper model downloaded successfully!" || echo "⚠️  Whisper model download failed. It will be downloaded on first use."
 
 echo ""
 echo "✅ Setup complete!"

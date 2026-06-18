@@ -4,10 +4,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
-from starlette.types import ASGIApp, Receive, Scope, Send
 from backend.db import init_db
 from backend.api import download, moments, process, publish
-from backend.api.ws_router import ws_router
 from backend.config import OUTPUT_DIR, DOWNLOADS_DIR
 
 logger = logging.getLogger(__name__)
@@ -26,28 +24,6 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down ClipForge")
 
 
-class AllowAllWebSocketMiddleware:
-    """Strip Origin header from WebSocket requests so Starlette accepts them all.
-
-    Starlette's built-in CORSMiddleware does not apply to WebSocket connections.
-    Instead, Starlette compares the ``Origin`` header against the ``Host`` header
-    during the WebSocket handshake and returns 403 if they differ.  Removing
-    the Origin header entirely bypasses that check — safe for a localhost-only
-    tool.
-    """
-
-    def __init__(self, app: ASGIApp) -> None:
-        self.app = app
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] == "websocket":
-            scope["headers"] = [
-                (k, v) for k, v in scope.get("headers", [])
-                if k.lower() != b"origin"
-            ]
-        await self.app(scope, receive, send)
-
-
 app = FastAPI(
     title="ClipForge API",
     description="Local video clip processing and publishing tool",
@@ -55,10 +31,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# WebSocket middleware — must be the OUTERMOST layer (added first)
-app.add_middleware(AllowAllWebSocketMiddleware)
-
-# HTTP CORS middleware
+# CORS middleware — allow all origins (needed for local dev + VPN scenarios)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -67,14 +40,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# REST API routes — prefix /api
+# All API routes (REST + WebSocket) are under /api prefix:
+#   REST:      POST /api/download, POST /api/moments, etc.
+#   WebSocket: ws://host:8000/api/ws/download/{id}
+#              ws://host:8000/api/ws/moments/{id}
+#              ws://host:8000/api/ws/process/{id}
 app.include_router(download.router, prefix="/api", tags=["download"])
 app.include_router(moments.router, prefix="/api", tags=["moments"])
 app.include_router(process.router, prefix="/api", tags=["process"])
 app.include_router(publish.router, prefix="/api", tags=["publish"])
-
-# WebSocket routes — NO prefix, paths are /ws/download/{id} etc.
-app.include_router(ws_router, tags=["websocket"])
 
 # Static file serving
 try:

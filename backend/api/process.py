@@ -33,7 +33,11 @@ async def start_processing(request: ProcessRequest):
             ) as cursor:
                 row = await cursor.fetchone()
                 if row:
-                    moments_data.append(dict(row))
+                    moment_dict = dict(row)
+                    # Convert database field names to API field names
+                    moment_dict['start'] = moment_dict['start_time']
+                    moment_dict['end'] = moment_dict['end_time']
+                    moments_data.append(moment_dict)
     
     if not moments_data:
         raise HTTPException(status_code=404, detail="No valid moments found")
@@ -108,9 +112,12 @@ async def run_processing(job_id: str):
         job['message'] = f"Successfully processed {len(job['clips'])} clips"
     
     except Exception as e:
-        logger.error(f"Processing error: {e}")
+        import traceback
+        error_detail = f"{str(e)}\n{traceback.format_exc()}"
+        logger.error(f"Processing error: {error_detail}")
         processing_jobs[job_id]['status'] = 'error'
         processing_jobs[job_id]['error'] = str(e)
+        processing_jobs[job_id]['message'] = f"Error: {str(e)}"
 
 
 @router.websocket("/ws/process/{job_id}")
@@ -119,6 +126,13 @@ async def processing_websocket(websocket: WebSocket, job_id: str):
     await websocket.accept()
     
     try:
+        # Wait a moment for job to be created if it's not ready yet
+        max_retries = 10
+        retry_count = 0
+        while job_id not in processing_jobs and retry_count < max_retries:
+            await asyncio.sleep(0.1)
+            retry_count += 1
+        
         while True:
             job = processing_jobs.get(job_id)
             
@@ -144,8 +158,11 @@ async def processing_websocket(websocket: WebSocket, job_id: str):
                 break
             
             elif job['status'] == 'error':
-                message['error'] = job['error']
+                message['error'] = job.get('error', 'Unknown error')
+                logger.error(f"Processing job {job_id} failed: {message['error']}")
                 await websocket.send_json(message)
+                # Wait to ensure client receives error before closing
+                await asyncio.sleep(0.5)
                 break
             
             else:
@@ -154,9 +171,17 @@ async def processing_websocket(websocket: WebSocket, job_id: str):
             await asyncio.sleep(0.3)
     
     except WebSocketDisconnect:
-        pass
+        logger.info(f"WebSocket disconnected for job {job_id}")
     except Exception as e:
-        print(f"WebSocket error: {e}")
+        logger.error(f"WebSocket error for job {job_id}: {e}")
+        try:
+            await websocket.send_json({
+                'status': 'error',
+                'error': str(e),
+                'message': f'WebSocket error: {str(e)}'
+            })
+        except:
+            pass
 
 
 @router.get("/clips", response_model=List[ProcessedClip])

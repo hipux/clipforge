@@ -50,7 +50,7 @@ export default function ProcessPage() {
       // Connect directly to backend port 8000 (bypass Vite proxy for WebSocket)
       const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
       const wsHost = window.location.hostname
-      const ws = new WebSocket(`${wsProtocol}://${wsHost}:8000/ws/process/${jobId}`)
+      const ws = new WebSocket(`${wsProtocol}://${wsHost}:8000/api/ws/process/${jobId}`)
 
       ws.onmessage = (event) => {
         const message = JSON.parse(event.data)

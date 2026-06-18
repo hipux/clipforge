@@ -31,6 +31,16 @@ cd ..
 mkdir workspace\downloads 2>nul
 mkdir workspace\output 2>nul
 mkdir workspace\temp 2>nul
+mkdir workspace\models 2>nul
+
+echo.
+echo Downloading Whisper AI model (one-time, ~150MB)...
+python -c "from huggingface_hub import snapshot_download; snapshot_download('Systran/faster-whisper-base', local_dir='workspace/models/whisper-base')"
+if %errorlevel% equ 0 (
+    echo [OK] Whisper model downloaded successfully!
+) else (
+    echo [WARNING] Whisper model download failed. It will be downloaded on first use.
+)
 
 echo.
 echo Setup complete! Run start.bat to launch ClipForge.

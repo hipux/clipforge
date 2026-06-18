@@ -20,12 +20,31 @@ detection_jobs = {}
 @router.post("/moments/detect")
 async def start_moment_detection(request: DetectMomentsRequest):
     """Start moment detection for a video."""
-    job_id = str(uuid.uuid4())
-    
     # Verify video exists
     video = await get_video(request.video_id)
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
+    
+    # Check if moments already exist
+    existing_moments = await get_moments(request.video_id)
+    if existing_moments:
+        # Convert to API format
+        moments = [
+            {
+                'id': m['id'],
+                'video_id': m['video_id'],
+                'start': m['start_time'],
+                'end': m['end_time'],
+                'score': m['score'],
+                'reason': m['reason'] or '',
+                'thumbnail_url': m['thumbnail_url'] or '',
+                'approved': bool(m['approved'])
+            }
+            for m in existing_moments
+        ]
+        return {'job_id': 'existing', 'moments': moments, 'status': 'completed'}
+    
+    job_id = str(uuid.uuid4())
     
     detection_jobs[job_id] = {
         'status': 'pending',
@@ -48,17 +67,20 @@ async def run_moment_detection(job_id: str, video: dict):
         detection_jobs[job_id]['message'] = 'Analyzing speech content...'
         
         # Step 1: Analyze speech (optional, might fail if Whisper unavailable)
-        speech_scores = await analyze_speech_content(video['file_path'])
+        # Run blocking transcription in thread pool to avoid blocking event loop
+        speech_scores = await asyncio.to_thread(analyze_speech_content, video['file_path'])
         
         detection_jobs[job_id]['progress'] = 0.4
         detection_jobs[job_id]['message'] = 'Detecting scenes and audio energy...'
         
         # Step 2: Detect moments using combined analysis
-        moments = await detect_moments_from_video(
+        # Run blocking video/audio processing in thread pool
+        moments = await asyncio.to_thread(
+            detect_moments_from_video,
             video['file_path'],
             video['id'],
             video['duration'],
-            speech_scores=speech_scores
+            speech_scores
         )
         
         detection_jobs[job_id]['progress'] = 0.8
@@ -73,7 +95,9 @@ async def run_moment_detection(job_id: str, video: dict):
         detection_jobs[job_id]['message'] = f'Found {len(moments)} interesting moments'
     
     except Exception as e:
+        import traceback
         logger.error(f"Moment detection error: {e}")
+        logger.error(traceback.format_exc())
         detection_jobs[job_id]['status'] = 'error'
         detection_jobs[job_id]['error'] = str(e)
 

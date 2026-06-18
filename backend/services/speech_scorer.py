@@ -1,9 +1,18 @@
 """Speech transcription and content scoring using faster-whisper."""
 import logging
 import re
-from typing import Dict, List, Optional
+import tempfile
+import subprocess
+from typing import Dict, List, Optional, Tuple
 from collections import Counter
-from backend.config import WHISPER_MODEL_SIZE, EMOTION_KEYWORDS
+from pathlib import Path
+from backend.config import (
+    WHISPER_MODEL_SIZE, 
+    WHISPER_MODEL_DIR, 
+    EMOTION_KEYWORDS,
+    WHISPER_LANGUAGE,
+    WHISPER_CONFIDENCE_THRESHOLD
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +35,16 @@ def get_whisper_model():
     
     if _whisper_model is None:
         try:
-            _whisper_model = WhisperModel(WHISPER_MODEL_SIZE, device="cpu", compute_type="int8")
-            logger.info(f"Loaded Whisper model: {WHISPER_MODEL_SIZE}")
+            # Use local model path if it exists, otherwise fall back to model name
+            if WHISPER_MODEL_DIR.exists():
+                model_path = str(WHISPER_MODEL_DIR)
+                logger.info(f"Loading Whisper model from local path: {model_path}")
+            else:
+                model_path = WHISPER_MODEL_SIZE
+                logger.warning(f"Local Whisper model not found. Downloading '{WHISPER_MODEL_SIZE}' from HuggingFace...")
+            
+            _whisper_model = WhisperModel(model_path, device="cpu", compute_type="int8")
+            logger.info(f"Loaded Whisper model successfully")
         except Exception as e:
             logger.error(f"Failed to load Whisper model: {e}")
             return None
@@ -35,9 +52,131 @@ def get_whisper_model():
     return _whisper_model
 
 
+def extract_audio_segment(video_path: str, start_sec: float, duration_sec: float, output_path: str) -> bool:
+    """
+    Extract a specific audio segment from a video using FFmpeg.
+    
+    Args:
+        video_path: Path to source video
+        start_sec: Start time in seconds
+        duration_sec: Duration to extract in seconds
+        output_path: Where to save the extracted audio
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        cmd = [
+            'ffmpeg',
+            '-y',  # Overwrite output
+            '-ss', str(start_sec),
+            '-i', video_path,
+            '-t', str(duration_sec),
+            '-vn',  # No video
+            '-acodec', 'pcm_s16le',  # WAV format for Whisper
+            '-ar', '16000',  # 16kHz sample rate
+            '-ac', '1',  # Mono
+            output_path
+        ]
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        return True
+    except subprocess.CalledProcessError as e:
+        logger.error(f"FFmpeg audio extraction failed: {e.stderr}")
+        return False
+
+
+def detect_language_from_sample(model, video_path: str, start_sec: float = 0, duration_sec: float = 60) -> Tuple[str, float]:
+    """
+    Detect language from a specific segment of the video.
+    
+    Args:
+        model: Whisper model instance
+        video_path: Path to video file
+        start_sec: Start time in seconds
+        duration_sec: Duration to sample in seconds
+        
+    Returns:
+        Tuple of (language_code, confidence)
+    """
+    # Extract audio sample to temp file
+    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
+        tmp_path = tmp.name
+    
+    try:
+        if not extract_audio_segment(video_path, start_sec, duration_sec, tmp_path):
+            logger.warning(f"Failed to extract audio sample from {start_sec}s")
+            return ('ru', 0.0)  # Default fallback
+        
+        # Detect language from the sample
+        segments, info = model.transcribe(tmp_path, beam_size=5)
+        
+        # Consume first segment to trigger language detection
+        _ = next(segments, None)
+        
+        return (info.language, info.language_probability)
+    
+    except Exception as e:
+        logger.error(f"Language detection failed: {e}")
+        return ('ru', 0.0)
+    
+    finally:
+        # Clean up temp file
+        try:
+            Path(tmp_path).unlink(missing_ok=True)
+        except:
+            pass
+
+
+def smart_language_detection(model, video_path: str) -> Tuple[str, float]:
+    """
+    Smart multi-sample language detection with fallback logic.
+    
+    Samples multiple segments of the video to improve confidence.
+    Defaults to 'ru' if confidence is consistently low.
+    
+    Returns:
+        Tuple of (language_code, confidence)
+    """
+    # If WHISPER_LANGUAGE is set, use that and skip detection
+    if WHISPER_LANGUAGE:
+        logger.info(f"Using forced language from config: {WHISPER_LANGUAGE}")
+        return (WHISPER_LANGUAGE, 1.0)
+    
+    # Try first 60 seconds
+    logger.info("Detecting language from first 60 seconds...")
+    lang1, conf1 = detect_language_from_sample(model, video_path, start_sec=0, duration_sec=60)
+    logger.info(f"First sample: language={lang1}, confidence={conf1:.2f}")
+    
+    # If high confidence, we're done
+    if conf1 >= WHISPER_CONFIDENCE_THRESHOLD:
+        return (lang1, conf1)
+    
+    # Low confidence — try middle segment (5 minutes in)
+    logger.warning(f"Low confidence ({conf1:.2f} < {WHISPER_CONFIDENCE_THRESHOLD}). Sampling middle segment...")
+    lang2, conf2 = detect_language_from_sample(model, video_path, start_sec=300, duration_sec=60)
+    logger.info(f"Middle sample: language={lang2}, confidence={conf2:.2f}")
+    
+    # Use the higher-confidence result
+    if conf2 > conf1:
+        best_lang, best_conf = lang2, conf2
+    else:
+        best_lang, best_conf = lang1, conf1
+    
+    # If still low confidence, default to Russian (user is Russian)
+    if best_conf < WHISPER_CONFIDENCE_THRESHOLD:
+        logger.warning(
+            f"Language detection uncertain (best confidence: {best_conf:.2f}). "
+            f"Detected as '{best_lang}' but defaulting to 'ru' for reliability. "
+            f"Set WHISPER_LANGUAGE env var to force a specific language."
+        )
+        return ('ru', best_conf)
+    
+    return (best_lang, best_conf)
+
+
 def transcribe_video(video_path: str) -> Optional[List[Dict]]:
     """
-    Transcribe video audio using faster-whisper.
+    Transcribe video audio using faster-whisper with smart language detection.
     
     Returns:
         List of segments with text, start, and end times, or None if unavailable
@@ -47,7 +186,16 @@ def transcribe_video(video_path: str) -> Optional[List[Dict]]:
         return None
     
     try:
-        segments, info = model.transcribe(video_path, beam_size=5)
+        # Smart language detection
+        detected_lang, confidence = smart_language_detection(model, video_path)
+        logger.info(f"Using language: {detected_lang} (confidence: {confidence:.2f})")
+        
+        # Transcribe with detected/forced language
+        segments, info = model.transcribe(
+            video_path, 
+            beam_size=5,
+            language=detected_lang  # Force the detected/configured language
+        )
         
         result = []
         for segment in segments:
@@ -58,7 +206,7 @@ def transcribe_video(video_path: str) -> Optional[List[Dict]]:
                 'words': getattr(segment, 'words', []),
             })
         
-        logger.info(f"Transcribed {len(result)} segments. Language: {info.language}")
+        logger.info(f"Transcribed {len(result)} segments. Language: {detected_lang} (confidence: {confidence:.2f})")
         return result
     
     except Exception as e:
@@ -170,7 +318,7 @@ def generate_speech_scores(segments: List[Dict]) -> Dict[float, float]:
     return scores
 
 
-async def analyze_speech_content(video_path: str) -> Optional[Dict[float, float]]:
+def analyze_speech_content(video_path: str) -> Optional[Dict[float, float]]:
     """
     Analyze speech content and generate scores for moment detection.
     
@@ -183,12 +331,12 @@ async def analyze_speech_content(video_path: str) -> Optional[Dict[float, float]
     segments = transcribe_video(video_path)
     
     if segments is None or len(segments) == 0:
-        print("No transcription available, skipping speech scoring")
+        logger.info("No transcription available, skipping speech scoring")
         return None
     
     scores = generate_speech_scores(segments)
     
-    print(f"Generated speech scores for {len(scores)} segments")
+    logger.info(f"Generated speech scores for {len(scores)} segments")
     return scores
 
 

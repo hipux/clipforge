@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import { useAppStore } from '../store/useAppStore'
@@ -30,20 +30,23 @@ export default function MomentsPage() {
   const [progress, setProgress] = useState(0)
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
+  const detectingRef = useRef(false)
 
   useEffect(() => {
     if (!currentVideo) {
       navigate('/download')
       return
     }
-    if (moments.length === 0) {
+    // Only auto-start if no moments exist and not already detecting
+    if (moments.length === 0 && !detectingRef.current) {
       startDetection()
     }
-  }, [])
+  }, [currentVideo])
 
   const startDetection = async () => {
-    if (!currentVideo) return
+    if (!currentVideo || detectingRef.current) return
 
+    detectingRef.current = true
     setDetecting(true)
     setError('')
     setProgress(0)
@@ -53,12 +56,22 @@ export default function MomentsPage() {
       const { data } = await axios.post('/api/moments/detect', {
         video_id: currentVideo.id,
       })
+      
+      // Check if moments already exist
+      if (data.status === 'completed' && data.moments) {
+        setMoments(data.moments)
+        setSelectedMoments(data.moments.map((m: any) => m.id))
+        setDetecting(false)
+        detectingRef.current = false
+        return
+      }
+      
       const jobId = data.job_id
 
       // Connect directly to backend port 8000 (bypass Vite proxy for WebSocket)
       const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
       const wsHost = window.location.hostname
-      const ws = new WebSocket(`${wsProtocol}://${wsHost}:8000/ws/moments/${jobId}`)
+      const ws = new WebSocket(`${wsProtocol}://${wsHost}:8000/api/ws/moments/${jobId}`)
 
       ws.onmessage = (event) => {
         const message = JSON.parse(event.data)
@@ -73,20 +86,24 @@ export default function MomentsPage() {
           setSelectedMoments(message.moments.map((m: any) => m.id))
           ws.close()
           setDetecting(false)
+          detectingRef.current = false
         } else if (message.status === 'error') {
-          setError(message.message)
+          setError(message.error || message.message || 'Detection failed')
           ws.close()
           setDetecting(false)
+          detectingRef.current = false
         }
       }
 
       ws.onerror = () => {
         setError('Connection error. Make sure the backend is running.')
         setDetecting(false)
+        detectingRef.current = false
       }
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to start detection')
       setDetecting(false)
+      detectingRef.current = false
     }
   }
 
@@ -117,46 +134,53 @@ export default function MomentsPage() {
         </p>
       </div>
 
-      {/* Detecting progress */}
-      {detecting && (
-        <div className="card mb-6">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="w-4 h-4 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
-            <span className="text-sm font-medium text-slate-300">Analyzing video…</span>
+      {/* Error */}
+      {error && (
+        <div className="card border-red-900/50 bg-red-950/30 mb-6">
+          <div className="flex items-start gap-3">
+            <AlertTriangle size={18} className="text-red-500 mt-0.5 flex-shrink-0" />
+            <div>
+              <h3 className="font-semibold text-red-300 mb-1">Detection failed</h3>
+              <p className="text-sm text-red-400">{error}</p>
+              <button
+                onClick={startDetection}
+                className="btn btn-secondary mt-3"
+              >
+                <RefreshCw size={15} />
+                Try Again
+              </button>
+            </div>
           </div>
-          <ProgressBar progress={progress} message={status} />
         </div>
       )}
 
-      {/* Error */}
-      {error && (
-        <div className="card border-danger/30 bg-danger/5 mb-6">
-          <div className="flex items-start gap-3 text-danger">
-            <AlertTriangle size={18} className="shrink-0 mt-0.5" />
-            <div>
-              <div className="font-medium text-sm">Detection failed</div>
-              <div className="text-xs text-danger/80 mt-0.5">{error}</div>
-            </div>
+      {/* Detecting */}
+      {detecting && (
+        <div className="card mb-6">
+          <div className="flex items-center gap-3 mb-3">
+            <Search size={18} className="text-accent animate-pulse" />
+            <span className="font-semibold text-slate-300">{status}</span>
           </div>
-          <button
-            onClick={startDetection}
-            className="btn btn-secondary mt-3 text-sm"
-          >
-            <RefreshCw size={14} />
-            Retry
-          </button>
+          <ProgressBar progress={progress} />
+          <p className="text-xs text-slate-500 mt-2">
+            This may take a few minutes depending on video length…
+          </p>
         </div>
       )}
 
       {/* Moments list */}
-      {moments.length > 0 && (
+      {!detecting && moments.length > 0 && (
         <>
-          <div className="flex justify-between items-center mb-4">
+          <div className="flex items-center justify-between mb-4">
             <button
               onClick={toggleAll}
-              className="btn btn-secondary text-sm"
+              className="flex items-center gap-2 text-sm text-slate-400 hover:text-accent transition-colors"
             >
-              {allSelected ? <Square size={14} /> : <CheckSquare size={14} />}
+              {allSelected ? (
+                <CheckSquare size={16} className="text-accent" />
+              ) : (
+                <Square size={16} />
+              )}
               {allSelected ? 'Deselect All' : 'Select All'}
             </button>
             <span className="text-xs text-slate-500">

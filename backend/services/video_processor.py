@@ -77,7 +77,11 @@ async def process_clip(
         Path to processed clip, or None on failure
     """
     clip_id = str(uuid.uuid4())
+    
+    # Ensure output directory exists
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     output_path = OUTPUT_DIR / f"{clip_id}.mp4"
+    
     temp_dir = TEMP_DIR / clip_id
     temp_dir.mkdir(parents=True, exist_ok=True)
     
@@ -210,8 +214,9 @@ async def process_moment_clip(
     if progress_callback:
         progress_callback(0.0, "Extracting clip segment...")
     
+    # Ensure temp directory exists
+    TEMP_DIR.mkdir(parents=True, exist_ok=True)
     temp_clip = TEMP_DIR / f"{moment_id}_raw.mp4"
-    temp_clip.parent.mkdir(parents=True, exist_ok=True)
     
     success = await extract_clip_segment(source_video_path, start, end, str(temp_clip))
     

@@ -7,14 +7,18 @@ WORKSPACE_DIR = BASE_DIR / "workspace"
 DOWNLOADS_DIR = WORKSPACE_DIR / "downloads"
 OUTPUT_DIR = WORKSPACE_DIR / "output"
 TEMP_DIR = WORKSPACE_DIR / "temp"
+MODELS_DIR = WORKSPACE_DIR / "models"
+WHISPER_MODEL_DIR = MODELS_DIR / "whisper-base"
 DB_PATH = WORKSPACE_DIR / "clipforge.db"
 
 # Create workspace directories on import
-for directory in [DOWNLOADS_DIR, OUTPUT_DIR, TEMP_DIR]:
+for directory in [DOWNLOADS_DIR, OUTPUT_DIR, TEMP_DIR, MODELS_DIR]:
     directory.mkdir(parents=True, exist_ok=True)
 
 # Whisper model configuration
 WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL", "base")  # base = ~150MB, free
+WHISPER_LANGUAGE = os.getenv("WHISPER_LANGUAGE", None)  # Force language (e.g., 'ru', 'en'), None = auto-detect
+WHISPER_CONFIDENCE_THRESHOLD = 0.65  # Re-sample if detected language confidence < this value
 
 # YouTube API configuration
 YOUTUBE_CLIENT_SECRETS_FILE = BASE_DIR / "client_secrets.json"
