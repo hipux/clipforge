@@ -5,8 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from backend.db import init_db
-from backend.api import download, moments, process, publish
-from backend.config import OUTPUT_DIR, DOWNLOADS_DIR
+from backend.api import download, moments, process, publish, session, upload
+from backend.config import OUTPUT_DIR, DOWNLOADS_DIR, BANNERS_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -49,11 +49,14 @@ app.include_router(download.router, prefix="/api", tags=["download"])
 app.include_router(moments.router, prefix="/api", tags=["moments"])
 app.include_router(process.router, prefix="/api", tags=["process"])
 app.include_router(publish.router, prefix="/api", tags=["publish"])
+app.include_router(session.router, prefix="/api", tags=["session"])
+app.include_router(upload.router, prefix="/api", tags=["upload"])
 
 # Static file serving
 try:
     app.mount("/files", StaticFiles(directory=str(OUTPUT_DIR)), name="output_files")
     app.mount("/downloads", StaticFiles(directory=str(DOWNLOADS_DIR)), name="downloads")
+    app.mount("/files/banners", StaticFiles(directory=str(BANNERS_DIR)), name="banners")
 except RuntimeError:
     pass
 

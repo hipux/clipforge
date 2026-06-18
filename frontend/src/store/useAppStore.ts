@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 
 export interface VideoInfo {
   id: string
@@ -25,6 +26,15 @@ export interface EffectSettings {
   blur_background: boolean
   mirror: boolean
   color_correction: boolean
+  subtitle_style?: string
+  banner?: {
+    enabled: boolean
+    banner_id?: string
+    url?: string
+    position: string
+    size: number
+    opacity: number
+  }
 }
 
 export interface ProcessedClip {
@@ -62,7 +72,7 @@ interface AppState {
   setCurrentStep: (step: number) => void
 }
 
-export const useAppStore = create<AppState>((set) => ({
+export const useAppStore = create<AppState>()(persist((set) => ({
   // Initial state
   currentVideo: null,
   moments: [],
@@ -72,6 +82,13 @@ export const useAppStore = create<AppState>((set) => ({
     blur_background: true,
     mirror: false,
     color_correction: true,
+    subtitle_style: 'karaoke',
+    banner: {
+      enabled: false,
+      position: 'top-right',
+      size: 20,
+      opacity: 80,
+    },
   },
   processedClips: [],
   currentStep: 1,
@@ -99,4 +116,14 @@ export const useAppStore = create<AppState>((set) => ({
   setClips: (clips) => set({ processedClips: clips }),
   
   setCurrentStep: (step) => set({ currentStep: step }),
+}), {
+  name: 'clipforge-session',
+  partialize: (state) => ({
+    currentVideo: state.currentVideo,
+    moments: state.moments,
+    selectedMomentIds: state.selectedMomentIds,
+    globalEffects: state.globalEffects,
+    processedClips: state.processedClips,
+    currentStep: state.currentStep,
+  }),
 }))

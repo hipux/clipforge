@@ -8,11 +8,12 @@ DOWNLOADS_DIR = WORKSPACE_DIR / "downloads"
 OUTPUT_DIR = WORKSPACE_DIR / "output"
 TEMP_DIR = WORKSPACE_DIR / "temp"
 MODELS_DIR = WORKSPACE_DIR / "models"
+BANNERS_DIR = WORKSPACE_DIR / "banners"
 WHISPER_MODEL_DIR = MODELS_DIR / "whisper-base"
 DB_PATH = WORKSPACE_DIR / "clipforge.db"
 
 # Create workspace directories on import
-for directory in [DOWNLOADS_DIR, OUTPUT_DIR, TEMP_DIR, MODELS_DIR]:
+for directory in [DOWNLOADS_DIR, OUTPUT_DIR, TEMP_DIR, MODELS_DIR, BANNERS_DIR]:
     directory.mkdir(parents=True, exist_ok=True)
 
 # Whisper model configuration

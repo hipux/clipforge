@@ -187,3 +187,123 @@ export function withProcessingState(steps?: ProcessingStep[]): Decorator {
   }
   return Wrapper
 }
+
+export interface DownloadProgress {
+  percent: number
+  speed: string
+  eta: string
+  downloaded_bytes: number
+  total_bytes: number
+  fragment_index: number | null
+  fragment_count: number | null
+}
+
+/**
+ * Drives DownloadPage into its live "downloading" state without a backend.
+ *
+ * It mocks axios.post('/api/download') to return a job id, then replaces the
+ * global WebSocket with a fake that replays a scripted sequence of
+ * `{ status: 'downloading', progress: {...} }` messages. The final message
+ * leaves the page populated with rich progress stats — speed (cyan), ETA,
+ * downloaded / total size, and an HLS fragment counter (orange) — and the
+ * script stops mid-stream (no `completed`) so the progress card stays on
+ * screen for the screenshot. The decorator auto-fills the URL field and
+ * clicks "Download" so the loading UI appears without a play function.
+ */
+export function withDownloadingState(steps?: DownloadProgress[]): Decorator {
+  const script: DownloadProgress[] = steps ?? [
+    {
+      percent: 18,
+      speed: '2.41 MiB/s',
+      eta: '01:12',
+      downloaded_bytes: 18 * 1024 * 1024,
+      total_bytes: 104 * 1024 * 1024,
+      fragment_index: 24,
+      fragment_count: 142,
+    },
+    {
+      percent: 47,
+      speed: '4.08 MiB/s',
+      eta: '00:38',
+      downloaded_bytes: 49 * 1024 * 1024,
+      total_bytes: 104 * 1024 * 1024,
+      fragment_index: 67,
+      fragment_count: 142,
+    },
+    // Final message — stays on screen with all four stat cells populated.
+    {
+      percent: 63,
+      speed: '3.72 MiB/s',
+      eta: '00:24',
+      downloaded_bytes: 66 * 1024 * 1024,
+      total_bytes: 104 * 1024 * 1024,
+      fragment_index: 89,
+      fragment_count: 142,
+    },
+  ]
+
+  const Wrapper: Decorator = (Story) => {
+    useState(() => {
+      // 1) Mock the POST that kicks off the download.
+      const realPost = axios.post.bind(axios)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(axios as any).post = (url: string, ...rest: any[]) => {
+        if (typeof url === 'string' && url.includes('/api/download')) {
+          return Promise.resolve({ data: { job_id: 'mock-download-job' } })
+        }
+        return realPost(url, ...rest)
+      }
+
+      // 2) Replace WebSocket with a scripted fake that emits progress messages.
+      class MockWebSocket {
+        onmessage: ((ev: { data: string }) => void) | null = null
+        onerror: (() => void) | null = null
+        onopen: (() => void) | null = null
+        onclose: (() => void) | null = null
+        constructor() {
+          let i = 0
+          const tick = () => {
+            if (i >= script.length) return
+            this.onmessage?.({
+              data: JSON.stringify({ status: 'downloading', progress: script[i] }),
+            })
+            i += 1
+            setTimeout(tick, 600)
+          }
+          setTimeout(tick, 150)
+        }
+        send() {}
+        close() {}
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(window as any).WebSocket = MockWebSocket as any
+      return null
+    })
+
+    // Auto-fill the URL input and click "Download" once mounted so the
+    // downloading UI (and the rich stats grid) is visible without a play fn.
+    React.useEffect(() => {
+      const id = setInterval(() => {
+        const input = document.querySelector<HTMLInputElement>('input[type="text"]')
+        const btn = Array.from(document.querySelectorAll('button')).find((b) =>
+          /^\s*download\s*$/i.test(b.textContent || ''),
+        )
+        if (input && btn) {
+          const setter = Object.getOwnPropertyDescriptor(
+            window.HTMLInputElement.prototype,
+            'value',
+          )?.set
+          setter?.call(input, 'https://youtube.com/watch?v=dQw4w9WgXcQ')
+          input.dispatchEvent(new Event('input', { bubbles: true }))
+          // Let React flush the controlled value before clicking.
+          setTimeout(() => (btn as HTMLButtonElement).click(), 50)
+          clearInterval(id)
+        }
+      }, 100)
+      return () => clearInterval(id)
+    }, [])
+
+    return <Story />
+  }
+  return Wrapper
+}

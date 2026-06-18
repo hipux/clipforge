@@ -5,7 +5,7 @@ import uuid
 import asyncio
 from pathlib import Path
 from typing import Optional, Callable, Dict, Any
-from backend.config import OUTPUT_DIR, TEMP_DIR
+from backend.config import OUTPUT_DIR, TEMP_DIR, BANNERS_DIR
 from backend.models import EffectSettings
 from backend.services.speech_scorer import generate_subtitles_file
 
@@ -87,6 +87,7 @@ async def process_clip(
     
     # Build FFmpeg filter chain
     filters = []
+    input_count = 1  # Track how many inputs we have (video + optional banner)
     
     # 1. Blur background (9:16 vertical format)
     if effects.blur_background:
@@ -128,18 +129,56 @@ async def process_clip(
             progress_callback(0.2, "Generating subtitles...")
         
         subtitle_file = temp_dir / "subtitles.ass"
-        success = generate_subtitles_file(input_path, str(subtitle_file))
+        subtitle_style = effects.subtitle_style or "karaoke"
+        success = generate_subtitles_file(input_path, str(subtitle_file), style=subtitle_style)
         
         if success:
             # Escape path for FFmpeg filter (ASS filter uses forward slashes, escape drive colon on Windows)
             subtitle_path_str = str(subtitle_file).replace('\\', '/').replace(':', '\\:')
             # Use 'ass=' filter for ASS files - all styling is baked into the .ass file
-            filters.append(f"[v3]ass='{subtitle_path_str}'[vout]")
+            filters.append(f"[v3]ass='{subtitle_path_str}'[v4]")
         else:
             print("Subtitle generation failed, skipping subtitles")
-            filters.append("[v3]null[vout]")
+            filters.append("[v3]null[v4]")
     else:
-        filters.append("[v3]null[vout]")
+        filters.append("[v3]null[v4]")
+    
+    # 5. Banner overlay (if enabled)
+    banner_input = None
+    if effects.banner and effects.banner.enabled and effects.banner.banner_id:
+        if progress_callback:
+            progress_callback(0.8, "Adding banner overlay...")
+        
+        # Find banner file
+        banner_files = list(BANNERS_DIR.glob(f"{effects.banner.banner_id}.*"))
+        if banner_files:
+            banner_input = str(banner_files[0])
+            input_count = 2
+            
+            # Calculate overlay position based on user selection
+            position_map = {
+                "top-left": "20:20",
+                "top-center": "(W-w)/2:20",
+                "top-right": "W-w-20:20",
+                "bottom-left": "20:H-h-20",
+                "bottom-center": "(W-w)/2:H-h-20",
+                "bottom-right": "W-w-20:H-h-20",
+            }
+            position = position_map.get(effects.banner.position, "W-w-20:20")
+            
+            # Scale banner to percentage of video width, set opacity
+            size_pct = effects.banner.size / 100.0
+            opacity = effects.banner.opacity / 100.0
+            
+            filters.append(
+                f"[1:v]scale=iw*{size_pct}:-1,format=rgba,colorchannelmixer=aa={opacity}[banner];"
+                f"[v4][banner]overlay={position}[vout]"
+            )
+        else:
+            # Banner file not found, skip
+            filters.append("[v4]null[vout]")
+    else:
+        filters.append("[v4]null[vout]")
     
     # Combine all filters
     filter_complex = ";".join(filters)
@@ -152,6 +191,13 @@ async def process_clip(
         'ffmpeg',
         '-y',
         '-i', input_path,
+    ]
+    
+    # Add banner input if needed
+    if banner_input:
+        cmd.extend(['-i', banner_input])
+    
+    cmd.extend([
         '-filter_complex', filter_complex,
         '-map', '[vout]',
         '-map', '0:a',  # Copy audio
@@ -162,7 +208,7 @@ async def process_clip(
         '-b:a', '128k',
         '-movflags', '+faststart',
         str(output_path)
-    ]
+    ])
     
     try:
         process = await asyncio.create_subprocess_exec(

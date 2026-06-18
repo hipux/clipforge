@@ -190,3 +190,40 @@ async def save_publish_log(log_data: Dict[str, Any]) -> None:
             (log_data["clip_id"], log_data["platform"], log_data.get("youtube_url"))
         )
         await db.commit()
+
+
+async def get_latest_video() -> Optional[Dict[str, Any]]:
+    """Get the most recently downloaded video."""
+    async with get_db() as db:
+        async with db.execute(
+            "SELECT * FROM videos ORDER BY created_at DESC LIMIT 1"
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+
+async def get_moments_by_video(video_id: str) -> List[Dict[str, Any]]:
+    """Get all moments for a specific video."""
+    async with get_db() as db:
+        async with db.execute(
+            "SELECT * FROM moments WHERE video_id = ? ORDER BY start_time",
+            (video_id,)
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+
+
+async def get_clips_by_video(video_id: str) -> List[Dict[str, Any]]:
+    """Get all clips associated with a video's moments."""
+    async with get_db() as db:
+        async with db.execute(
+            """
+            SELECT c.* FROM clips c
+            JOIN moments m ON c.moment_id = m.id
+            WHERE m.video_id = ?
+            ORDER BY c.created_at DESC
+            """,
+            (video_id,)
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]

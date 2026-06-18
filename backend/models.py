@@ -46,11 +46,22 @@ class UpdateMomentRequest(BaseModel):
 
 
 # Processing models
+class BannerSettings(BaseModel):
+    enabled: bool = False
+    banner_id: Optional[str] = None
+    url: Optional[str] = None
+    position: str = "top-right"  # top-left, top-right, bottom-left, bottom-right, top-center, bottom-center
+    size: int = 20  # percentage of video width
+    opacity: int = 80  # 0-100
+
+
 class EffectSettings(BaseModel):
     subtitles: bool = False
     blur_background: bool = False
     mirror: bool = False
     color_correction: bool = False
+    subtitle_style: str = "karaoke"  # classic, karaoke, box, outlined, minimal
+    banner: Optional[BannerSettings] = None
 
 
 class ProcessRequest(BaseModel):

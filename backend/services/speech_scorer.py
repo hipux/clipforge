@@ -341,15 +341,36 @@ def analyze_speech_content(video_path: str) -> Optional[Dict[float, float]]:
     return scores
 
 
-def generate_subtitles_file(video_path: str, output_path: str) -> bool:
+def get_subtitle_style_definition(style_name: str) -> str:
+    """
+    Return ASS style definition for the given style name.
+    
+    Styles:
+    - classic: White text, black outline, centered bottom. Clean and readable.
+    - karaoke: Current word highlighted yellow, rest white. Bold. TikTok style.
+    - box: Text inside a semi-transparent dark rectangle background. Modern.
+    - outlined: Large white text with thick colored outline (cyan). Bold, punchy.
+    - minimal: Small, light gray text, no outline, subtle. Clean aesthetic.
+    """
+    styles = {
+        "classic": "Style: Default,Arial,72,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,3,1,2,60,60,320,1",
+        "karaoke": "Style: Default,Arial,72,&H00FFFFFF,&H0000D7FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,2,1,2,60,60,320,1",
+        "box": "Style: Default,Arial,68,&H00FFFFFF,&H00FFFFFF,&H00000000,&H99000000,0,0,0,0,100,100,0,0,4,1,0,2,60,60,320,1",
+        "outlined": "Style: Default,Arial,80,&H00FFFFFF,&H00FFFFFF,&H00D4B606,&H00000000,1,0,0,0,100,100,0,0,1,5,0,2,60,60,320,1",
+        "minimal": "Style: Default,Arial,54,&H99FFFFFF,&H99FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,2,60,60,380,1",
+    }
+    return styles.get(style_name, styles["karaoke"])  # Default to karaoke if unknown
+
+
+def generate_subtitles_file(video_path: str, output_path: str, style: str = "karaoke") -> bool:
     """
     Generate ASS subtitle file optimized for 1080x1920 vertical video (TikTok/Shorts format).
-    Uses karaoke-style word highlighting: current word turns yellow, rest stays white.
     Max 1-2 words per subtitle line for optimal readability.
     
     Args:
         video_path: Path to video file
         output_path: Path to save .ass file
+        style: Subtitle style name (classic, karaoke, box, outlined, minimal)
         
     Returns:
         True if successful, False otherwise
@@ -374,13 +395,9 @@ def generate_subtitles_file(video_path: str, output_path: str) -> bool:
             # Style definition for 9:16 vertical format
             f.write("[V4+ Styles]\n")
             f.write("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
-            # PrimaryColour: white (&H00FFFFFF)
-            # SecondaryColour: yellow for karaoke highlight (&H0000FFFF in BGR format)
-            # BorderStyle: 1 (outline + shadow, NOT opaque box)
-            # Alignment: 2 (bottom center)
-            # MarginV: 320 (distance from bottom — subtitles just below main video area, raised above bottom)
-            # Font size: 88px for good readability on 1080x1920 vertical
-            f.write("Style: Default,Arial,88,&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,4,2,2,60,60,320,1\n\n")
+            # Use selected style
+            style_def = get_subtitle_style_definition(style)
+            f.write(f"{style_def}\n\n")
             
             f.write("[Events]\n")
             f.write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
@@ -419,15 +436,18 @@ def generate_subtitles_file(video_path: str, output_path: str) -> bool:
                         chunk_start = chunk_words[0].start
                         chunk_end = chunk_words[-1].end
                         
-                        # Build karaoke text with \kf tags (fill-mode karaoke for smooth highlighting)
-                        karaoke_parts = []
-                        for word in chunk_words:
-                            word_text = word.word.strip().upper()
-                            # Calculate duration in centiseconds (10ms units)
-                            word_duration_cs = int((word.end - word.start) * 100)
-                            karaoke_parts.append(f"{{\\kf{word_duration_cs}}}{word_text}")
-                        
-                        karaoke_text = ' '.join(karaoke_parts)
+                        # Build karaoke text with \kf tags only if using karaoke style
+                        if style == "karaoke":
+                            karaoke_parts = []
+                            for word in chunk_words:
+                                word_text = word.word.strip().upper()
+                                # Calculate duration in centiseconds (10ms units)
+                                word_duration_cs = int((word.end - word.start) * 100)
+                                karaoke_parts.append(f"{{\\kf{word_duration_cs}}}{word_text}")
+                            karaoke_text = ' '.join(karaoke_parts)
+                        else:
+                            # For other styles, just uppercase text without karaoke tags
+                            karaoke_text = ' '.join([word.word.strip().upper() for word in chunk_words])
                         
                         # Write dialogue line
                         f.write(f"Dialogue: 0,{format_ass_time(chunk_start)},{format_ass_time(chunk_end)},Default,,0,0,0,,{karaoke_text}\n")

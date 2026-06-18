@@ -1,9 +1,10 @@
 import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '../store/useAppStore'
 import EffectToggle from '../components/EffectToggle'
+import BannerUpload from '../components/BannerUpload'
+import SubtitleStylePicker from '../components/SubtitleStylePicker'
 import {
   Sliders,
-  Captions,
   Layers,
   FlipHorizontal,
   Palette,
@@ -13,12 +14,6 @@ import {
 } from 'lucide-react'
 
 const effectConfig = [
-  {
-    key: 'subtitles' as const,
-    icon: <Captions size={18} />,
-    label: 'Auto Subtitles',
-    description: 'AI-generated subtitles burned into video via faster-whisper',
-  },
   {
     key: 'blur_background' as const,
     icon: <Layers size={18} />,
@@ -68,10 +63,15 @@ export default function EffectsPage() {
         </p>
       </div>
 
+      {/* Subtitle style picker */}
+      <div className="mb-5">
+        <SubtitleStylePicker />
+      </div>
+
       {/* Effects list */}
       <div className="card mb-5">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="font-semibold text-slate-200">Effects</h2>
+          <h2 className="font-semibold text-slate-200">Video Effects</h2>
           <span className="badge-accent text-xs">
             {enabledCount} active
           </span>
@@ -92,8 +92,11 @@ export default function EffectsPage() {
         </div>
       </div>
 
+      {/* Banner upload section */}
+      <BannerUpload />
+
       {/* Info box */}
-      <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-accent/6 border border-accent/20 mb-6 text-sm">
+      <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-accent/6 border border-accent/20 mb-6 text-sm mt-5">
         <Info size={15} className="text-accent shrink-0 mt-0.5" />
         <div>
           <div className="font-medium text-slate-200 mb-1">Processing Info</div>

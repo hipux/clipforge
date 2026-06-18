@@ -1,5 +1,6 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useAppStore } from '../store/useAppStore'
+import SessionResume from './SessionResume'
 import {
   Download,
   Scissors,
@@ -119,6 +120,7 @@ export default function Layout() {
 
       {/* Main Content */}
       <main className="flex-1 overflow-auto bg-background">
+        <SessionResume />
         <Outlet />
       </main>
     </div>
