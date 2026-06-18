@@ -85,6 +85,9 @@ async def run_processing(job_id: str):
             job['current_clip'] = idx + 1
             job['current_moment_id'] = moment['id']
             job['message'] = f"Processing clip {idx + 1} of {len(moments)}"
+            # Reset clip progress to 0 when starting a new clip
+            job['clip_progress'] = 0.0
+            job['clip_message'] = 'Starting...'
             
             def progress_callback(progress: float, message: str):
                 job['clip_progress'] = progress

@@ -93,10 +93,13 @@ async def process_clip(
         if progress_callback:
             progress_callback(0.1, "Applying blur background...")
         
-        # Create blurred background and overlay original
+        # Create dynamic blurred background:
+        # - bg layer: scale up and blur heavily to fill 1080x1920
+        # - fg layer: scale original to fit within 1080 width, maintaining aspect ratio
+        # - overlay fg centered on bg
         filters.append(
-            "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:20[bg];"
-            "[0:v]scale=-1:1920[fg];"
+            "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=30[bg];"
+            "[0:v]scale=1080:-2[fg];"
             "[bg][fg]overlay=(W-w)/2:(H-h)/2[v1]"
         )
     else:
@@ -124,16 +127,18 @@ async def process_clip(
         if progress_callback:
             progress_callback(0.2, "Generating subtitles...")
         
-        subtitle_file = temp_dir / "subtitles.srt"
+        subtitle_file = temp_dir / "subtitles.ass"
         success = generate_subtitles_file(input_path, str(subtitle_file))
         
         if success:
             # Escape path for FFmpeg filter
             subtitle_path_escaped = str(subtitle_file).replace('\\', '\\\\').replace(':', '\\:')
+            # Modern Shorts/TikTok style: large bold white text, black outline, shadow
+            # FontSize=72, Alignment=2 (bottom center), y position offset to bottom area
             filters.append(
                 f"[v3]subtitles='{subtitle_path_escaped}':"
-                f"force_style='FontName=Arial,FontSize=24,PrimaryColour=&Hffffff,"
-                f"OutlineColour=&H000000,Outline=2,Bold=1,Alignment=2'[vout]"
+                f"force_style='FontName=Arial,FontSize=72,PrimaryColour=&HFFFFFF,"
+                f"OutlineColour=&H000000,Outline=4,Shadow=2,Bold=-1,Alignment=2,MarginV=120'[vout]"
             )
         else:
             print("Subtitle generation failed, skipping subtitles")
@@ -244,10 +249,12 @@ async def process_moment_clip(
         pass
     
     clip_id = Path(output_path).stem
+    # Return only the filename (not full path) for frontend URL construction
+    filename = Path(output_path).name
     
     return {
         'id': clip_id,
         'moment_id': moment_id,
-        'file_path': output_path,
+        'file_path': filename,  # Just the filename, e.g., "uuid.mp4"
         'status': 'completed',
     }

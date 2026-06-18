@@ -342,11 +342,12 @@ def analyze_speech_content(video_path: str) -> Optional[Dict[float, float]]:
 
 def generate_subtitles_file(video_path: str, output_path: str) -> bool:
     """
-    Generate SRT subtitle file from video transcription.
+    Generate ASS subtitle file with karaoke-style word highlighting.
+    Current word appears in yellow/orange, rest in white.
     
     Args:
         video_path: Path to video file
-        output_path: Path to save .srt file
+        output_path: Path to save .ass file (changed from .srt)
         
     Returns:
         True if successful, False otherwise
@@ -357,26 +358,94 @@ def generate_subtitles_file(video_path: str, output_path: str) -> bool:
         return False
     
     try:
+        # Generate ASS format with karaoke effects
         with open(output_path, 'w', encoding='utf-8') as f:
-            for i, segment in enumerate(segments, start=1):
-                # Convert timestamps to SRT format (HH:MM:SS,mmm)
-                start_time = format_srt_time(segment['start'])
-                end_time = format_srt_time(segment['end'])
-                
-                f.write(f"{i}\n")
-                f.write(f"{start_time} --> {end_time}\n")
-                f.write(f"{segment['text'].strip()}\n")
-                f.write("\n")
+            # ASS header
+            f.write("[Script Info]\n")
+            f.write("Title: ClipForge Subtitles\n")
+            f.write("ScriptType: v4.00+\n")
+            f.write("Collisions: Normal\n")
+            f.write("PlayDepth: 0\n\n")
+            
+            # Style definition - white text by default
+            f.write("[V4+ Styles]\n")
+            f.write("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
+            # White text with black outline
+            f.write("Style: Default,Arial,72,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,4,2,2,10,10,120,1\n")
+            # Yellow/orange highlight for current word
+            f.write("Style: Highlight,Arial,72,&H0000D7FF,&H0000D7FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,4,2,2,10,10,120,1\n\n")
+            
+            f.write("[Events]\n")
+            f.write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
+            
+            # Process each segment
+            for segment in segments:
+                words = segment.get('words', [])
+                if not words:
+                    # Fallback: no word-level timing, just show the whole segment
+                    start_ass = format_ass_time(segment['start'])
+                    end_ass = format_ass_time(segment['end'])
+                    text = segment['text'].strip().upper()
+                    # Split into chunks of 3-4 words for readability
+                    text_words = text.split()
+                    if len(text_words) > 4:
+                        chunks = [' '.join(text_words[i:i+4]) for i in range(0, len(text_words), 4)]
+                        chunk_duration = (segment['end'] - segment['start']) / len(chunks)
+                        for idx, chunk in enumerate(chunks):
+                            chunk_start = segment['start'] + idx * chunk_duration
+                            chunk_end = chunk_start + chunk_duration
+                            f.write(f"Dialogue: 0,{format_ass_time(chunk_start)},{format_ass_time(chunk_end)},Default,,0,0,0,,{chunk}\n")
+                    else:
+                        f.write(f"Dialogue: 0,{start_ass},{end_ass},Default,,0,0,0,,{text}\n")
+                else:
+                    # Word-level karaoke: highlight each word as it's spoken
+                    # Group words into 3-4 word chunks for readability
+                    chunk_size = 4
+                    for chunk_idx in range(0, len(words), chunk_size):
+                        chunk_words = words[chunk_idx:chunk_idx + chunk_size]
+                        if not chunk_words:
+                            continue
+                        
+                        chunk_start = chunk_words[0].start
+                        chunk_end = chunk_words[-1].end
+                        
+                        # Create karaoke effect for this chunk
+                        for word_idx, word in enumerate(chunk_words):
+                            word_start = word.start
+                            word_end = word.end
+                            word_text = word.word.strip().upper()
+                            
+                            # Build the full chunk text with highlight on current word
+                            parts = []
+                            for i, w in enumerate(chunk_words):
+                                w_text = w.word.strip().upper()
+                                if i == word_idx:
+                                    # Highlight current word in yellow/orange
+                                    parts.append(f"{{\\c&H00D7FF&}}{w_text}{{\\c&HFFFFFF&}}")
+                                else:
+                                    parts.append(w_text)
+                            
+                            display_text = ' '.join(parts)
+                            
+                            # Show this highlighted state for the duration of the word
+                            f.write(f"Dialogue: 0,{format_ass_time(word_start)},{format_ass_time(word_end)},Default,,0,0,0,,{display_text}\n")
         
         return True
     
     except Exception as e:
-        print(f"Failed to generate subtitles: {e}")
+        logger.error(f"Failed to generate subtitles: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
 def format_srt_time(seconds: float) -> str:
     """Convert seconds to SRT timestamp format."""
+    hours = int(seconds // 3600)
+
+
+def format_ass_time(seconds: float) -> str:
+    """Convert seconds to ASS timestamp format (H:MM:SS.CC)."""
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
     secs = int(seconds % 60)

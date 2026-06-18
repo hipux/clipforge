@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
 import PublishPage from './PublishPage'
-import { withClipForge, mockVideo, mockMoments, mockClips } from '../stories/mocks'
+import { withClipForge, withMockAuth, mockVideo, mockMoments, mockClips } from '../stories/mocks'
 
 const meta = {
   title: 'Pages/PublishPage',
@@ -14,6 +14,7 @@ type Story = StoryObj<typeof meta>
 export const WithClips: Story = {
   name: 'Clips Ready to Publish',
   decorators: [
+    withMockAuth(true),
     withClipForge(
       {
         currentVideo: mockVideo,

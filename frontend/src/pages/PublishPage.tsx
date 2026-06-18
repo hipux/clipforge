@@ -198,7 +198,7 @@ export default function PublishPage() {
             <div key={clip.id} className="card">
               {/* Video preview */}
               <video
-                src={`/files/${clip.file_path.split('/').pop()}`}
+                src={`/files/${clip.file_path}`}
                 className="w-full rounded-lg mb-4 bg-black"
                 style={{ maxHeight: 200 }}
                 controls

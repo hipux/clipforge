@@ -24,6 +24,7 @@ export default function ProcessPage() {
   const [overallMessage, setOverallMessage] = useState('')
   const [error, setError] = useState('')
   const [completed, setCompleted] = useState(false)
+  const [previousClip, setPreviousClip] = useState(0)
 
   useEffect(() => {
     if (selectedMomentIds.length === 0) {
@@ -56,6 +57,14 @@ export default function ProcessPage() {
         const message = JSON.parse(event.data)
 
         if (message.status === 'processing') {
+          // Detect clip change and reset current clip progress
+          if (message.current_clip !== previousClip && message.current_clip > 0) {
+            setPreviousClip(message.current_clip)
+            // Reset is handled by backend, but ensure UI updates immediately
+            setClipProgress(0)
+            setClipMessage('Starting...')
+          }
+          
           setCurrentClip(message.current_clip)
           setTotalClips(message.total_clips)
           setClipProgress(message.clip_progress * 100)
