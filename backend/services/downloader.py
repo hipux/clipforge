@@ -50,18 +50,41 @@ async def download_video(
             if d['status'] == 'downloading':
                 total = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
                 downloaded = d.get('downloaded_bytes', 0)
-                speed = d.get('speed', 0)
-                eta = d.get('eta', 0)
+                speed = d.get('speed', 0)  # bytes/sec
+                eta = d.get('eta', 0)  # seconds
+                fragment_index = d.get('fragment_index')
+                fragment_count = d.get('fragment_count')
+                filename = d.get('filename', '')
                 
                 percent = (downloaded / total * 100) if total > 0 else 0
+                
+                # Format speed as human-readable string
+                speed_str = ''
+                if speed and speed > 0:
+                    if speed > 1024 * 1024:  # MiB/s
+                        speed_str = f"{speed / (1024 * 1024):.2f} MiB/s"
+                    elif speed > 1024:  # KiB/s
+                        speed_str = f"{speed / 1024:.2f} KiB/s"
+                    else:
+                        speed_str = f"{speed:.0f} B/s"
+                
+                # Format ETA as MM:SS
+                eta_str = ''
+                if eta and eta > 0:
+                    minutes = int(eta // 60)
+                    seconds = int(eta % 60)
+                    eta_str = f"{minutes:02d}:{seconds:02d}"
                 
                 progress_callback({
                     'status': 'downloading',
                     'percent': round(percent, 2),
-                    'speed': speed,
-                    'eta': eta,
-                    'downloaded': downloaded,
-                    'total': total,
+                    'speed': speed_str,
+                    'eta': eta_str,
+                    'downloaded_bytes': downloaded,
+                    'total_bytes': total,
+                    'fragment_index': fragment_index,
+                    'fragment_count': fragment_count,
+                    'filename': filename,
                 })
             elif d['status'] == 'finished':
                 progress_callback({

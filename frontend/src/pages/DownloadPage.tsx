@@ -4,7 +4,15 @@ import axios from 'axios'
 import { useAppStore } from '../store/useAppStore'
 import VideoCard from '../components/VideoCard'
 import ProgressBar from '../components/ProgressBar'
-import { Download, AlertTriangle, ArrowRight, Play, Tv, Video, Link } from 'lucide-react'
+import { Download, AlertTriangle, ArrowRight, Play, Tv, Video, Link, Zap, Clock, HardDrive } from 'lucide-react'
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return `${(bytes / Math.pow(k, i)).toFixed(i === 0 ? 0 : 1)} ${sizes[i]}`
+}
 
 export default function DownloadPage() {
   const navigate = useNavigate()
@@ -14,6 +22,12 @@ export default function DownloadPage() {
   const [progress, setProgress] = useState(0)
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
+  const [speed, setSpeed] = useState('')
+  const [eta, setEta] = useState('')
+  const [downloadedBytes, setDownloadedBytes] = useState(0)
+  const [totalBytes, setTotalBytes] = useState(0)
+  const [fragmentIndex, setFragmentIndex] = useState<number | null>(null)
+  const [fragmentCount, setFragmentCount] = useState<number | null>(null)
 
   const handleDownload = async () => {
     if (!url.trim()) {
@@ -25,6 +39,12 @@ export default function DownloadPage() {
     setError('')
     setProgress(0)
     setStatus('Starting download...')
+    setSpeed('')
+    setEta('')
+    setDownloadedBytes(0)
+    setTotalBytes(0)
+    setFragmentIndex(null)
+    setFragmentCount(null)
 
     try {
       const { data } = await axios.post('/api/download', { url })
@@ -40,10 +60,16 @@ export default function DownloadPage() {
 
         if (message.status === 'downloading' && message.progress) {
           setProgress(message.progress.percent || 0)
-          setStatus(`Downloading… ${message.progress.percent?.toFixed(1)}%`)
+          setSpeed(message.progress.speed || '')
+          setEta(message.progress.eta || '')
+          setDownloadedBytes(message.progress.downloaded_bytes || 0)
+          setTotalBytes(message.progress.total_bytes || 0)
+          setFragmentIndex(message.progress.fragment_index || null)
+          setFragmentCount(message.progress.fragment_count || null)
+          setStatus('Downloading...')
         } else if (message.status === 'processing') {
           setProgress(95)
-          setStatus('Processing video…')
+          setStatus('Processing video...')
         } else if (message.status === 'completed') {
           setProgress(100)
           setStatus('Download complete!')
@@ -139,6 +165,67 @@ export default function DownloadPage() {
       {loading && (
         <div className="card mb-5">
           <ProgressBar progress={progress} message={status} />
+          
+          {/* Rich Progress Stats */}
+          {(speed || eta || totalBytes > 0 || fragmentCount) && (
+            <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-slate-800">
+              {/* Speed */}
+              {speed && (
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center shrink-0">
+                    <Zap size={14} className="text-cyan-400" />
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Speed</div>
+                    <div className="text-sm font-semibold text-cyan-400 mt-0.5">{speed}</div>
+                  </div>
+                </div>
+              )}
+              
+              {/* ETA */}
+              {eta && (
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-slate-700/30 border border-slate-700/50 flex items-center justify-center shrink-0">
+                    <Clock size={14} className="text-slate-400" />
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">ETA</div>
+                    <div className="text-sm font-semibold text-slate-300 mt-0.5">{eta}</div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Downloaded / Total */}
+              {totalBytes > 0 && (
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-slate-700/30 border border-slate-700/50 flex items-center justify-center shrink-0">
+                    <HardDrive size={14} className="text-slate-400" />
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Size</div>
+                    <div className="text-sm font-semibold text-slate-300 mt-0.5">
+                      {formatBytes(downloadedBytes)} / {formatBytes(totalBytes)}
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Fragments (HLS/Rutube) */}
+              {fragmentCount && fragmentIndex !== null && (
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-orange-500/10 border border-orange-500/20 flex items-center justify-center shrink-0">
+                    <Download size={14} className="text-orange-400" />
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Fragments</div>
+                    <div className="text-sm font-semibold text-orange-400 mt-0.5">
+                      {fragmentIndex} / {fragmentCount}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
