@@ -190,11 +190,12 @@ def transcribe_video(video_path: str) -> Optional[List[Dict]]:
         detected_lang, confidence = smart_language_detection(model, video_path)
         logger.info(f"Using language: {detected_lang} (confidence: {confidence:.2f})")
         
-        # Transcribe with detected/forced language
+        # Transcribe with detected/forced language and word-level timestamps
         segments, info = model.transcribe(
             video_path, 
             beam_size=5,
-            language=detected_lang  # Force the detected/configured language
+            language=detected_lang,  # Force the detected/configured language
+            word_timestamps=True  # Enable word-level timestamps for karaoke subtitles
         )
         
         result = []
@@ -342,12 +343,13 @@ def analyze_speech_content(video_path: str) -> Optional[Dict[float, float]]:
 
 def generate_subtitles_file(video_path: str, output_path: str) -> bool:
     """
-    Generate ASS subtitle file with karaoke-style word highlighting.
-    Current word appears in yellow/orange, rest in white.
+    Generate ASS subtitle file optimized for 1080x1920 vertical video (TikTok/Shorts format).
+    Uses karaoke-style word highlighting: current word turns yellow, rest stays white.
+    Max 1-2 words per subtitle line for optimal readability.
     
     Args:
         video_path: Path to video file
-        output_path: Path to save .ass file (changed from .srt)
+        output_path: Path to save .ass file
         
     Returns:
         True if successful, False otherwise
@@ -358,22 +360,26 @@ def generate_subtitles_file(video_path: str, output_path: str) -> bool:
         return False
     
     try:
-        # Generate ASS format with karaoke effects
-        with open(output_path, 'w', encoding='utf-8') as f:
-            # ASS header
+        # Generate ASS format with UTF-8 BOM for Cyrillic support
+        with open(output_path, 'w', encoding='utf-8-sig') as f:
+            # ASS header for 1080x1920 vertical video
             f.write("[Script Info]\n")
             f.write("Title: ClipForge Subtitles\n")
             f.write("ScriptType: v4.00+\n")
+            f.write("PlayResX: 1080\n")
+            f.write("PlayResY: 1920\n")
             f.write("Collisions: Normal\n")
             f.write("PlayDepth: 0\n\n")
             
-            # Style definition - white text by default
+            # Style definition for 9:16 vertical format
             f.write("[V4+ Styles]\n")
             f.write("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
-            # White text with black outline
-            f.write("Style: Default,Arial,72,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,4,2,2,10,10,120,1\n")
-            # Yellow/orange highlight for current word
-            f.write("Style: Highlight,Arial,72,&H0000D7FF,&H0000D7FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,4,2,2,10,10,120,1\n\n")
+            # PrimaryColour: white (&H00FFFFFF)
+            # SecondaryColour: yellow/orange for karaoke (&H0000D7FF in BGR format)
+            # BorderStyle: 1 (outline + shadow, NOT opaque box)
+            # Alignment: 2 (bottom center)
+            # MarginV: 200 (distance from bottom)
+            f.write("Style: Default,Arial,62,&H00FFFFFF,&H0000D7FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,3,1,2,80,80,200,1\n\n")
             
             f.write("[Events]\n")
             f.write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
@@ -382,25 +388,28 @@ def generate_subtitles_file(video_path: str, output_path: str) -> bool:
             for segment in segments:
                 words = segment.get('words', [])
                 if not words:
-                    # Fallback: no word-level timing, just show the whole segment
-                    start_ass = format_ass_time(segment['start'])
-                    end_ass = format_ass_time(segment['end'])
+                    # Fallback: no word-level timing, split into 1-2 word chunks
+                    start_time = segment['start']
+                    end_time = segment['end']
                     text = segment['text'].strip().upper()
-                    # Split into chunks of 3-4 words for readability
                     text_words = text.split()
-                    if len(text_words) > 4:
-                        chunks = [' '.join(text_words[i:i+4]) for i in range(0, len(text_words), 4)]
-                        chunk_duration = (segment['end'] - segment['start']) / len(chunks)
-                        for idx, chunk in enumerate(chunks):
-                            chunk_start = segment['start'] + idx * chunk_duration
-                            chunk_end = chunk_start + chunk_duration
-                            f.write(f"Dialogue: 0,{format_ass_time(chunk_start)},{format_ass_time(chunk_end)},Default,,0,0,0,,{chunk}\n")
-                    else:
-                        f.write(f"Dialogue: 0,{start_ass},{end_ass},Default,,0,0,0,,{text}\n")
+                    
+                    # Split into 1-2 word chunks
+                    chunk_size = 2
+                    if len(text_words) > 0:
+                        num_chunks = (len(text_words) + chunk_size - 1) // chunk_size
+                        chunk_duration = (end_time - start_time) / max(num_chunks, 1)
+                        
+                        for idx in range(0, len(text_words), chunk_size):
+                            chunk_words = text_words[idx:idx + chunk_size]
+                            chunk_text = ' '.join(chunk_words)
+                            chunk_start = start_time + (idx // chunk_size) * chunk_duration
+                            chunk_end = min(chunk_start + chunk_duration, end_time)
+                            
+                            f.write(f"Dialogue: 0,{format_ass_time(chunk_start)},{format_ass_time(chunk_end)},Default,,0,0,0,,{chunk_text}\n")
                 else:
-                    # Word-level karaoke: highlight each word as it's spoken
-                    # Group words into 3-4 word chunks for readability
-                    chunk_size = 4
+                    # Word-level karaoke: max 1-2 words per line with \k tags
+                    chunk_size = 2
                     for chunk_idx in range(0, len(words), chunk_size):
                         chunk_words = words[chunk_idx:chunk_idx + chunk_size]
                         if not chunk_words:
@@ -409,26 +418,18 @@ def generate_subtitles_file(video_path: str, output_path: str) -> bool:
                         chunk_start = chunk_words[0].start
                         chunk_end = chunk_words[-1].end
                         
-                        # Create karaoke effect for this chunk
-                        for word_idx, word in enumerate(chunk_words):
-                            word_start = word.start
-                            word_end = word.end
+                        # Build karaoke text with \k tags
+                        karaoke_parts = []
+                        for word in chunk_words:
                             word_text = word.word.strip().upper()
-                            
-                            # Build the full chunk text with highlight on current word
-                            parts = []
-                            for i, w in enumerate(chunk_words):
-                                w_text = w.word.strip().upper()
-                                if i == word_idx:
-                                    # Highlight current word in yellow/orange
-                                    parts.append(f"{{\\c&H00D7FF&}}{w_text}{{\\c&HFFFFFF&}}")
-                                else:
-                                    parts.append(w_text)
-                            
-                            display_text = ' '.join(parts)
-                            
-                            # Show this highlighted state for the duration of the word
-                            f.write(f"Dialogue: 0,{format_ass_time(word_start)},{format_ass_time(word_end)},Default,,0,0,0,,{display_text}\n")
+                            # Calculate duration in centiseconds (10ms units)
+                            word_duration_cs = int((word.end - word.start) * 100)
+                            karaoke_parts.append(f"{{\\k{word_duration_cs}}}{word_text}")
+                        
+                        karaoke_text = ' '.join(karaoke_parts)
+                        
+                        # Write dialogue line
+                        f.write(f"Dialogue: 0,{format_ass_time(chunk_start)},{format_ass_time(chunk_end)},Default,,0,0,0,,{karaoke_text}\n")
         
         return True
     
@@ -449,6 +450,6 @@ def format_ass_time(seconds: float) -> str:
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
     secs = int(seconds % 60)
-    millis = int((seconds % 1) * 1000)
+    centisecs = int((seconds % 1) * 100)  # Centiseconds, not milliseconds
     
-    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+    return f"{hours}:{minutes:02d}:{secs:02d}.{centisecs:02d}"
