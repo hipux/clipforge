@@ -47,16 +47,49 @@ Local video clip processing & publishing tool that lets you download long-form v
 
 **YouTube API Quota:** 10,000 units/day for free. One video upload ≈ 1,600 units → **~6 videos/day free**. Perfect for personal use!
 
-### 🔧 Requirements
+### 🖥️ System Requirements
 
-- **Python 3.11** or newer
-- **Node.js 18** or newer (for frontend)
+#### Minimum Requirements
+
+| Component | Minimum | Recommended |
+|-----------|---------|-------------|
+| **OS** | Windows 10 / Ubuntu 20.04 / macOS 12 | Windows 11 / Ubuntu 22.04+ |
+| **CPU** | 4 cores, 2.0 GHz | 8 cores, 3.0+ GHz |
+| **RAM** | 8 GB | 16 GB |
+| **GPU** | Not required | NVIDIA with CUDA (for faster Whisper) |
+| **Free disk space** | 10 GB | 30+ GB |
+| **Internet** | Required for downloading and publishing | — |
+
+#### Software Dependencies
+
+- **Python 3.11+** (for backend)
+- **Node.js 18+** (for frontend)
 - **FFmpeg** (installed and available in PATH)
   - On macOS: `brew install ffmpeg`
   - On Ubuntu/Debian: `sudo apt install ffmpeg`
   - On Windows: Download from [ffmpeg.org](https://ffmpeg.org/download.html)
 - **Git** (to clone the repository)
 - **YouTube Data API v3 credentials** (optional, only for direct YouTube upload)
+
+#### Supported Operating Systems
+
+| OS | Status |
+|----|--------|
+| Windows 10 / 11 | ✅ Supported (native and WSL2) |
+| Ubuntu / Debian | ✅ Supported |
+| macOS 12+ | ⚠️ Not officially tested, should work |
+
+#### GPU Acceleration (Optional)
+
+> Without GPU, everything runs on CPU — just slower. Whisper Base processes ~1 min of video in ~30 sec on a modern CPU.
+
+To enable NVIDIA GPU acceleration:
+1. Install [CUDA Toolkit 11.8+](https://developer.nvidia.com/cuda-downloads)
+2. Install PyTorch with CUDA:
+   ```bash
+   pip install torch --index-url https://download.pytorch.org/whl/cu118
+   ```
+3. ClipForge will automatically detect and use the GPU
 
 ### 🪟 Running on Windows
 
