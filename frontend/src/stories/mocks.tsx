@@ -40,6 +40,34 @@ export const mockClips: ProcessedClip[] = [
   { id: 'c2', moment_id: 'm2', file_path: 'clip_2.mp4', status: 'done', effects: defaultEffects },
 ]
 
+// A self-contained 9:16 (portrait) thumbnail used by stories to show the
+// blurred-background moment preview in SubtitleStylePicker / BannerUpload.
+// Encoded as an SVG data URI so no static asset / backend is required.
+export const mockMomentThumbnail9x16 =
+  'data:image/svg+xml;utf8,' +
+  encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="360" height="640" viewBox="0 0 360 640">
+      <defs>
+        <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#1a1a2e"/>
+          <stop offset="0.5" stop-color="#16213e"/>
+          <stop offset="1" stop-color="#0f3460"/>
+        </linearGradient>
+      </defs>
+      <rect width="360" height="640" fill="url(#bg)"/>
+      <ellipse cx="180" cy="230" rx="90" ry="90" fill="#94a3b8" opacity="0.35"/>
+      <path d="M40 640 Q180 360 320 640 Z" fill="#94a3b8" opacity="0.35"/>
+      <circle cx="300" cy="90" r="40" fill="#06b6d4" opacity="0.4"/>
+    </svg>`,
+  )
+
+// Moments whose thumbnail_url points at the 9:16 portrait preview above, so the
+// vertical preview surfaces (SubtitleStylePicker / BannerUpload read moments[0]).
+export const mockMomentsWithThumbnail: MomentCandidate[] = mockMoments.map((m) => ({
+  ...m,
+  thumbnail_url: mockMomentThumbnail9x16,
+}))
+
 export interface StoreSeed {
   currentVideo?: VideoInfo | null
   moments?: MomentCandidate[]
@@ -79,7 +107,10 @@ export function withClipForge(seed: StoreSeed = {}, initialPath = '/download'): 
 /**
  * Intercepts the YouTube auth status check so PublishPage renders the
  * "Connected to YouTube" state instead of firing a real (404) request.
- * Patches axios.get for the auth endpoint only; all other calls pass through.
+ * Also serves the per-clip full-path endpoint that the "Copy Path" button
+ * fetches (`GET /api/export/<clipId>/path` -> `{ file_path }`), so the
+ * copy-path success feedback works without a backend.
+ * Patches axios.get for those endpoints only; all other calls pass through.
  */
 export function withMockAuth(authenticated = true): Decorator {
   const Wrapper: Decorator = (Story) => {
@@ -92,6 +123,15 @@ export function withMockAuth(authenticated = true): Decorator {
             data: authenticated
               ? { authenticated: true }
               : { authenticated: false, auth_url: 'https://accounts.google.com/o/oauth2/v2/auth?mock=1' },
+          })
+        }
+        // Copy Path: backend returns the absolute file path for a clip.
+        const exportMatch =
+          typeof url === 'string' && url.match(/\/api\/export\/([^/]+)\/path/)
+        if (exportMatch) {
+          const clipId = exportMatch[1]
+          return Promise.resolve({
+            data: { file_path: `/home/user/clipforge/output/${clipId}.mp4` },
           })
         }
         return realGet(url, ...rest)
@@ -302,6 +342,53 @@ export function withDownloadingState(steps?: DownloadProgress[]): Decorator {
       }, 100)
       return () => clearInterval(id)
     }, [])
+
+    return <Story />
+  }
+  return Wrapper
+}
+
+/**
+ * Keeps MomentsPage on its pre-detection view so the Detection Settings card
+ * (min / max clip duration + max moments sliders) and the "No moments detected
+ * yet" empty state are visible for a screenshot.
+ *
+ * MomentsPage auto-starts detection on mount whenever a video is present and no
+ * moments exist. This decorator mocks axios.post('/api/moments/detect') to
+ * return a never-resolving promise, so the request is issued but no job id ever
+ * comes back — detection never actually flips the UI into the "detecting"
+ * progress state, leaving the settings card on screen. The global WebSocket is
+ * also stubbed so no real socket is opened.
+ */
+export function withDetectionBlocked(): Decorator {
+  const Wrapper: Decorator = (Story) => {
+    useState(() => {
+      const realPost = axios.post.bind(axios)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(axios as any).post = (url: string, ...rest: any[]) => {
+        if (typeof url === 'string' && url.includes('/api/moments/detect')) {
+          // Resolve immediately as an already-"completed" detection that found
+          // zero moments. MomentsPage flips detecting back off and keeps the
+          // moments list empty, so it renders the Detection Settings card and
+          // the "No moments detected yet" empty state for the screenshot —
+          // never entering the live progress view.
+          return Promise.resolve({ data: { status: 'completed', moments: [] } })
+        }
+        return realPost(url, ...rest)
+      }
+
+      class MockWebSocket {
+        onmessage: ((ev: { data: string }) => void) | null = null
+        onerror: (() => void) | null = null
+        onopen: (() => void) | null = null
+        onclose: (() => void) | null = null
+        send() {}
+        close() {}
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(window as any).WebSocket = MockWebSocket as any
+      return null
+    })
 
     return <Story />
   }
