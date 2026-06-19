@@ -11,8 +11,23 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 
+/**
+ * Default URL-input view. The "Supported" platform badges row sits under the
+ * URL field, now including the new Twitch badge (purple/violet Tv icon)
+ * alongside YouTube, Rutube and VK Video.
+ */
 export const Empty: Story = {
   name: 'Empty (URL input)',
+  decorators: [withClipForge({}, '/download')],
+}
+
+/**
+ * Focuses on the supported-platforms badges row. Same default URL-input view —
+ * scroll target is the four badges below the input: YouTube (red), Rutube
+ * (orange), VK Video (blue) and the new Twitch badge (purple/violet).
+ */
+export const PlatformBadges: Story = {
+  name: 'Platform Badges (Twitch)',
   decorators: [withClipForge({}, '/download')],
 }
 

@@ -61,7 +61,8 @@ export default function MomentsPage() {
         min_duration: detectionSettings.minDuration,
         max_duration: detectionSettings.maxDuration,
         max_moments: detectionSettings.maxMoments,
-      
+      })
+
       // Check if moments already exist
       if (data.status === 'completed' && data.moments) {
         setMoments(data.moments)
