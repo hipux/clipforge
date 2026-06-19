@@ -6,67 +6,55 @@ const styles = [
     id: 'karaoke',
     name: 'Karaoke',
     description: '1-2 words, yellow highlight, TikTok style',
-    preview: (
-      <div className="bg-gradient-to-b from-slate-800 to-slate-900 rounded-lg p-4 h-24 flex items-end justify-center">
-        <span className="font-bold text-lg">
-          <span className="text-yellow-400" style={{ textShadow: '1px 1px 3px rgba(0,0,0,0.6)' }}>SAMPLE</span>
-          <span className="text-white ml-1" style={{ textShadow: '1px 1px 3px rgba(0,0,0,0.6)' }}>TEXT</span>
-        </span>
-      </div>
+    renderSubtitle: (
+      <span className="font-bold text-lg">
+        <span className="text-yellow-400" style={{ textShadow: '1px 1px 3px rgba(0,0,0,0.6)' }}>SAMPLE</span>
+        <span className="text-white ml-1" style={{ textShadow: '1px 1px 3px rgba(0,0,0,0.6)' }}>TEXT</span>
+      </span>
     ),
   },
   {
     id: 'bold',
     name: 'Bold White',
     description: '2-3 words, large white, thick outline',
-    preview: (
-      <div className="bg-gradient-to-b from-slate-800 to-slate-900 rounded-lg p-4 h-24 flex items-end justify-center">
-        <span className="text-white font-bold text-xl" style={{ textShadow: '3px 3px 0 #000, -3px -3px 0 #000, 3px -3px 0 #000, -3px 3px 0 #000' }}>
-          SAMPLE TEXT
-        </span>
-      </div>
+    renderSubtitle: (
+      <span className="text-white font-bold text-xl" style={{ textShadow: '3px 3px 0 #000, -3px -3px 0 #000, 3px -3px 0 #000, -3px 3px 0 #000' }}>
+        SAMPLE TEXT
+      </span>
     ),
   },
   {
     id: 'neon',
     name: 'Neon',
     description: '1-2 words, cyan glow, dark box',
-    preview: (
-      <div className="bg-gradient-to-b from-slate-800 to-slate-900 rounded-lg p-4 h-24 flex items-end justify-center">
-        <span className="text-cyan-400 font-bold text-lg px-3 py-1.5 bg-black/70 rounded" style={{ textShadow: '0 0 10px #06b6d4, 0 0 20px #06b6d4' }}>
-          SAMPLE TEXT
-        </span>
-      </div>
+    renderSubtitle: (
+      <span className="text-cyan-400 font-bold text-lg px-3 py-1.5 bg-black/70 rounded" style={{ textShadow: '0 0 10px #06b6d4, 0 0 20px #06b6d4' }}>
+        SAMPLE TEXT
+      </span>
     ),
   },
   {
     id: 'minimal',
     name: 'Minimal',
     description: '3-4 words, small clean white, subtle',
-    preview: (
-      <div className="bg-gradient-to-b from-slate-800 to-slate-900 rounded-lg p-4 h-24 flex items-end justify-center">
-        <span className="text-white text-sm" style={{ textShadow: '1px 1px 2px rgba(0,0,0,0.4)' }}>
-          sample text here
-        </span>
-      </div>
+    renderSubtitle: (
+      <span className="text-white text-sm">sample text here</span>
     ),
   },
   {
     id: 'cinematic',
     name: 'Cinematic',
     description: '2-3 words, letter-spacing, black bar',
-    preview: (
-      <div className="bg-gradient-to-b from-slate-800 to-slate-900 rounded-lg p-4 h-24 flex items-end justify-center">
-        <span className="text-white text-lg font-medium px-6 py-2 bg-black/60" style={{ letterSpacing: '0.1em' }}>
-          SAMPLE TEXT
-        </span>
-      </div>
+    renderSubtitle: (
+      <span className="text-white text-lg font-medium px-6 py-2 bg-black/60" style={{ letterSpacing: '0.1em' }}>
+        SAMPLE TEXT
+      </span>
     ),
   },
 ]
 
 export default function SubtitleStylePicker() {
-  const { globalEffects, updateGlobalEffects } = useAppStore()
+  const { globalEffects, updateGlobalEffects, currentVideo } = useAppStore()
   const selectedStyle = globalEffects.subtitle_style || 'karaoke'
 
   const handleStyleSelect = (styleId: string) => {
@@ -91,11 +79,33 @@ export default function SubtitleStylePicker() {
                 : 'bg-surface-2 border-slate-700 hover:border-slate-600 hover:bg-white/[0.03]'
             }`}
           >
-            {/* Preview */}
-            <div className="mb-3">{style.preview}</div>
+            {/* Video frame preview */}
+            <div className="relative w-full aspect-video rounded-t-lg overflow-hidden">
+              {/* Background: thumbnail if available, else gradient */}
+              {currentVideo?.thumbnail_url ? (
+                <img 
+                  src={currentVideo.thumbnail_url} 
+                  alt="Video frame" 
+                  className="absolute inset-0 w-full h-full object-cover" 
+                />
+              ) : (
+                <div className="absolute inset-0 bg-gradient-to-b from-[#1a1a2e] via-[#16213e] to-[#0f3460]">
+                  {/* Subtle person silhouette */}
+                  <svg viewBox="0 0 200 200" className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-4/5 w-auto opacity-10">
+                    <ellipse cx="100" cy="60" rx="40" ry="40" fill="#94a3b8"/>
+                    <path d="M30 200 Q100 120 170 200" fill="#94a3b8"/>
+                  </svg>
+                </div>
+              )}
+              
+              {/* Subtitle overlay at bottom */}
+              <div className="absolute bottom-3 left-0 right-0 flex justify-center">
+                {style.renderSubtitle}
+              </div>
+            </div>
 
             {/* Info */}
-            <div className="px-3 pb-3">
+            <div className="px-3 pb-3 pt-2">
               <div className={`font-medium text-sm mb-0.5 ${selectedStyle === style.id ? 'text-accent' : 'text-slate-200'}`}>
                 {style.name}
               </div>

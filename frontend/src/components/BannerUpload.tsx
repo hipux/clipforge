@@ -11,8 +11,20 @@ const positionOptions = [
   { value: 'bottom-right', label: 'Bottom Right' },
 ]
 
+const getPositionClasses = (position: string) => {
+  const map: Record<string, string> = {
+    'top-left': 'absolute top-2 left-2',
+    'top-center': 'absolute top-2 left-1/2 -translate-x-1/2',
+    'top-right': 'absolute top-2 right-2',
+    'bottom-left': 'absolute bottom-2 left-2',
+    'bottom-center': 'absolute bottom-2 left-1/2 -translate-x-1/2',
+    'bottom-right': 'absolute bottom-2 right-2',
+  }
+  return map[position] || 'absolute top-2 right-2'
+}
+
 export default function BannerUpload() {
-  const { globalEffects, updateGlobalEffects } = useAppStore()
+  const { globalEffects, updateGlobalEffects, currentVideo } = useAppStore()
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -59,6 +71,7 @@ export default function BannerUpload() {
 
       const data = await response.json()
 
+      // Update global effects with banner
       updateGlobalEffects({
         banner: {
           ...banner,
@@ -67,8 +80,8 @@ export default function BannerUpload() {
           url: data.url,
         },
       })
-    } catch (err: any) {
-      setUploadError(err.message || 'Upload failed')
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : 'Upload failed')
     } finally {
       setUploading(false)
     }
@@ -88,105 +101,104 @@ export default function BannerUpload() {
     }
   }
 
-  const handleToggle = () => {
-    updateGlobalEffects({
-      banner: {
-        ...banner,
-        enabled: !banner.enabled,
-      },
-    })
-  }
-
   const handlePositionChange = (position: string) => {
     updateGlobalEffects({
-      banner: {
-        ...banner,
-        position,
-      },
+      banner: { ...banner, position },
     })
   }
 
   const handleSizeChange = (size: number) => {
     updateGlobalEffects({
-      banner: {
-        ...banner,
-        size,
-      },
+      banner: { ...banner, size },
     })
   }
 
   const handleOpacityChange = (opacity: number) => {
     updateGlobalEffects({
-      banner: {
-        ...banner,
-        opacity,
-      },
+      banner: { ...banner, opacity },
     })
   }
 
   return (
     <div className="card">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <ImageIcon size={16} className="text-accent" />
-          <h2 className="font-semibold text-slate-200">Banner / Watermark</h2>
-        </div>
-        {banner.url && (
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={banner.enabled}
-              onChange={handleToggle}
-              className="sr-only peer"
-            />
-            <div className="relative w-11 h-6 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-accent/50 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-accent"></div>
-          </label>
-        )}
+      <div className="flex items-center gap-2 mb-4">
+        <ImageIcon size={16} className="text-accent" />
+        <h2 className="font-semibold text-slate-200">Banner Overlay</h2>
       </div>
 
       {/* Upload section */}
-      {!banner.url ? (
+      {!banner.enabled && (
         <div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleFileChange}
+            className="hidden"
+            id="banner-upload"
+          />
           <label
             htmlFor="banner-upload"
-            className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-700 rounded-xl cursor-pointer hover:border-accent/50 hover:bg-accent/5 transition-all"
+            className="border-2 border-dashed border-slate-700 rounded-lg p-6 flex flex-col items-center justify-center cursor-pointer hover:border-slate-600 hover:bg-white/[0.02] transition-colors"
           >
-            <div className="flex flex-col items-center justify-center py-4">
-              <Upload size={24} className="text-slate-500 mb-2" />
-              <p className="text-sm text-slate-400">
-                {uploading ? 'Uploading...' : 'Click to upload banner'}
-              </p>
-              <p className="text-xs text-slate-600 mt-1">PNG, JPG, WebP · Max 5MB</p>
+            <Upload size={32} className="text-slate-500 mb-2" />
+            <div className="text-sm text-slate-300 mb-1">
+              {uploading ? 'Uploading...' : 'Click to upload banner'}
             </div>
-            <input
-              id="banner-upload"
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileChange}
-              accept="image/png,image/jpeg,image/jpg,image/webp"
-              className="hidden"
-              disabled={uploading}
-            />
+            <div className="text-xs text-slate-500">PNG, JPG, WebP (max 5MB)</div>
           </label>
-          {uploadError && (
-            <p className="text-xs text-red-400 mt-2">{uploadError}</p>
-          )}
+          {uploadError && <div className="text-xs text-red-400 mt-2">{uploadError}</div>}
         </div>
-      ) : (
+      )}
+
+      {/* Preview section with video frame */}
+      {banner.enabled && banner.url && (
         <div className="space-y-4">
-          {/* Preview */}
-          <div className="relative group">
-            <img
-              src={banner.url}
-              alt="Banner preview"
-              className="w-full h-32 object-contain rounded-lg bg-slate-900 border border-slate-700"
-            />
-            <button
-              onClick={handleRemove}
-              className="absolute top-2 right-2 w-7 h-7 bg-red-500/90 hover:bg-red-500 text-white rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-            >
-              <X size={14} />
-            </button>
+          {/* Video frame preview with banner overlay */}
+          <div className="relative">
+            <div className="relative w-full aspect-video rounded-lg overflow-hidden group">
+              {/* Background: thumbnail if available, else gradient */}
+              {currentVideo?.thumbnail_url ? (
+                <img 
+                  src={currentVideo.thumbnail_url} 
+                  alt="Video frame" 
+                  className="absolute inset-0 w-full h-full object-cover" 
+                />
+              ) : (
+                <div className="absolute inset-0 bg-gradient-to-b from-[#1a1a2e] via-[#16213e] to-[#0f3460]">
+                  {/* Subtle person silhouette */}
+                  <svg viewBox="0 0 200 200" className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-4/5 w-auto opacity-10">
+                    <ellipse cx="100" cy="60" rx="40" ry="40" fill="#94a3b8"/>
+                    <path d="M30 200 Q100 120 170 200" fill="#94a3b8"/>
+                  </svg>
+                </div>
+              )}
+
+              {/* PREVIEW badge */}
+              <div className="text-[9px] font-bold uppercase tracking-wider text-white/40 bg-black/40 px-1.5 py-0.5 rounded absolute top-2 left-2 z-10">
+                PREVIEW
+              </div>
+
+              {/* Banner overlay at selected position */}
+              <img
+                src={banner.url}
+                alt="Banner"
+                className={getPositionClasses(banner.position)}
+                style={{
+                  maxWidth: `${banner.size}%`,
+                  opacity: banner.opacity / 100,
+                }}
+              />
+
+              {/* Remove button (hover to reveal) */}
+              <button
+                onClick={handleRemove}
+                className="absolute top-2 right-2 z-20 bg-red-500/90 hover:bg-red-600 text-white p-1.5 rounded-full transition-all opacity-0 group-hover:opacity-100"
+                title="Remove banner"
+              >
+                <X size={14} />
+              </button>
+            </div>
           </div>
 
           {/* Position selector */}
@@ -195,7 +207,7 @@ export default function BannerUpload() {
               <MapPin size={12} />
               Position
             </label>
-            <div className="grid grid-cols-3 gap-1.5">
+            <div className="grid grid-cols-3 gap-2">
               {positionOptions.map((option) => (
                 <button
                   key={option.value}
