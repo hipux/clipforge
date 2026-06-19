@@ -202,7 +202,7 @@ def generate_candidate_windows(
     """Generate sliding windows of various durations."""
     windows = []
     
-    for duration in [30, 45, 60, 75, 90]:
+    for duration in range(int(min_duration), int(max_duration) + 1, 15):
         if duration < min_duration or duration > max_duration:
             continue
         
@@ -262,6 +262,8 @@ def detect_moments_from_video(
     video_duration: float,
     speech_scores: Dict[float, float] = None,
     max_moments: int = DEFAULT_MAX_MOMENTS,
+    min_duration: int = DEFAULT_MIN_DURATION,
+    max_duration: int = DEFAULT_MAX_DURATION,
 ) -> List[Dict[str, Any]]:
     """
     Detect interesting moments using audio energy and scene changes.
@@ -281,7 +283,7 @@ def detect_moments_from_video(
     scene_changes = detect_scene_changes(video_path)
     
     # Generate candidate windows
-    windows = generate_candidate_windows(video_duration)
+    windows = generate_candidate_windows(video_duration, min_duration, max_duration)
     
     # Score each window
     scored_windows = []

@@ -25,6 +25,8 @@ export default function MomentsPage() {
     toggleMoment,
     setSelectedMoments,
     setCurrentStep,
+    detectionSettings,
+    updateDetectionSettings,
   } = useAppStore()
 
   const [detecting, setDetecting] = useState(false)
@@ -56,7 +58,9 @@ export default function MomentsPage() {
     try {
       const { data } = await axios.post('/api/moments/detect', {
         video_id: currentVideo.id,
-      })
+        min_duration: detectionSettings.minDuration,
+        max_duration: detectionSettings.maxDuration,
+        max_moments: detectionSettings.maxMoments,
       
       // Check if moments already exist
       if (data.status === 'completed' && data.moments) {
@@ -221,6 +225,66 @@ export default function MomentsPage() {
             </button>
           </div>
         </>
+      )}
+
+      {/* Detection Settings */}
+      {moments.length === 0 && !detecting && !error && (
+        <div className="card mb-5">
+          <h3 className="text-sm font-semibold text-slate-300 mb-4">Detection Settings</h3>
+          
+          <div className="space-y-4">
+            {/* Min Duration */}
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <label className="text-xs text-slate-400">Min clip duration</label>
+                <span className="text-xs font-semibold text-accent">{detectionSettings.minDuration}s</span>
+              </div>
+              <input
+                type="range"
+                min="15"
+                max="60"
+                step="5"
+                value={detectionSettings.minDuration}
+                onChange={(e) => updateDetectionSettings({ minDuration: parseInt(e.target.value) })}
+                className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-accent"
+              />
+            </div>
+            
+            {/* Max Duration */}
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <label className="text-xs text-slate-400">Max clip duration</label>
+                <span className="text-xs font-semibold text-accent">{detectionSettings.maxDuration}s</span>
+              </div>
+              <input
+                type="range"
+                min="30"
+                max="120"
+                step="5"
+                value={detectionSettings.maxDuration}
+                onChange={(e) => updateDetectionSettings({ maxDuration: parseInt(e.target.value) })}
+                className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-accent"
+              />
+            </div>
+            
+            {/* Max Moments */}
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <label className="text-xs text-slate-400">Max moments</label>
+                <span className="text-xs font-semibold text-accent">{detectionSettings.maxMoments}</span>
+              </div>
+              <input
+                type="range"
+                min="5"
+                max="30"
+                step="1"
+                value={detectionSettings.maxMoments}
+                onChange={(e) => updateDetectionSettings({ maxMoments: parseInt(e.target.value) })}
+                className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-accent"
+              />
+            </div>
+          </div>
+        </div>
       )}
 
       {/* No moments */}
