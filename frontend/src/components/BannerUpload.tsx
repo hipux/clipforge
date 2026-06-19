@@ -24,7 +24,7 @@ const getPositionClasses = (position: string) => {
 }
 
 export default function BannerUpload() {
-  const { globalEffects, updateGlobalEffects, currentVideo } = useAppStore()
+  const { globalEffects, updateGlobalEffects, currentVideo, moments } = useAppStore()
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -48,7 +48,7 @@ export default function BannerUpload() {
 
     // Validate file size (5MB)
     if (file.size > 5 * 1024 * 1024) {
-      setUploadError('File too large. Maximum size is 5MB')
+      setUploadError('File too large (max 5MB)')
       return
     }
 
@@ -65,29 +65,30 @@ export default function BannerUpload() {
       })
 
       if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.detail || 'Upload failed')
+        throw new Error('Upload failed')
       }
 
       const data = await response.json()
 
-      // Update global effects with banner
+      // Update global effects with banner info
       updateGlobalEffects({
         banner: {
-          ...banner,
           enabled: true,
           banner_id: data.banner_id,
           url: data.url,
+          position: banner.position,
+          size: banner.size,
+          opacity: banner.opacity,
         },
       })
-    } catch (error) {
-      setUploadError(error instanceof Error ? error.message : 'Upload failed')
+    } catch (err: any) {
+      setUploadError(err.message || 'Upload failed')
     } finally {
       setUploading(false)
     }
   }
 
-  const handleRemove = () => {
+  const handleRemoveBanner = () => {
     updateGlobalEffects({
       banner: {
         ...banner,
@@ -96,112 +97,114 @@ export default function BannerUpload() {
         url: undefined,
       },
     })
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ''
-    }
   }
 
   const handlePositionChange = (position: string) => {
     updateGlobalEffects({
-      banner: { ...banner, position },
+      banner: {
+        ...banner,
+        position,
+      },
     })
   }
 
   const handleSizeChange = (size: number) => {
     updateGlobalEffects({
-      banner: { ...banner, size },
+      banner: {
+        ...banner,
+        size,
+      },
     })
   }
 
   const handleOpacityChange = (opacity: number) => {
     updateGlobalEffects({
-      banner: { ...banner, opacity },
+      banner: {
+        ...banner,
+        opacity,
+      },
     })
   }
 
+  // Use the first moment's thumbnail (9:16 with blurred background) or fallback to video thumbnail
+  const previewBg = moments.length > 0 ? moments[0].thumbnail_url : currentVideo?.thumbnail_url
+
   return (
-    <div className="card">
-      <div className="flex items-center gap-2 mb-4">
+    <div>
+      <div className="flex items-center gap-2 mb-3">
         <ImageIcon size={16} className="text-accent" />
-        <h2 className="font-semibold text-slate-200">Banner Overlay</h2>
+        <span className="font-semibold text-slate-200 text-sm">Banner/Watermark</span>
       </div>
 
-      {/* Upload section */}
-      {!banner.enabled && (
-        <div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            onChange={handleFileChange}
-            className="hidden"
-            id="banner-upload"
-          />
-          <label
-            htmlFor="banner-upload"
-            className="border-2 border-dashed border-slate-700 rounded-lg p-6 flex flex-col items-center justify-center cursor-pointer hover:border-slate-600 hover:bg-white/[0.02] transition-colors"
-          >
-            <Upload size={32} className="text-slate-500 mb-2" />
-            <div className="text-sm text-slate-300 mb-1">
-              {uploading ? 'Uploading...' : 'Click to upload banner'}
-            </div>
-            <div className="text-xs text-slate-500">PNG, JPG, WebP (max 5MB)</div>
-          </label>
-          {uploadError && <div className="text-xs text-red-400 mt-2">{uploadError}</div>}
-        </div>
-      )}
-
-      {/* Preview section with video frame */}
-      {banner.enabled && banner.url && (
-        <div className="space-y-4">
-          {/* Video frame preview with banner overlay */}
-          <div className="relative">
-            <div className="relative w-full aspect-video rounded-lg overflow-hidden group">
-              {/* Background: thumbnail if available, else gradient */}
-              {currentVideo?.thumbnail_url ? (
+      {/* Upload / Preview */}
+      <div className="space-y-3">
+        {!banner.enabled || !banner.url ? (
+          <div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleFileChange}
+              className="hidden"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 border-dashed border-slate-700 hover:border-accent/40 hover:bg-accent/5 transition-colors text-sm text-slate-400 disabled:opacity-50"
+            >
+              <Upload size={16} />
+              {uploading ? 'Uploading…' : 'Upload Banner Image'}
+            </button>
+            {uploadError && (
+              <p className="text-xs text-danger mt-1.5">{uploadError}</p>
+            )}
+            <p className="text-xs text-slate-500 mt-1.5">
+              PNG, JPG, WebP (max 5MB). Logo or watermark will overlay on each clip.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {/* Live Preview */}
+            <div className="relative w-full aspect-[9/16] rounded-lg overflow-hidden border border-slate-700">
+              {/* Background: moment thumbnail (9:16 with blur) if available, else video thumbnail or gradient */}
+              {previewBg ? (
                 <img 
-                  src={currentVideo.thumbnail_url} 
+                  src={previewBg} 
                   alt="Video frame" 
                   className="absolute inset-0 w-full h-full object-cover" 
                 />
               ) : (
-                <div className="absolute inset-0 bg-gradient-to-b from-[#1a1a2e] via-[#16213e] to-[#0f3460]">
-                  {/* Subtle person silhouette */}
-                  <svg viewBox="0 0 200 200" className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-4/5 w-auto opacity-10">
-                    <ellipse cx="100" cy="60" rx="40" ry="40" fill="#94a3b8"/>
-                    <path d="M30 200 Q100 120 170 200" fill="#94a3b8"/>
-                  </svg>
-                </div>
+                <div className="absolute inset-0 bg-gradient-to-b from-[#1a1a2e] via-[#16213e] to-[#0f3460]" />
               )}
 
-              {/* PREVIEW badge */}
-              <div className="text-[9px] font-bold uppercase tracking-wider text-white/40 bg-black/40 px-1.5 py-0.5 rounded absolute top-2 left-2 z-10">
-                PREVIEW
-              </div>
-
-              {/* Banner overlay at selected position */}
+              {/* Banner overlay */}
               <img
                 src={banner.url}
-                alt="Banner"
+                alt="Banner preview"
                 className={getPositionClasses(banner.position)}
                 style={{
-                  maxWidth: `${banner.size}%`,
+                  width: `${banner.size}%`,
                   opacity: banner.opacity / 100,
                 }}
               />
-
-              {/* Remove button (hover to reveal) */}
-              <button
-                onClick={handleRemove}
-                className="absolute top-2 right-2 z-20 bg-red-500/90 hover:bg-red-600 text-white p-1.5 rounded-full transition-all opacity-0 group-hover:opacity-100"
-                title="Remove banner"
-              >
-                <X size={14} />
-              </button>
             </div>
-          </div>
 
-          {/* Position selector */}
+            {/* Remove button */}
+            <button
+              onClick={handleRemoveBanner}
+              className="w-full btn btn-secondary text-xs"
+            >
+              <X size={12} />
+              Remove Banner
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Banner controls (only when banner is active) */}
+      {banner.enabled && banner.url && (
+        <div className="mt-4 space-y-3 pt-3 border-t border-slate-700">
+          {/* Position picker */}
           <div>
             <label className="flex items-center gap-1.5 text-xs text-slate-400 mb-2">
               <MapPin size={12} />
