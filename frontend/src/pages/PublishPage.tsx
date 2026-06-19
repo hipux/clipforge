@@ -26,7 +26,7 @@ interface ClipPublishState {
 }
 
 export default function PublishPage() {
-  const { processedClips } = useAppStore()
+  const { processedClips, setCurrentStep } = useAppStore()
   const [authenticated, setAuthenticated] = useState(false)
   const [authUrl, setAuthUrl] = useState('')
   const [authCode, setAuthCode] = useState('')
@@ -34,6 +34,7 @@ export default function PublishPage() {
   const [publishStates, setPublishStates] = useState<Record<string, ClipPublishState>>({})
 
   useEffect(() => {
+    setCurrentStep(5)
     checkAuth()
     const states: Record<string, ClipPublishState> = {}
     processedClips.forEach(clip => {

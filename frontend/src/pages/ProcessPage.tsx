@@ -14,7 +14,7 @@ import {
 
 export default function ProcessPage() {
   const navigate = useNavigate()
-  const { selectedMomentIds, globalEffects, setClips } = useAppStore()
+  const { selectedMomentIds, globalEffects, setClips, setCurrentStep } = useAppStore()
 
   const [processing, setProcessing] = useState(false)
   const [currentClip, setCurrentClip] = useState(0)
@@ -75,6 +75,7 @@ export default function ProcessPage() {
         } else if (message.status === 'completed') {
           setClipProgress(100)
           setCompleted(true)
+          setCurrentStep(4)
           setProcessing(false)
           setClips(message.clips)
           ws.close()

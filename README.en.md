@@ -31,215 +31,225 @@ Local video clip processing & publishing tool that lets you download long-form v
   - Local export for TikTok, Instagram Reels, VK Clips, etc.
 - **Session Persistence**: Resume your work from where you left off (after page reload)
 
-### 🆓 Гарантия нулевой стоимости
+### 🆓 Zero Cost Guarantee
 
-| Компонент | Инструмент | Стоимость |
-|-----------|------------|-----------|
-| Скачивание видео | yt-dlp | Бесплатно, открытый исходный код |
-| Обработка видео | FFmpeg | Бесплатно, открытый исходный код |
-| Распознавание речи | faster-whisper | Бесплатно, работает локально |
-| Определение сцен | OpenCV + librosa | Бесплатно, работает локально |
-| Оценка моментов | Локальный движок | Бесплатно, без внешних API |
-| Публикация на YouTube | YouTube Data API v3 | **Бесплатный уровень (10K единиц/день)** |
-| Бэкенд | Python + FastAPI | Бесплатно, открытый исходный код |
-| Фронтенд | React + Vite + Tailwind | Бесплатно, открытый исходный код |
-| База данных | SQLite | Бесплатно, открытый исходный код |
+| Component | Tool | Cost |
+|-----------|------|------|
+| Video Download | yt-dlp | Free, open-source |
+| Video Processing | FFmpeg | Free, open-source |
+| Speech Recognition | faster-whisper | Free, runs locally (no cloud!) |
+| Scene Detection | OpenCV + librosa + PySceneDetect | Free, runs locally |
+| Moment Scoring | Local engine (heuristics) | Free, no external APIs |
+| YouTube Publishing | YouTube Data API v3 | **Free tier (10,000 units/day)** |
+| Backend | Python 3.11+ + FastAPI | Free, open-source |
+| Frontend | React + Vite + Tailwind CSS | Free, open-source |
+| Database | SQLite | Free, open-source |
 
-**Квота YouTube API:** 10 000 единиц/день бесплатно. Одна загрузка видео ≈ 1 600 единиц → **~6 видео/день бесплатно**. Идеально для личного использования!
+**YouTube API Quota:** 10,000 units/day for free. One video upload ≈ 1,600 units → **~6 videos/day free**. Perfect for personal use!
 
-### 🔧 Требования
+### 🔧 Requirements
 
-- **Python 3.11+**
-- **Node.js 18+**
-- **FFmpeg** (устанавливается скриптом setup)
-- **10+ ГБ свободного места** (для моделей Whisper и видеофайлов)
+- **Python 3.11** or newer
+- **Node.js 18** or newer (for frontend)
+- **FFmpeg** (installed and available in PATH)
+  - On macOS: `brew install ffmpeg`
+  - On Ubuntu/Debian: `sudo apt install ffmpeg`
+  - On Windows: Download from [ffmpeg.org](https://ffmpeg.org/download.html)
+- **Git** (to clone the repository)
+- **YouTube Data API v3 credentials** (optional, only for direct YouTube upload)
 
-### 🪟 Запуск на Windows
+### 🪟 Running on Windows
 
-ClipForge работает нативно в WSL2 (рекомендуется) или Git Bash:
+**Option 1: Use WSL2 (recommended)**
+1. Install WSL2 with Ubuntu: `wsl --install`
+2. Inside WSL2, follow the Linux instructions below
 
-**Вариант A: WSL2 (Рекомендуется)**
-1. Установите WSL2: `wsl --install` в PowerShell (от имени Администратора)
-2. Откройте терминал Ubuntu из меню Пуск
-3. Клонируйте этот репозиторий и следуйте инструкциям установки для Linux ниже
+**Option 2: Native Windows**
+1. Install Python 3.11+ from [python.org](https://www.python.org/downloads/)
+2. Install Node.js 18+ from [nodejs.org](https://nodejs.org/)
+3. Install FFmpeg:
+   - Download from [ffmpeg.org](https://ffmpeg.org/download.html#build-windows)
+   - Extract to `C:\ffmpeg`
+   - Add `C:\ffmpeg\bin` to System PATH
+   - Verify: `ffmpeg -version` in cmd
+4. Clone the repository: `git clone https://github.com/hipux/clipforge.git`
+5. Run `setup.bat` (installs dependencies)
+6. Run `start.bat` (starts backend + frontend)
+7. Open http://localhost:5173
 
-**Вариант Б: Нативный Windows**
-1. Установите Python 3.11+ с [python.org](https://www.python.org/downloads/)
-2. Установите Node.js 18+ с [nodejs.org](https://nodejs.org/)
-3. Установите FFmpeg: `winget install Gyan.FFmpeg` (или через [chocolatey](https://chocolatey.org/): `choco install ffmpeg`)
-4. Используйте `setup.bat` вместо `setup.sh`
-5. Используйте `start.bat` вместо `start.sh`
-
-**Установка на Windows:**
-```batch
-setup.bat
-```
-
-**Запуск на Windows:**
-```batch
-start.bat
-```
-
-### 🚀 Быстрый старт
-
-#### 1. Клонирование и установка
+### 🚀 Quick Start
 
 ```bash
+# 1. Clone the repository
 git clone https://github.com/hipux/clipforge.git
 cd clipforge
-chmod +x setup.sh start.sh
-./setup.sh
+
+# 2. Install dependencies (backend + frontend)
+./setup.sh  # or setup.bat on Windows
+
+# 3. (Optional) Configure YouTube API
+cp .env.example backend/.env
+# Edit backend/.env and add your credentials
+# (see YouTube API setup below)
+
+# 4. Start the application
+./start.sh  # or start.bat on Windows
+
+# The app will open at http://localhost:5173
+# Backend API at http://localhost:8000
 ```
 
-Скрипт установки:
-- Установит FFmpeg
-- Создаст виртуальное окружение Python
-- Установит все зависимости Python (включая faster-whisper)
-- **Скачает AI-модель Whisper (~150МБ, один раз)** — затем работает полностью офлайн
-- Установит зависимости фронтенда
-- Создаст рабочие директории
+### 🔑 YouTube API Setup (Optional)
 
-#### 2. (Опционально) Настройка YouTube API
+To publish clips directly to YouTube Shorts, you need YouTube Data API v3 credentials.
 
-Для загрузки напрямую на YouTube Shorts (полностью бесплатно):
+**1. Create a Google Cloud Project**
+   - Go to [Google Cloud Console](https://console.cloud.google.com/)
+   - Create a new project (or select an existing one)
+   - Enable **YouTube Data API v3** for this project
 
-1. Перейдите в [Google Cloud Console](https://console.cloud.google.com/)
-2. Создайте новый проект (платёжный аккаунт не требуется)
-3. Включите **YouTube Data API v3**:
-   - Перейдите в **APIs & Services → Library**
-   - Найдите "YouTube Data API v3"
-   - Нажмите **Enable**
-4. Создайте учётные данные OAuth 2.0:
-   - Перейдите в **APIs & Services → Credentials**
-   - Нажмите **Create Credentials → OAuth 2.0 Client ID**
-   - Настройте экран согласия (External, test mode)
-   - Тип приложения: **Desktop app**
-5. Скачайте `client_secrets.json` и поместите в корень проекта
+**2. Create OAuth 2.0 Credentials**
+   - Go to "APIs & Services" → "Credentials"
+   - Click "Create Credentials" → "OAuth client ID"
+   - Application type: **Desktop app**
+   - Name: `ClipForge` (or any name)
+   - Download the JSON file
 
-**Первичная авторизация:** При первой загрузке видео ClipForge откроет окно браузера для авторизации вашего YouTube-аккаунта. Это одноразовая настройка.
+**3. Configure ClipForge**
+   - Rename the downloaded file to `client_secret.json`
+   - Place it in `backend/` directory
+   - Or use `.env` file (see `.env.example`)
 
-#### 3. Запуск ClipForge
+**4. First Launch**
+   - When you first click "Upload to YouTube" in ClipForge:
+     - A browser window will open asking you to authorize
+     - Sign in with your YouTube account
+     - Grant permissions
+     - Copy the authorization code and paste it in ClipForge
+   - The token will be saved in `backend/token.json` for future use
 
+### 📖 User Guide
+
+#### 1. Download Video
+   - Paste a link from YouTube, Rutube, or VK Video
+   - Click "Download"
+   - The video will be saved locally
+
+#### 2. Find Moments
+   - ClipForge will analyze the video using local AI:
+     - Audio energy peaks (loud moments, music drops)
+     - Scene changes (visual cuts)
+     - Speech content (interesting words)
+   - Review the automatically detected moments
+   - Select the ones you want to turn into clips
+
+#### 3. Configure Effects
+   - **Subtitles**: Auto-generated from speech (5 styles available)
+     - **Karaoke**: TikTok-style word-by-word yellow highlight
+     - **Bold White**: Classic bold white text with black outline
+     - **Neon**: Cyan glow with dark semi-transparent background
+     - **Minimal**: Small, clean, unobtrusive white text
+     - **Cinematic**: Spaced letters on semi-transparent black bar
+   - **Blurred Background**: Vertical 9:16 format with strong blur (Shorts-ready)
+   - **Banner/Watermark**: Upload your logo/brand image (PNG/JPG), adjust position and size
+   - **Mirror Effect**: Horizontal flip for creative look
+   - **Color Correction**: Subtle enhancement (+1% brightness, +1% contrast, +2% saturation)
+
+#### 4. Process Clips
+   - ClipForge will render all selected clips with chosen effects
+   - Progress is shown in real-time
+   - All processing happens locally on your machine
+
+#### 5. Publish
+   - **YouTube Shorts**: Direct upload with custom title/description
+   - **Manual Export**: Copy local file path and upload to any platform (TikTok, Instagram Reels, VK Clips, etc.)
+
+### 🐛 Troubleshooting
+
+#### FFmpeg not found
+**Error:** `FFmpeg is not installed or not in PATH`
+
+**Solution:**
+- **macOS**: `brew install ffmpeg`
+- **Ubuntu/Debian**: `sudo apt install ffmpeg`
+- **Windows**: Download from [ffmpeg.org](https://ffmpeg.org/download.html) and add to PATH
+- Verify installation: `ffmpeg -version`
+
+#### Python version too old
+**Error:** `Python 3.11+ required`
+
+**Solution:**
+- **macOS**: `brew install python@3.11`
+- **Ubuntu/Debian**: `sudo apt install python3.11`
+- **Windows**: Download from [python.org](https://www.python.org/downloads/)
+- Verify: `python3 --version` or `python --version`
+
+#### Port already in use
+**Error:** `Address already in use: 8000` or `5173`
+
+**Solution:**
 ```bash
-./start.sh
+# Find process using the port
+lsof -i :8000  # or :5173
+# Kill the process
+kill -9 <PID>
+# Or change the port in start.sh / start.bat
 ```
 
-Запускает:
-- Backend API на `http://localhost:8000`
-- Frontend UI на `http://localhost:5173` (открывается автоматически)
+#### YouTube authentication failed
+**Error:** `Invalid client_secret.json` or `OAuth error`
 
-### 📖 Руководство пользователя
+**Solution:**
+1. Verify `client_secret.json` is in `backend/` directory
+2. Check that YouTube Data API v3 is enabled in Google Cloud Console
+3. Ensure the OAuth client type is "Desktop app" (not "Web application")
+4. Delete `backend/token.json` and re-authorize
 
-#### Шаг 1: Скачивание видео
-
-1. Вставьте URL видео (YouTube, Rutube или VK Video)
-2. Нажмите "Download"
-3. Дождитесь завершения загрузки (прогресс, скорость, ETA показываются в реальном времени)
-
-#### Шаг 2: Определение моментов
-
-1. Нажмите "Continue to Moments" или перейдите на вкладку Moments
-2. AI автоматически определит 5-15 интересных моментов
-3. Просмотрите кандидатов (оценка, таймкоды, причина)
-4. Выберите клипы, которые хотите обработать
-
-#### Шаг 3: Настройка эффектов
-
-1. **Стиль субтитров**: выберите один из 5 стилей (Karaoke, Bold White, Neon, Minimal, Cinematic)
-2. **Видеоэффекты**: включите/выключите:
-   - **Размытый фон**: динамический размытый фон (преобразует в вертикальный формат 9:16)
-   - **Зеркало**: горизонтальное отражение
-   - **Коррекция цвета**: тонкое усиление яркости/контраста
-3. **Баннер/Водяной знак**: загрузите изображение и настройте позицию, размер, прозрачность
-4. Эффекты применяются ко всем выбранным клипам
-
-#### Шаг 4: Обработка
-
-1. Нажмите "Start Processing"
-2. Следите за прогрессом в реальном времени для каждого клипа
-3. Все эффекты применяются за один проход FFmpeg (быстро!)
-
-#### Шаг 5: Публикация
-
-**Вариант A: YouTube Shorts (прямая загрузка)**
-- Подключите ваш YouTube-аккаунт (одноразовая OAuth-авторизация)
-- Заполните название и описание
-- Нажмите "Upload to YouTube Shorts"
-- Получите прямую ссылку на опубликованное видео
-
-**Вариант Б: Ручной экспорт для других платформ**
-- Нажмите "Copy File Path" чтобы получить путь к локальному файлу
-- Клипы уже отформатированы как вертикальные MP4 9:16
-- Загрузите вручную на TikTok, Instagram Reels, VK Клипы и т.д.
-
-### 🐛 Устранение неполадок
-
-#### FFmpeg не найден
-```bash
-sudo apt-get install ffmpeg
-```
-
-#### Проблемы с установкой faster-whisper
-Убедитесь, что у вас Python 3.11+. На Ubuntu:
-```bash
-sudo apt-get install python3.11 python3.11-venv
-```
-
-#### Загрузка на YouTube не удалась: "Квота превышена"
-Бесплатная квота: 10 000 единиц/день. Обновляется в полночь по тихоокеанскому времени. Если превышена, подождите до завтра или экспортируйте локально.
-
-#### Скачивание не удалось: "Видео недоступно"
-- Проверьте, является ли видео публичным (не приватное или с гео-блокировкой)
-- Попробуйте использовать VPN если есть гео-ограничения
-- Убедитесь, что формат URL правильный
-
-#### Проблемы с моделью Whisper
-Модель Whisper (~150МБ) скачивается **один раз при установке** и сохраняется в `workspace/models/whisper-base/`. После этого работает **100% офлайн** — никаких сетевых запросов.
-
-Если установка не смогла скачать модель, она будет скачана при первом использовании. Для ручного скачивания:
+#### Whisper model download
+If this is your first time using faster-whisper, the model will be downloaded automatically on first use. To manually download:
 ```bash
 python -c "from huggingface_hub import snapshot_download; snapshot_download('Systran/faster-whisper-base', local_dir='workspace/models/whisper-base')"
 ```
 
-#### Видео на нескольких языках / Неверное определение языка
-Если вы работаете с видео на нескольких языках (например, русская озвучка с английскими песнями), Whisper может неправильно определить язык, что приведёт к некорректным субтитрам.
+#### Multi-language videos / Wrong language detection
+If you're working with multi-language videos (e.g., Russian voiceover with English songs), Whisper may incorrectly detect the language, leading to wrong subtitles.
 
-**Решение:** Принудительно задайте язык через переменную окружения `WHISPER_LANGUAGE`.
+**Solution:** Force the language via `WHISPER_LANGUAGE` environment variable.
 
-**На Windows** (в `start.bat`):
-1. Откройте `start.bat` в текстовом редакторе
-2. Раскомментируйте строку: `REM set WHISPER_LANGUAGE=ru`
-3. Измените на: `set WHISPER_LANGUAGE=ru` (или `en` для английского)
-4. Сохраните и запустите `start.bat`
+**On Windows** (in `start.bat`):
+1. Open `start.bat` in a text editor
+2. Uncomment the line: `REM set WHISPER_LANGUAGE=ru`
+3. Change to: `set WHISPER_LANGUAGE=ru` (or `en` for English)
+4. Save and run `start.bat`
 
-**На Linux/Mac** (в терминале):
+**On Linux/Mac** (in terminal):
 ```bash
-export WHISPER_LANGUAGE=ru  # или 'en' для английского
+export WHISPER_LANGUAGE=ru  # or 'en' for English
 ./start.sh
 ```
 
-### 📊 Производительность
+### 📊 Performance
 
-- **Определение моментов**: 1-3 минуты для 30-минутного видео (зависит от CPU)
-- **Обработка видео**: 30-60 секунд на клип (со всеми эффектами)
-- **Загрузка на YouTube**: 10-30 секунд на клип (зависит от скорости интернета)
+- **Moment Detection**: 1-3 minutes for a 30-minute video (depends on CPU)
+- **Video Processing**: 30-60 seconds per clip (with all effects)
+- **YouTube Upload**: 10-30 seconds per clip (depends on internet speed)
 
-### 📜 Лицензия
+### 📜 License
 
-MIT License — свободно использовать, изменять и распространять.
+MIT License — free to use, modify, and distribute.
 
-### 🙏 Благодарности
+### 🙏 Acknowledgements
 
-Создано с помощью этих замечательных бесплатных инструментов с открытым исходным кодом:
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) — Скачивание видео
-- [FFmpeg](https://ffmpeg.org/) — Обработка видео
-- [faster-whisper](https://github.com/guillaumekln/faster-whisper) — Распознавание речи
-- [librosa](https://librosa.org/) — Анализ аудио
-- [OpenCV](https://opencv.org/) — Компьютерное зрение
-- [FastAPI](https://fastapi.tiangolo.com/) — Веб-фреймворк
-- [React](https://react.dev/) — UI-фреймворк
-- [Tailwind CSS](https://tailwindcss.com/) — Стилизация
+Built with these amazing free open-source tools:
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) — Video download
+- [FFmpeg](https://ffmpeg.org/) — Video processing
+- [faster-whisper](https://github.com/guillaumekln/faster-whisper) — Speech recognition
+- [librosa](https://librosa.org/) — Audio analysis
+- [OpenCV](https://opencv.org/) — Computer vision
+- [FastAPI](https://fastapi.tiangolo.com/) — Web framework
+- [React](https://react.dev/) — UI framework
+- [Tailwind CSS](https://tailwindcss.com/) — Styling
 
 ---
 
-**Сделано с ❤️ для создателей контента, которые хотят полного контроля и нулевых затрат на API.**
+**Made with ❤️ for content creators who want full control and zero API costs.**
