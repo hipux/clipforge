@@ -158,6 +158,9 @@ export default function DownloadPage() {
             <span className="flex items-center gap-1.5 text-xs text-slate-400 bg-surface-2 px-2.5 py-1 rounded-md border border-slate-700/50">
               <Video size={11} className="text-blue-400" /> VK Video
             </span>
+            <span className="flex items-center gap-1.5 text-xs text-slate-400 bg-surface-2 px-2.5 py-1 rounded-md border border-slate-700/50">
+              <Tv size={11} className="text-purple-400" /> Twitch
+            </span>
           </div>
         </div>
       </div>

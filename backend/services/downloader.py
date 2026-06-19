@@ -19,6 +19,8 @@ def detect_platform(url: str) -> str:
         return "rutube"
     elif "vk.com" in url or "vkvideo.ru" in url:
         return "vk"
+    elif "twitch.tv" in url:
+        return "twitch"
     else:
         raise ValueError(f"Unsupported platform. URL: {url}")
 

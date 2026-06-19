@@ -45,6 +45,12 @@ export interface ProcessedClip {
   effects?: EffectSettings
 }
 
+export interface DetectionSettings {
+  minDuration: number
+  maxDuration: number
+  maxMoments: number
+}
+
 interface AppState {
   // Current video
   currentVideo: VideoInfo | null
@@ -66,6 +72,10 @@ interface AppState {
   // Processed clips
   processedClips: ProcessedClip[]
   setClips: (clips: ProcessedClip[]) => void
+  
+  // Detection settings
+  detectionSettings: DetectionSettings
+  updateDetectionSettings: (settings: Partial<DetectionSettings>) => void
   
   // Navigation state
   currentStep: number
@@ -91,6 +101,11 @@ export const useAppStore = create<AppState>()(persist((set) => ({
     },
   },
   processedClips: [],
+  detectionSettings: {
+    minDuration: 30,
+    maxDuration: 90,
+    maxMoments: 15,
+  },
   currentStep: 1,
   
   // Actions
@@ -116,6 +131,10 @@ export const useAppStore = create<AppState>()(persist((set) => ({
   setClips: (clips) => set({ processedClips: clips }),
   
   setCurrentStep: (step) => set({ currentStep: step }),
+  
+  updateDetectionSettings: (settings) => set((state) => ({
+    detectionSettings: { ...state.detectionSettings, ...settings }
+  })),
 }), {
   name: 'clipforge-session',
   partialize: (state) => ({
@@ -124,6 +143,7 @@ export const useAppStore = create<AppState>()(persist((set) => ({
     selectedMomentIds: state.selectedMomentIds,
     globalEffects: state.globalEffects,
     processedClips: state.processedClips,
+    detectionSettings: state.detectionSettings,
     currentStep: state.currentStep,
   }),
 }))

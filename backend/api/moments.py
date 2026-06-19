@@ -54,12 +54,12 @@ async def start_moment_detection(request: DetectMomentsRequest):
     }
     
     # Start detection in background
-    asyncio.create_task(run_moment_detection(job_id, video))
+    asyncio.create_task(run_moment_detection(job_id, video, request.min_duration, request.max_duration, request.max_moments))
     
     return {'job_id': job_id, 'status': 'pending'}
 
 
-async def run_moment_detection(job_id: str, video: dict):
+async def run_moment_detection(job_id: str, video: dict, min_duration: int = 30, max_duration: int = 90, max_moments: int = 15):
     """Run moment detection in background."""
     try:
         detection_jobs[job_id]['status'] = 'analyzing'
@@ -74,17 +74,18 @@ async def run_moment_detection(job_id: str, video: dict):
         detection_jobs[job_id]['message'] = 'Detecting scenes and audio energy...'
         
         # Step 2: Detect moments using combined analysis
+        # Step 2: Detect moments using combined analysis
         # Run blocking video/audio processing in thread pool
         moments = await asyncio.to_thread(
             detect_moments_from_video,
             video['file_path'],
             video['id'],
             video['duration'],
-            speech_scores
+            speech_scores,
+            max_moments,
+            min_duration,
+            max_duration
         )
-        
-        detection_jobs[job_id]['progress'] = 0.8
-        detection_jobs[job_id]['message'] = 'Saving moments...'
         
         # Save to database
         await save_moments(moments)

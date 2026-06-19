@@ -37,6 +37,9 @@ class MomentCandidate(BaseModel):
 
 class DetectMomentsRequest(BaseModel):
     video_id: str
+    min_duration: int = 30  # seconds
+    max_duration: int = 90  # seconds
+    max_moments: int = 15
 
 
 class UpdateMomentRequest(BaseModel):
