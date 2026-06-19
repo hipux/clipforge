@@ -215,36 +215,34 @@ def generate_candidate_windows(
 
 
 def generate_thumbnail(video_path: str, video_id: str, moment_id: str, timestamp: float) -> str:
-    """
-    Generate a thumbnail image at the specified timestamp using FFmpeg.
-    
-    Args:
-        video_path: Path to video file
-        video_id: Video ID
-        moment_id: Moment ID
-        timestamp: Timestamp in seconds to extract frame
-        
-    Returns:
-        Relative URL path to the thumbnail
-    """
+    """Generate a 9:16 thumbnail with blurred background at the specified timestamp."""
     try:
-        # Create thumbnails directory
         video_dir = DOWNLOADS_DIR / video_id
-        thumbnails_dir = video_dir / "thumbnails"
+        thumbnails_dir = video_dir / 'thumbnails'
         thumbnails_dir.mkdir(exist_ok=True)
+        thumbnail_path = thumbnails_dir / f'{moment_id}.jpg'
         
-        # Output path
-        thumbnail_path = thumbnails_dir / f"{moment_id}.jpg"
+        # 9:16 blurred background composite (1080x1920)
+        # bg: scale to fill 1080x1920, strong blur, darken
+        # fg: scale to fit within 1080 width, centered overlay
+        filter_complex = (
+            '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,'
+            'crop=1080:1920,gblur=sigma=60,'
+            'colorlevels=rimax=0.7:gimax=0.7:bimax=0.7[bg];'
+            '[0:v]scale=1080:-2:force_original_aspect_ratio=decrease[fg];'
+            '[bg][fg]overlay=(W-w)/2:(H-h)/2[out]'
+        )
         
-        # Extract frame using FFmpeg
         subprocess.run(
             [
-                "ffmpeg",
-                "-ss", str(timestamp),  # Seek to timestamp
-                "-i", video_path,
-                "-vframes", "1",  # Extract 1 frame
-                "-q:v", "2",  # High quality
-                "-y",  # Overwrite
+                'ffmpeg',
+                '-ss', str(timestamp),
+                '-i', video_path,
+                '-vframes', '1',
+                '-filter_complex', filter_complex,
+                '-map', '[out]',
+                '-q:v', '2',
+                '-y',
                 str(thumbnail_path)
             ],
             check=True,
@@ -252,13 +250,10 @@ def generate_thumbnail(video_path: str, video_id: str, moment_id: str, timestamp
             stderr=subprocess.DEVNULL
         )
         
-        # Return URL path relative to /downloads mount
-        return f"/downloads/{video_id}/thumbnails/{moment_id}.jpg"
-    
+        return f'/downloads/{video_id}/thumbnails/{moment_id}.jpg'
     except Exception as e:
-        logger.error(f"Thumbnail generation failed for moment {moment_id}: {e}")
-        # Return a default/placeholder path
-        return f"/api/thumbnail/{video_id}/{moment_id}"
+        logger.error(f'Thumbnail generation failed for moment {moment_id}: {e}')
+        return f'/api/thumbnail/{video_id}/{moment_id}'
 
 
 def detect_moments_from_video(

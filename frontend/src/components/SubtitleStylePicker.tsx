@@ -54,37 +54,40 @@ const styles = [
 ]
 
 export default function SubtitleStylePicker() {
-  const { globalEffects, updateGlobalEffects, currentVideo } = useAppStore()
+  const { globalEffects, updateGlobalEffect, currentVideo, moments } = useAppStore()
   const selectedStyle = globalEffects.subtitle_style || 'karaoke'
 
-  const handleStyleSelect = (styleId: string) => {
-    updateGlobalEffects({ subtitle_style: styleId })
+  const handleStyleChange = (styleId: string) => {
+    updateGlobalEffect({ subtitle_style: styleId })
   }
 
+  // Use the first moment's thumbnail (9:16 with blurred background) or fallback to video thumbnail
+  const previewBg = moments.length > 0 ? moments[0].thumbnail_url : currentVideo?.thumbnail_url
+
   return (
-    <div className="card">
-      <div className="flex items-center gap-2 mb-4">
+    <div>
+      <div className="flex items-center gap-2 mb-3">
         <Captions size={16} className="text-accent" />
-        <h2 className="font-semibold text-slate-200">Subtitle Style</h2>
+        <span className="font-semibold text-slate-200 text-sm">Subtitle Style</span>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {styles.map((style) => (
           <button
             key={style.id}
-            onClick={() => handleStyleSelect(style.id)}
+            onClick={() => handleStyleChange(style.id)}
             className={`text-left rounded-xl border transition-all ${
               selectedStyle === style.id
                 ? 'bg-accent/10 border-accent/40 ring-2 ring-accent/20'
                 : 'bg-surface-2 border-slate-700 hover:border-slate-600 hover:bg-white/[0.03]'
             }`}
           >
-            {/* Video frame preview */}
-            <div className="relative w-full aspect-video rounded-t-lg overflow-hidden">
-              {/* Background: thumbnail if available, else gradient */}
-              {currentVideo?.thumbnail_url ? (
+            {/* Video frame preview - 9:16 vertical format */}
+            <div className="relative w-full aspect-[9/16] rounded-t-lg overflow-hidden">
+              {/* Background: moment thumbnail (9:16 with blur) if available, else video thumbnail or gradient */}
+              {previewBg ? (
                 <img 
-                  src={currentVideo.thumbnail_url} 
+                  src={previewBg} 
                   alt="Video frame" 
                   className="absolute inset-0 w-full h-full object-cover" 
                 />

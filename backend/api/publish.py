@@ -1,5 +1,7 @@
 """Publishing API endpoints for YouTube."""
 from fastapi import APIRouter, HTTPException
+import subprocess
+import sys
 from backend.models import PublishRequest, PublishResponse, YouTubeAuthStatus
 from backend.services.youtube_publisher import (
     upload_video_to_youtube,
@@ -8,6 +10,7 @@ from backend.services.youtube_publisher import (
     is_authenticated
 )
 from backend.db import get_clip, save_publish_log
+from backend.config import OUTPUT_DIR
 
 router = APIRouter()
 
@@ -84,3 +87,20 @@ async def get_export_path(clip_id: str):
         'file_path': clip['file_path'],
         'message': 'Use this path to manually upload to other platforms'
     }
+
+
+@router.get("/open-folder")
+async def open_output_folder():
+    """Open the output folder in system file manager."""
+    folder = str(OUTPUT_DIR)
+    try:
+        if sys.platform == 'win32':
+            subprocess.Popen(['explorer', folder])
+        elif sys.platform == 'darwin':
+            subprocess.Popen(['open', folder])
+        else:  # Linux
+            subprocess.Popen(['xdg-open', folder])
+        return {'status': 'opened', 'path': folder}
+    except Exception as e:
+        # Return the path even if we can't open it (e.g., headless server)
+        return {'status': 'path_only', 'path': folder, 'message': str(e)}

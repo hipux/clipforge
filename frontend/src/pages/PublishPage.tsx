@@ -23,6 +23,7 @@ interface ClipPublishState {
   success: boolean
   youtubeUrl: string | null
   error: string | null
+  copyStatus: 'idle' | 'copied' | 'error'
 }
 
 export default function PublishPage() {
@@ -32,6 +33,7 @@ export default function PublishPage() {
   const [authCode, setAuthCode] = useState('')
   const [checkingAuth, setCheckingAuth] = useState(true)
   const [publishStates, setPublishStates] = useState<Record<string, ClipPublishState>>({})
+  const [folderNotification, setFolderNotification] = useState<string | null>(null)
 
   useEffect(() => {
     setCurrentStep(5)
@@ -46,10 +48,18 @@ export default function PublishPage() {
         success: false,
         youtubeUrl: null,
         error: null,
+        copyStatus: 'idle',
       }
     })
     setPublishStates(states)
   }, [processedClips])
+
+  useEffect(() => {
+    if (folderNotification) {
+      const timer = setTimeout(() => setFolderNotification(null), 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [folderNotification])
 
   const checkAuth = async () => {
     try {
@@ -106,8 +116,49 @@ export default function PublishPage() {
     }
   }
 
-  const copyPath = (path: string) => {
-    navigator.clipboard.writeText(path)
+  const copyPath = async (clipId: string) => {
+    updateState(clipId, { copyStatus: 'idle' })
+    
+    try {
+      // Get the full path from backend
+      const { data } = await axios.get(`/api/export/${clipId}/path`)
+      const fullPath = data.file_path
+      
+      // Try clipboard API
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(fullPath)
+          updateState(clipId, { copyStatus: 'copied' })
+          // Reset after 1.5 seconds
+          setTimeout(() => updateState(clipId, { copyStatus: 'idle' }), 1500)
+        } else {
+          // Fallback: show prompt dialog
+          prompt('Copy the path below:', fullPath)
+          updateState(clipId, { copyStatus: 'copied' })
+          setTimeout(() => updateState(clipId, { copyStatus: 'idle' }), 1500)
+        }
+      } catch (clipboardErr) {
+        // Clipboard failed, use prompt fallback
+        prompt('Copy the path below:', fullPath)
+        updateState(clipId, { copyStatus: 'copied' })
+        setTimeout(() => updateState(clipId, { copyStatus: 'idle' }), 1500)
+      }
+    } catch (err: any) {
+      updateState(clipId, { copyStatus: 'error' })
+      setTimeout(() => updateState(clipId, { copyStatus: 'idle' }), 2000)
+    }
+  }
+
+  const openOutputFolder = async () => {
+    try {
+      const { data } = await axios.get('/api/open-folder')
+      if (data.status === 'path_only') {
+        // Backend couldn't open folder (headless server, etc.), show the path
+        setFolderNotification(`Output folder: ${data.path}`)
+      }
+    } catch (err) {
+      setFolderNotification('Could not open output folder')
+    }
   }
 
   if (processedClips.length === 0) {
@@ -138,6 +189,14 @@ export default function PublishPage() {
           Upload your processed clips to YouTube Shorts or export locally.
         </p>
       </div>
+
+      {/* Folder notification toast */}
+      {folderNotification && (
+        <div className="mb-4 flex items-center gap-2 px-4 py-3 rounded-lg bg-accent/10 border border-accent/30 text-accent text-sm">
+          <Info size={14} className="shrink-0" />
+          <span className="text-xs">{folderNotification}</span>
+        </div>
+      )}
 
       {/* YouTube Auth */}
       {!checkingAuth && (
@@ -267,11 +326,17 @@ export default function PublishPage() {
                   )}
                 </button>
                 <button
-                  onClick={() => copyPath(clip.file_path)}
+                  onClick={() => copyPath(clip.id)}
                   className="btn btn-secondary text-sm"
                   title="Copy local file path"
                 >
-                  <Copy size={14} />
+                  {state.copyStatus === 'copied' ? (
+                    <CheckCircle2 size={14} className="text-success" />
+                  ) : state.copyStatus === 'error' ? (
+                    <AlertTriangle size={14} className="text-danger" />
+                  ) : (
+                    <Copy size={14} />
+                  )}
                   Copy Path
                 </button>
               </div>
@@ -315,7 +380,7 @@ export default function PublishPage() {
             All clips are 9:16 vertical MP4, ready to upload anywhere.
           </p>
           <button
-            onClick={() => axios.get('/api/open-folder').catch(() => {})}
+            onClick={openOutputFolder}
             className="btn btn-secondary text-xs mt-2"
           >
             <FolderOpen size={12} />

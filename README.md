@@ -1,6 +1,6 @@
 # ClipForge 🎬
 
-[🇷🇺 Русский](README.md) | [🇬🇧 English](README.en.md)
+[🇷🇺 Русский](https://github.com/hipux/clipforge#readme) | [🇬🇧 English](https://github.com/hipux/clipforge/blob/main/README.en.md)
 
 
 ---
