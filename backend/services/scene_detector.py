@@ -1,3 +1,7 @@
+"""Legacy CPU-only scene detection. Used only by CPU fallback pipeline when GPU unavailable.
+
+GPU pipeline uses audio_analyzer.py + face_detector.py + llm_director.py instead.
+"""
 """Scene detection and audio energy analysis."""
 import logging
 import cv2

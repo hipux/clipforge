@@ -1,3 +1,7 @@
+"""Legacy CPU-only speech scoring. Used only by CPU fallback pipeline when GPU unavailable.
+
+GPU pipeline uses whisper_gpu.py instead.
+"""
 """Speech transcription and content scoring using faster-whisper."""
 import logging
 import re
