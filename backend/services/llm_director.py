@@ -4,6 +4,7 @@ GPU-first: loads all layers on GPU when CUDA available.
 """
 from __future__ import annotations
 import logging
+import time
 from typing import Optional
 from backend.gpu_config import (
     QWEN_MODEL_PATH, QWEN_MODEL_REPO, QWEN_MODEL_FILE,
@@ -63,7 +64,6 @@ class LLMDirector:
         """
         import instructor
         from llama_cpp import Llama
-        import time
 
         self._download_model_if_needed()
 
@@ -200,7 +200,6 @@ RULES:
 
 {summary_text}"""
         
-        import time
         consolidate_start = time.time()
         
         result = client.chat.completions.create(

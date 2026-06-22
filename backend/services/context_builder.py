@@ -46,6 +46,7 @@ class ContextBuilder:
         """Build dynamic time-based chunks for long videos.
         
         Divides video into time windows, each generating a chunk ≤ max_tokens_per_chunk.
+        No fixed chunk limit - adapts to video duration.
         
         Args:
             ctx: Stage1Context with all assembled data
@@ -55,20 +56,27 @@ class ContextBuilder:
         Returns:
             List of context log strings, one per time chunk
         """
+        import math
+        
         TOKEN_CHARS = 4  # Approximate characters per token
         TOKENS_PER_MIN = 400  # Estimate: 400 tokens per minute of speech
         
         video_duration_min = ctx.video_duration / 60.0
         
-        # Calculate chunk duration
+        # Calculate chunk duration: 6000 tokens / 400 tokens/min = 15 min per chunk
         chunk_duration_min = max_tokens_per_chunk / TOKENS_PER_MIN
-        num_chunks = max(1, int((video_duration_min / chunk_duration_min) + 0.5))  # Round up
+        
+        # Number of chunks: ceil(video_duration / chunk_duration)
+        # For 30-min video: ceil(30/15) = 2 chunks
+        # For 2.5hr video: ceil(150/15) = 10 chunks
+        # For 10-min video: ceil(10/15) = 1 chunk
+        num_chunks = max(1, math.ceil(video_duration_min / chunk_duration_min))
         
         # Recalculate exact chunk duration to evenly divide video
         chunk_duration_sec = ctx.video_duration / num_chunks
         
         logger.info(f"📝 [Контекст] Видео {video_duration_min:.1f} мин → {num_chunks} чанков по {chunk_duration_sec/60:.1f} мин")
-        logger.info(f"📝 [Контекст] Ожидаемо ~{max_tokens_per_chunk} токенов на чанк, макс {max_tokens_per_chunk}")
+        logger.info(f"📝 [Контекст] Целевой размер чанка: ~{TOKENS_PER_MIN * (chunk_duration_sec/60):.0f} токенов, макс {max_tokens_per_chunk}")
         
         chunks = []
         for i in range(num_chunks):
