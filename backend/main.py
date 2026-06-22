@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from backend.db import init_db
 from backend.api import download, moments, process, publish, session, upload
+from backend.api import moments_gpu
 from backend.config import OUTPUT_DIR, DOWNLOADS_DIR, BANNERS_DIR
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,7 @@ app.add_middleware(
 #              ws://host:8000/api/ws/process/{id}
 app.include_router(download.router, prefix="/api", tags=["download"])
 app.include_router(moments.router, prefix="/api", tags=["moments"])
+app.include_router(moments_gpu.router, prefix="/api", tags=["gpu"])
 app.include_router(process.router, prefix="/api", tags=["process"])
 app.include_router(publish.router, prefix="/api", tags=["publish"])
 app.include_router(session.router, prefix="/api", tags=["session"])

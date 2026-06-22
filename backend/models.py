@@ -109,3 +109,34 @@ class ProgressMessage(BaseModel):
 class YouTubeAuthStatus(BaseModel):
     authenticated: bool
     auth_url: Optional[str] = None
+
+# ─── GPU Pipeline Extensions ───────────────────────────────────────────────
+
+class GPUStatus(BaseModel):
+    """GPU status for frontend monitoring."""
+    device: str  # "cuda" or "cpu"
+    is_gpu: bool
+    vram_usage: dict  # {allocated_gb, reserved_gb, total_gb, free_gb}
+    nvenc_available: bool = False
+    loaded_models: List[str] = []
+
+
+# Extended MomentCandidate for GPU pipeline (backward compatible)
+# All new fields have defaults for backward compatibility with existing DB records
+class MomentCandidateGPU(MomentCandidate):
+    """Extended moment candidate with GPU pipeline metadata."""
+    hook: Optional[str] = None
+    virality_score: Optional[float] = None
+    content_type: Optional[str] = None
+    subtitle_mode: Optional[str] = "ru_only"
+    translated_text: Optional[str] = None
+    camera_plan: Optional[str] = None  # JSON string of camera keyframes
+    reasoning: Optional[str] = None
+    pipeline_mode: str = "gpu"  # "gpu" or "legacy"
+
+
+# Extended DetectMomentsRequest for GPU pipeline
+class DetectMomentsRequestGPU(DetectMomentsRequest):
+    """Extended detection request with user instructions for LLM."""
+    user_instructions: str = ""
+    pipeline_mode: str = "auto"  # "auto", "gpu", or "legacy"

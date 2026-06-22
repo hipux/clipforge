@@ -32,3 +32,27 @@ python-multipart>=0.0.9
 websockets>=12.0
 aiofiles>=23.2.0
 httpx>=0.27.0
+
+# ─── GPU Pipeline Dependencies ─────────────────────────────────────────────
+# NOTE: Some packages require special installation:
+# - torch: pip install torch --index-url https://download.pytorch.org/whl/cu121
+# - llama-cpp-python: CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python
+
+# PyTorch (CUDA 12.1+)
+torch>=2.3.0
+
+# YOLOv8 face detection
+ultralytics>=8.1.0
+
+# Audio analysis
+scipy>=1.12.0
+
+# LLM inference
+llama-cpp-python>=0.2.56
+instructor>=1.3.0
+
+# Model downloads
+huggingface-hub>=0.23.0
+
+# GPU monitoring (optional but recommended)
+pynvml>=11.5.0
