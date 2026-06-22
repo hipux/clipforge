@@ -1,8 +1,8 @@
-# Windows batch files - store with CRLF, checkout with CRLF
-*.bat text working-tree-encoding=UTF-8 eol=crlf
-*.cmd text working-tree-encoding=UTF-8 eol=crlf
+# Windows batch files - binary to preserve exact CRLF bytes
+*.bat -text
+*.cmd -text
 
-# Shell scripts - always LF
+# Shell scripts - always LF  
 *.sh text eol=lf
 
 # Default
