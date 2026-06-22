@@ -28,7 +28,7 @@ FACE_CONFIDENCE_THRESHOLD = float(os.getenv("CLIPFORGE_FACE_CONF", "0.65"))
 
 # ─── LLM Configuration (Qwen3-8B GGUF) ─────────────────────────────────────
 QWEN_MODEL_REPO = "Qwen/Qwen3-8B-GGUF"
-QWEN_MODEL_FILE = "qwen3-8b-q4_k_m.gguf"
+QWEN_MODEL_FILE = "Qwen3-8B-Q4_K_M.gguf"  # Note: case-sensitive filename on HuggingFace!
 QWEN_MODEL_PATH = MODELS_DIR / QWEN_MODEL_FILE
 QWEN_N_CTX = int(os.getenv("CLIPFORGE_QWEN_N_CTX", "8192"))
 QWEN_N_GPU_LAYERS = int(os.getenv("CLIPFORGE_QWEN_N_GPU_LAYERS", "-1"))  # -1 = all layers on GPU

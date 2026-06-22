@@ -174,6 +174,136 @@ async def moment_detection_websocket(websocket: WebSocket, job_id: str):
         print(f"WebSocket error: {e}")
 
 
+
+@router.websocket("/moments/detect_ws")
+async def detect_moments_websocket(
+    websocket: WebSocket,
+    video_id: str,
+    min_duration: int = 30,
+    max_duration: int = 90,
+    max_moments: int = 15,
+    user_instructions: str = ""
+):
+    """WebSocket endpoint for real-time moment detection progress.
+    
+    Accepts connection, starts detection pipeline, streams progress updates.
+    """
+    await websocket.accept()
+    
+    try:
+        # Verify video exists
+        video = await get_video(video_id)
+        if not video:
+            await websocket.send_json({
+                'status': 'error',
+                'message': 'Video not found'
+            })
+            await websocket.close()
+            return
+        
+        # Check if moments already exist
+        existing_moments = await get_moments(video_id)
+        if existing_moments:
+            moments = [
+                {
+                    'id': m['id'],
+                    'video_id': m['video_id'],
+                    'start': m['start_time'],
+                    'end': m['end_time'],
+                    'score': m['score'],
+                    'reason': m['reason'] or '',
+                    'hook': m.get('hook', ''),
+                    'virality_score': m.get('virality_score', 0.0),
+                    'content_type': m.get('content_type', ''),
+                    'thumbnail_url': m['thumbnail_url'] or '',
+                    'approved': bool(m['approved'])
+                }
+                for m in existing_moments
+            ]
+            await websocket.send_json({
+                'status': 'completed',
+                'moments': moments,
+                'progress': 1.0,
+                'message': 'Моменты уже найдены'
+            })
+            await websocket.close()
+            return
+        
+        # Progress callback
+        async def progress_callback(progress: float, stage: str, message: str, **extra):
+            try:
+                await websocket.send_json({
+                    'status': stage,
+                    'progress': progress,
+                    'message': message,
+                    **extra
+                })
+            except Exception as e:
+                logger.warning(f"Failed to send progress update: {e}")
+        
+        # Create request
+        request = DetectMomentsRequest(
+            video_id=video_id,
+            min_duration=min_duration,
+            max_duration=max_duration,
+            max_moments=max_moments,
+            user_instructions=user_instructions
+        )
+        
+        # Run detection
+        moments = await detection_pipeline.run(
+            video_path=video['file_path'],
+            video_id=video_id,
+            settings=request,
+            progress_callback=progress_callback
+        )
+        
+        # Save to DB
+        await save_moments(moments)
+        
+        # Convert to API format
+        moments_response = [
+            {
+                'id': m.id,
+                'video_id': m.video_id,
+                'start': m.start,
+                'end': m.end,
+                'score': m.score,
+                'reason': m.reason,
+                'hook': getattr(m, 'hook', ''),
+                'virality_score': getattr(m, 'virality_score', 0.0),
+                'content_type': getattr(m, 'content_type', ''),
+                'thumbnail_url': m.thumbnail_url,
+                'approved': m.approved
+            }
+            for m in moments
+        ]
+        
+        # Send completion
+        await websocket.send_json({
+            'status': 'completed',
+            'moments': moments_response,
+            'progress': 1.0,
+            'message': f'Найдено {len(moments)} моментов'
+        })
+        
+    except Exception as e:
+        logger.exception(f"WebSocket detection error: {e}")
+        try:
+            await websocket.send_json({
+                'status': 'error',
+                'message': str(e),
+                'progress': 0.0
+            })
+        except:
+            pass
+    finally:
+        try:
+            await websocket.close()
+        except:
+            pass
+
+
 @router.get("/moments/{video_id}", response_model=List[MomentCandidate])
 async def get_video_moments(video_id: str):
     """Get all detected moments for a video."""

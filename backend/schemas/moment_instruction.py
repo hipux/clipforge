@@ -81,6 +81,19 @@ class FaceTimeline(BaseModel):
     unique_face_ids: List[int]
 
 
+
+
+class FacePresenceSegment(BaseModel):
+    """Temporal segment when faces are visible in frame.
+    
+    More meaningful than counting unique IDs (which explodes due to tracker drift).
+    Shows when the video actually has people in frame.
+    """
+    start: float = Field(description="segment start time (seconds)")
+    end: float = Field(description="segment end time (seconds)")
+    avg_face_count: float = Field(description="average number of faces in this segment")
+
+
 class AudioPeak(BaseModel):
     """Audio energy peak (emotional spike)."""
     timestamp: float
