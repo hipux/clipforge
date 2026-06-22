@@ -1,5 +1,5 @@
-# ClipForge GPU-Accelerated Setup
-# PowerShell — works on all Windows configurations
+﻿# ClipForge GPU-Accelerated Setup
+# PowerShell - works on all Windows configurations
 
 $Host.UI.RawUI.WindowTitle = "ClipForge Setup"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -11,7 +11,7 @@ Write-Host "   ClipForge GPU-Accelerated Setup" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-# ── 1. Python ───────────────────────────────────────────────────
+# -- 1. Python ---------------------------------------------------
 Write-Host "[+] Checking Python..." -ForegroundColor Yellow
 try {
     $pyVersion = & python --version 2>&1
@@ -21,7 +21,7 @@ try {
     Read-Host "Press Enter to exit"; exit 1
 }
 
-# ── 2. Virtual environment ──────────────────────────────────────
+# -- 2. Virtual environment --------------------------------------
 if (Test-Path "venv\Scripts\python.exe") {
     Write-Host "[OK] Virtual environment exists" -ForegroundColor Green
 } else {
@@ -40,11 +40,11 @@ $python = Join-Path $ScriptDir "venv\Scripts\python.exe"
 $env:PATH = (Join-Path $ScriptDir "venv\Scripts") + ";" + $env:PATH
 $env:VIRTUAL_ENV = Join-Path $ScriptDir "venv"
 
-# ── 3. Upgrade pip ──────────────────────────────────────────────
+# -- 3. Upgrade pip ----------------------------------------------
 Write-Host "[+] Upgrading pip..." -ForegroundColor Yellow
 & $python -m pip install --upgrade pip --quiet
 
-# ── 4. Detect GPU ───────────────────────────────────────────────
+# -- 4. Detect GPU -----------------------------------------------
 Write-Host ""
 Write-Host "[+] Checking for NVIDIA GPU..." -ForegroundColor Yellow
 $gpuAvailable = $false
@@ -58,17 +58,17 @@ try {
         Write-Host "[OK] GPU: $($gpuLine.Trim())" -ForegroundColor Green
         if ($gpuLine -match "RTX 50") {
             $cudaTag = "cu128"
-            Write-Host "[OK] Blackwell (RTX 50xx) — CUDA 12.8" -ForegroundColor Green
+            Write-Host "[OK] Blackwell (RTX 50xx) - CUDA 12.8" -ForegroundColor Green
         } else {
             $cudaTag = "cu121"
             Write-Host "[OK] CUDA 12.1" -ForegroundColor Green
         }
     }
 } catch {
-    Write-Host "[!] nvidia-smi not found — CPU-only mode" -ForegroundColor Yellow
+    Write-Host "[!] nvidia-smi not found - CPU-only mode" -ForegroundColor Yellow
 }
 
-# ── 5. PyTorch ──────────────────────────────────────────────────
+# -- 5. PyTorch --------------------------------------------------
 Write-Host ""
 if ($gpuAvailable) {
     Write-Host "[+] Installing PyTorch with $cudaTag (~2.5 GB)..." -ForegroundColor Yellow
@@ -84,11 +84,11 @@ if ($gpuAvailable) {
 }
 Write-Host "[OK] PyTorch installed" -ForegroundColor Green
 
-# ── 6. llama-cpp-python (pre-built wheel — no source build needed) ──
+# -- 6. llama-cpp-python (pre-built wheel - no source build needed) --
 Write-Host ""
 Write-Host "[+] Installing llama-cpp-python..." -ForegroundColor Yellow
 if ($gpuAvailable) {
-    # Use pre-built wheel from GitHub releases — avoids Long Path build issues
+    # Use pre-built wheel from GitHub releases - avoids Long Path build issues
     $llamaWheel = "https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.2-$cudaTag/llama_cpp_python-0.3.2-cp313-cp313-win_amd64.whl"
     & $pip install $llamaWheel --quiet 2>$null
     if ($LASTEXITCODE -ne 0) {
@@ -97,7 +97,7 @@ if ($gpuAvailable) {
             --extra-index-url "https://abetlen.github.io/llama-cpp-python/whl/$cudaTag" --quiet 2>$null
     }
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "[!] GPU llama-cpp failed — installing CPU version" -ForegroundColor Yellow
+        Write-Host "[!] GPU llama-cpp failed - installing CPU version" -ForegroundColor Yellow
         & $pip install llama-cpp-python --quiet
     }
 } else {
@@ -105,12 +105,12 @@ if ($gpuAvailable) {
 }
 Write-Host "[OK] llama-cpp-python installed" -ForegroundColor Green
 
-# ── 7. Python dependencies (torch/llama already handled above) ──
+# -- 7. Python dependencies (torch/llama already handled above) --
 Write-Host ""
 Write-Host "[+] Installing Python dependencies..." -ForegroundColor Yellow
 & $pip install -r requirements.txt
 
-# ── 8. Node.js + frontend ───────────────────────────────────────
+# -- 8. Node.js + frontend ---------------------------------------
 Write-Host ""
 Write-Host "[+] Checking Node.js..." -ForegroundColor Yellow
 try {
@@ -125,7 +125,7 @@ Set-Location (Join-Path $ScriptDir "frontend")
 npm install --silent
 Set-Location $ScriptDir
 
-# ── 9. Directories ──────────────────────────────────────────────
+# -- 9. Directories ----------------------------------------------
 Write-Host ""
 Write-Host "[+] Creating workspace directories..." -ForegroundColor Yellow
 @("workspace\downloads", "workspace\output", "workspace\temp", "models") | ForEach-Object {
@@ -133,7 +133,7 @@ Write-Host "[+] Creating workspace directories..." -ForegroundColor Yellow
 }
 Write-Host "[OK] Directories created" -ForegroundColor Green
 
-# ── 10. Database migration ──────────────────────────────────────
+# -- 10. Database migration --------------------------------------
 Write-Host ""
 Write-Host "[+] Running database migration..." -ForegroundColor Yellow
 & $python backend\migrate_gpu_fields.py
@@ -143,7 +143,7 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "[!] Migration skipped (DB created on first launch)" -ForegroundColor Yellow
 }
 
-# ── Done ────────────────────────────────────────────────────────
+# -- Done --------------------------------------------------------
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "   Setup Complete!" -ForegroundColor Green

@@ -1,5 +1,6 @@
 # Windows batch files - binary to preserve exact CRLF bytes
 *.bat -text
+*.ps1 -text
 *.cmd -text
 
 # Shell scripts - always LF  
