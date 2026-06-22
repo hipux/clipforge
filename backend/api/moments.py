@@ -2,11 +2,11 @@
 import logging
 import uuid
 import asyncio
+import json
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 from typing import List
-from backend.models import DetectMomentsRequest, MomentCandidate, UpdateMomentRequest
-from backend.services.scene_detector import detect_moments_from_video
-from backend.services.speech_scorer import analyze_speech_content
+from backend.models import DetectMomentsRequest, MomentCandidate, UpdateMomentRequest, MomentCandidateGPU
+from backend.services.detection_pipeline import detection_pipeline
 from backend.db import get_video, save_moments, get_moments, update_moment
 
 logger = logging.getLogger(__name__)
@@ -60,40 +60,61 @@ async def start_moment_detection(request: DetectMomentsRequest):
 
 
 async def run_moment_detection(job_id: str, video: dict, min_duration: int = 30, max_duration: int = 90, max_moments: int = 15):
-    """Run moment detection in background."""
+    """Run moment detection in background using GPU pipeline."""
     try:
         detection_jobs[job_id]['status'] = 'analyzing'
-        detection_jobs[job_id]['progress'] = 0.1
-        detection_jobs[job_id]['message'] = 'Analyzing speech content...'
+        detection_jobs[job_id]['progress'] = 0.0
+        detection_jobs[job_id]['message'] = 'Starting GPU pipeline...'
         
-        # Step 1: Analyze speech (optional, might fail if Whisper unavailable)
-        # Run blocking transcription in thread pool to avoid blocking event loop
-        speech_scores = await asyncio.to_thread(analyze_speech_content, video['file_path'])
+        # Progress callback to update WebSocket clients
+        async def progress_cb(data: dict):
+            stage = data.get('stage', '')
+            step = data.get('step', '')
+            progress = data.get('progress', 0.0)
+            
+            detection_jobs[job_id]['progress'] = progress
+            detection_jobs[job_id]['message'] = f"Stage {stage}: {step}..."
         
-        detection_jobs[job_id]['progress'] = 0.4
-        detection_jobs[job_id]['message'] = 'Detecting scenes and audio energy...'
-        
-        # Step 2: Detect moments using combined analysis
-        # Step 2: Detect moments using combined analysis
-        # Run blocking video/audio processing in thread pool
-        moments = await asyncio.to_thread(
-            detect_moments_from_video,
-            video['file_path'],
-            video['id'],
-            video['duration'],
-            speech_scores,
-            max_moments,
-            min_duration,
-            max_duration
+        # Run GPU pipeline (handles GPU vs CPU fallback internally)
+        director_output = await detection_pipeline.run(
+            video_path=video['file_path'],
+            user_instructions="",
+            max_moments=max_moments,
+            min_duration=min_duration,
+            max_duration=max_duration,
+            progress_callback=progress_cb,
         )
         
+        # Convert DirectorOutput to MomentCandidate format for database
+        moments = []
+        for instr in director_output.moments:
+            moment = MomentCandidateGPU(
+                id=str(uuid.uuid4()),
+                video_id=video['id'],
+                start=instr.start,
+                end=instr.end,
+                score=instr.virality_score / 100.0,
+                reason=instr.reasoning or instr.hook,
+                thumbnail_url="",  # Will be generated later
+                approved=False,
+                hook=instr.hook,
+                virality_score=instr.virality_score,
+                content_type=instr.content_type,
+                subtitle_mode=instr.subtitle_mode.value,
+                translated_text=None,
+                camera_plan=json.dumps([kf.model_dump() for kf in instr.camera_plan]),
+                reasoning=instr.reasoning,
+                pipeline_mode="gpu",
+            )
+            moments.append(moment)
+        
         # Save to database
-        await save_moments(moments)
+        await save_moments([m.model_dump() for m in moments])
         
         detection_jobs[job_id]['status'] = 'completed'
-        detection_jobs[job_id]['moments'] = moments
+        detection_jobs[job_id]['moments'] = [m.model_dump() for m in moments]
         detection_jobs[job_id]['progress'] = 1.0
-        detection_jobs[job_id]['message'] = f'Found {len(moments)} interesting moments'
+        detection_jobs[job_id]['message'] = f'Found {len(moments)} viral moments'
     
     except Exception as e:
         import traceback

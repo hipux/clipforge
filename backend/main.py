@@ -33,12 +33,14 @@ app = FastAPI(
 )
 
 # CORS middleware — allow all origins (needed for local dev + VPN scenarios)
+# WebSocket connections also allowed from any origin
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # All API routes (REST + WebSocket) are under /api prefix:
