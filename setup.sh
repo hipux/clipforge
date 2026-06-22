@@ -119,3 +119,4 @@ echo "  2. Frontend: cd frontend && npm run dev"
 echo ""
 echo "Or check start.sh for combined startup"
 echo ""
+read -rp "Press Enter to close..." _
