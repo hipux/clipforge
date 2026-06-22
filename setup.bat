@@ -38,11 +38,17 @@ REM Upgrade pip
 echo [+] Upgrading pip...
 python -m pip install --upgrade pip --quiet
 
-REM Check CUDA
+REM Check CUDA - use 'where' to avoid crash when nvidia-smi not in PATH
 echo.
 echo [+] Checking for NVIDIA GPU...
-nvidia-smi >nul 2>&1
+set GPU_AVAILABLE=0
+where nvidia-smi >nul 2>&1
 if %errorlevel% equ 0 (
+    nvidia-smi >nul 2>&1
+    if !errorlevel! equ 0 set GPU_AVAILABLE=1
+)
+
+if "%GPU_AVAILABLE%"=="1" (
     echo [OK] CUDA detected! Installing GPU-accelerated packages...
     echo.
     
