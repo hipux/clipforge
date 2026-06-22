@@ -94,10 +94,8 @@ class WhisperGPU:
                     audio_chunk = audio_chunk.astype(np.float32)
                 
                 # Detect language on this numpy array chunk
-                # detect_language expects numpy array, not file path
-                lang_info = model.detect_language(audio_chunk)
-                detected_lang = lang_info[0][0]  # detect_language returns [(lang_code, probability), ...]
-                probability = lang_info[0][1]
+                # detect_language returns (language: str, probability: float, all_probs: list)
+                detected_lang, probability, _ = model.detect_language(audio_chunk)
                 
                 # Add weighted vote
                 language_votes[detected_lang] += probability
