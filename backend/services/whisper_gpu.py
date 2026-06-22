@@ -7,8 +7,8 @@ from __future__ import annotations
 import logging
 import os
 import random
-import subprocess
-import tempfile
+import librosa
+import numpy as np
 from collections import defaultdict
 from typing import List, Optional
 from backend.gpu_config import WHISPER_GPU_MODEL, WHISPER_GPU_COMPUTE, MODELS_DIR
@@ -78,34 +78,24 @@ class WhisperGPU:
         
         for idx, start_time in enumerate(sample_positions, 1):
             try:
-                # Extract 30-second chunk using ffmpeg
-                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio:
-                    temp_path = temp_audio.name
+                # Load 30-second audio chunk using librosa
+                # librosa.load returns (audio_array, sample_rate)
+                # offset= starting position in seconds, duration= chunk length in seconds
+                audio_chunk, sr = librosa.load(
+                    audio_path,
+                    sr=16000,  # Whisper expects 16kHz
+                    mono=True,
+                    offset=start_time,
+                    duration=30.0
+                )
                 
-                # Format timestamp for ffmpeg (HH:MM:SS)
-                hours = int(start_time // 3600)
-                minutes = int((start_time % 3600) // 60)
-                seconds = int(start_time % 60)
-                timestamp = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                # Convert to float32 if not already (Whisper expects float32)
+                if audio_chunk.dtype != np.float32:
+                    audio_chunk = audio_chunk.astype(np.float32)
                 
-                # Extract chunk with ffmpeg
-                cmd = [
-                    "ffmpeg",
-                    "-y",
-                    "-ss", timestamp,
-                    "-i", audio_path,
-                    "-t", "30",  # 30 seconds duration
-                    "-ar", "16000",  # 16kHz sample rate (whisper expects this)
-                    "-ac", "1",  # Mono
-                    "-f", "wav",
-                    "-loglevel", "error",
-                    temp_path
-                ]
-                
-                subprocess.run(cmd, check=True, capture_output=True)
-                
-                # Detect language on this chunk
-                lang_info = model.detect_language(temp_path)
+                # Detect language on this numpy array chunk
+                # detect_language expects numpy array, not file path
+                lang_info = model.detect_language(audio_chunk)
                 detected_lang = lang_info[0][0]  # detect_language returns [(lang_code, probability), ...]
                 probability = lang_info[0][1]
                 
@@ -131,13 +121,6 @@ class WhisperGPU:
                 
             except Exception as e:
                 logger.warning(f"🎙️  [Whisper] Ошибка при обработке пробы {idx}/{num_samples}: {e}")
-            finally:
-                # Clean up temp file
-                if os.path.exists(temp_path):
-                    try:
-                        os.unlink(temp_path)
-                    except:
-                        pass
         
         # Check if we have enough successful samples
         if successful_samples < 3:
