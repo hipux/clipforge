@@ -1,50 +1,98 @@
-import React, { useState } from 'react'
-import { MemoryRouter } from 'react-router-dom'
-import axios from 'axios'
-import type { Decorator } from '@storybook/react-vite'
+import React, { useState } from "react";
+import { MemoryRouter } from "react-router-dom";
+import axios from "axios";
+import type { Decorator } from "@storybook/react-vite";
 import {
   useAppStore,
   type VideoInfo,
   type MomentCandidate,
   type ProcessedClip,
   type EffectSettings,
-} from '../store/useAppStore'
+} from "../store/useAppStore";
 
 export const mockVideo: VideoInfo = {
-  id: 'vid_1',
-  title: 'How I Built a Video Tool in a Weekend (Full Tutorial)',
+  id: "vid_1",
+  title: "How I Built a Video Tool in a Weekend (Full Tutorial)",
   duration: 743,
-  thumbnail_url: '',
-  file_path: '/downloads/vid_1.mp4',
-  platform: 'youtube',
-}
+  thumbnail_url: "",
+  file_path: "/downloads/vid_1.mp4",
+  platform: "youtube",
+};
 
 export const mockMoments: MomentCandidate[] = [
-  { id: 'm1', video_id: 'vid_1', start: 12, end: 47, score: 92, reason: 'High energy intro hook', thumbnail_url: '', approved: true },
-  { id: 'm2', video_id: 'vid_1', start: 128, end: 156, score: 87, reason: 'Surprising reveal moment', thumbnail_url: '', approved: false },
-  { id: 'm3', video_id: 'vid_1', start: 310, end: 352, score: 78, reason: 'Key tip viewers replay', thumbnail_url: '', approved: false },
-  { id: 'm4', video_id: 'vid_1', start: 503, end: 528, score: 71, reason: 'Funny aside / laughter', thumbnail_url: '', approved: false },
-]
+  {
+    id: "m1",
+    video_id: "vid_1",
+    start: 12,
+    end: 47,
+    score: 92,
+    reason: "High energy intro hook",
+    thumbnail_url: "",
+    approved: true,
+  },
+  {
+    id: "m2",
+    video_id: "vid_1",
+    start: 128,
+    end: 156,
+    score: 87,
+    reason: "Surprising reveal moment",
+    thumbnail_url: "",
+    approved: false,
+  },
+  {
+    id: "m3",
+    video_id: "vid_1",
+    start: 310,
+    end: 352,
+    score: 78,
+    reason: "Key tip viewers replay",
+    thumbnail_url: "",
+    approved: false,
+  },
+  {
+    id: "m4",
+    video_id: "vid_1",
+    start: 503,
+    end: 528,
+    score: 71,
+    reason: "Funny aside / laughter",
+    thumbnail_url: "",
+    approved: false,
+  },
+];
 
 const defaultEffects: EffectSettings = {
   subtitles: true,
   blur_background: true,
   mirror: false,
   color_correction: true,
-}
+};
 
 // file_path is now just the filename (served from /files/<filename>), matching
 // the backend fix in video_processor.py — no leading directory.
 export const mockClips: ProcessedClip[] = [
-  { id: 'c1', moment_id: 'm1', file_path: 'clip_1.mp4', status: 'done', effects: defaultEffects },
-  { id: 'c2', moment_id: 'm2', file_path: 'clip_2.mp4', status: 'done', effects: defaultEffects },
-]
+  {
+    id: "c1",
+    moment_id: "m1",
+    file_path: "clip_1.mp4",
+    status: "done",
+    effects: defaultEffects,
+  },
+  {
+    id: "c2",
+    moment_id: "m2",
+    file_path: "clip_2.mp4",
+    status: "done",
+    effects: defaultEffects,
+  },
+];
 
 // A self-contained 9:16 (portrait) thumbnail used by stories to show the
 // blurred-background moment preview in SubtitleStylePicker / BannerUpload.
 // Encoded as an SVG data URI so no static asset / backend is required.
 export const mockMomentThumbnail9x16 =
-  'data:image/svg+xml;utf8,' +
+  "data:image/svg+xml;utf8," +
   encodeURIComponent(
     `<svg xmlns="http://www.w3.org/2000/svg" width="360" height="640" viewBox="0 0 360 640">
       <defs>
@@ -59,21 +107,23 @@ export const mockMomentThumbnail9x16 =
       <path d="M40 640 Q180 360 320 640 Z" fill="#94a3b8" opacity="0.35"/>
       <circle cx="300" cy="90" r="40" fill="#06b6d4" opacity="0.4"/>
     </svg>`,
-  )
+  );
 
 // Moments whose thumbnail_url points at the 9:16 portrait preview above, so the
 // vertical preview surfaces (SubtitleStylePicker / BannerUpload read moments[0]).
-export const mockMomentsWithThumbnail: MomentCandidate[] = mockMoments.map((m) => ({
-  ...m,
-  thumbnail_url: mockMomentThumbnail9x16,
-}))
+export const mockMomentsWithThumbnail: MomentCandidate[] = mockMoments.map(
+  (m) => ({
+    ...m,
+    thumbnail_url: mockMomentThumbnail9x16,
+  }),
+);
 
 export interface StoreSeed {
-  currentVideo?: VideoInfo | null
-  moments?: MomentCandidate[]
-  selectedMomentIds?: string[]
-  processedClips?: ProcessedClip[]
-  globalEffects?: EffectSettings
+  currentVideo?: VideoInfo | null;
+  moments?: MomentCandidate[];
+  selectedMomentIds?: string[];
+  processedClips?: ProcessedClip[];
+  globalEffects?: EffectSettings;
 }
 
 /**
@@ -82,7 +132,10 @@ export interface StoreSeed {
  * Seeding at render time — not at module load — ensures each story re-applies its
  * own state when switched, since all stories share the same global store.
  */
-export function withClipForge(seed: StoreSeed = {}, initialPath = '/download'): Decorator {
+export function withClipForge(
+  seed: StoreSeed = {},
+  initialPath = "/download",
+): Decorator {
   const Wrapper: Decorator = (Story) => {
     useState(() => {
       useAppStore.setState({
@@ -91,17 +144,17 @@ export function withClipForge(seed: StoreSeed = {}, initialPath = '/download'): 
         selectedMomentIds: seed.selectedMomentIds ?? [],
         processedClips: seed.processedClips ?? [],
         globalEffects: seed.globalEffects ?? defaultEffects,
-      })
-      return null
-    })
+      });
+      return null;
+    });
 
     return (
       <MemoryRouter initialEntries={[initialPath]}>
         <Story />
       </MemoryRouter>
-    )
-  }
-  return Wrapper
+    );
+  };
+  return Wrapper;
 }
 
 /**
@@ -115,39 +168,43 @@ export function withClipForge(seed: StoreSeed = {}, initialPath = '/download'): 
 export function withMockAuth(authenticated = true): Decorator {
   const Wrapper: Decorator = (Story) => {
     useState(() => {
-      const realGet = axios.get.bind(axios)
+      const realGet = axios.get.bind(axios);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ;(axios as any).get = (url: string, ...rest: any[]) => {
-        if (typeof url === 'string' && url.includes('/api/auth/youtube')) {
+      (axios as any).get = (url: string, ...rest: any[]) => {
+        if (typeof url === "string" && url.includes("/api/auth/youtube")) {
           return Promise.resolve({
             data: authenticated
               ? { authenticated: true }
-              : { authenticated: false, auth_url: 'https://accounts.google.com/o/oauth2/v2/auth?mock=1' },
-          })
+              : {
+                  authenticated: false,
+                  auth_url:
+                    "https://accounts.google.com/o/oauth2/v2/auth?mock=1",
+                },
+          });
         }
         // Copy Path: backend returns the absolute file path for a clip.
         const exportMatch =
-          typeof url === 'string' && url.match(/\/api\/export\/([^/]+)\/path/)
+          typeof url === "string" && url.match(/\/api\/export\/([^/]+)\/path/);
         if (exportMatch) {
-          const clipId = exportMatch[1]
+          const clipId = exportMatch[1];
           return Promise.resolve({
             data: { file_path: `/home/user/clipforge/output/${clipId}.mp4` },
-          })
+          });
         }
-        return realGet(url, ...rest)
-      }
-      return null
-    })
-    return <Story />
-  }
-  return Wrapper
+        return realGet(url, ...rest);
+      };
+      return null;
+    });
+    return <Story />;
+  };
+  return Wrapper;
 }
 
 export interface ProcessingStep {
-  current_clip: number
-  total_clips: number
-  clip_progress: number
-  clip_message: string
+  current_clip: number;
+  total_clips: number;
+  clip_progress: number;
+  clip_message: string;
 }
 
 /**
@@ -162,80 +219,110 @@ export interface ProcessingStep {
  */
 export function withProcessingState(steps?: ProcessingStep[]): Decorator {
   const script: ProcessingStep[] = steps ?? [
-    { current_clip: 1, total_clips: 3, clip_progress: 0.0, clip_message: 'Starting...' },
-    { current_clip: 1, total_clips: 3, clip_progress: 0.45, clip_message: 'Applying subtitles…' },
-    { current_clip: 1, total_clips: 3, clip_progress: 0.9, clip_message: 'Encoding…' },
+    {
+      current_clip: 1,
+      total_clips: 3,
+      clip_progress: 0.0,
+      clip_message: "Starting...",
+    },
+    {
+      current_clip: 1,
+      total_clips: 3,
+      clip_progress: 0.45,
+      clip_message: "Applying subtitles…",
+    },
+    {
+      current_clip: 1,
+      total_clips: 3,
+      clip_progress: 0.9,
+      clip_message: "Encoding…",
+    },
     // Clip boundary — progress resets to 0% with "Starting..."
-    { current_clip: 2, total_clips: 3, clip_progress: 0.0, clip_message: 'Starting...' },
-    { current_clip: 2, total_clips: 3, clip_progress: 0.3, clip_message: 'Blurring background…' },
-  ]
+    {
+      current_clip: 2,
+      total_clips: 3,
+      clip_progress: 0.0,
+      clip_message: "Starting...",
+    },
+    {
+      current_clip: 2,
+      total_clips: 3,
+      clip_progress: 0.3,
+      clip_message: "Blurring background…",
+    },
+  ];
 
   const Wrapper: Decorator = (Story) => {
     useState(() => {
       // 1) Mock the POST that kicks off processing.
-      const realPost = axios.post.bind(axios)
+      const realPost = axios.post.bind(axios);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ;(axios as any).post = (url: string, ...rest: any[]) => {
-        if (typeof url === 'string' && url.includes('/api/process')) {
-          return Promise.resolve({ data: { job_id: 'mock-job', total_clips: script[script.length - 1].total_clips } })
+      (axios as any).post = (url: string, ...rest: any[]) => {
+        if (typeof url === "string" && url.includes("/api/process")) {
+          return Promise.resolve({
+            data: {
+              job_id: "mock-job",
+              total_clips: script[script.length - 1].total_clips,
+            },
+          });
         }
-        return realPost(url, ...rest)
-      }
+        return realPost(url, ...rest);
+      };
 
       // 2) Replace WebSocket with a scripted fake that emits progress messages.
       class MockWebSocket {
-        onmessage: ((ev: { data: string }) => void) | null = null
-        onerror: (() => void) | null = null
-        onopen: (() => void) | null = null
-        onclose: (() => void) | null = null
+        onmessage: ((ev: { data: string }) => void) | null = null;
+        onerror: (() => void) | null = null;
+        onopen: (() => void) | null = null;
+        onclose: (() => void) | null = null;
         constructor() {
-          let i = 0
+          let i = 0;
           const tick = () => {
-            if (i >= script.length) return
+            if (i >= script.length) return;
             this.onmessage?.({
-              data: JSON.stringify({ status: 'processing', ...script[i] }),
-            })
-            i += 1
-            setTimeout(tick, 600)
-          }
-          setTimeout(tick, 150)
+              data: JSON.stringify({ status: "processing", ...script[i] }),
+            });
+            i += 1;
+            setTimeout(tick, 600);
+          };
+          setTimeout(tick, 150);
         }
         send() {}
         close() {}
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ;(window as any).WebSocket = MockWebSocket as any
-      return null
-    })
+      (window as any).WebSocket = MockWebSocket as any;
+      return null;
+    });
 
     // Auto-click "Start Processing" once the story has mounted so the
     // processing UI is visible without a play function.
     React.useEffect(() => {
       const id = setInterval(() => {
-        const btn = Array.from(document.querySelectorAll('button')).find((b) =>
-          /start processing/i.test(b.textContent || ''),
-        )
+        const btn = Array.from(document.querySelectorAll("button")).find((b) =>
+          /start processing/i.test(b.textContent || ""),
+        );
         if (btn) {
-          ;(btn as HTMLButtonElement).click()
-          clearInterval(id)
+          (btn as HTMLButtonElement).click();
+          clearInterval(id);
         }
-      }, 100)
-      return () => clearInterval(id)
-    }, [])
+      }, 100);
+      return () => clearInterval(id);
+    }, []);
 
-    return <Story />
-  }
-  return Wrapper
+    return <Story />;
+  };
+  return Wrapper;
 }
 
 export interface DownloadProgress {
-  percent: number
-  speed: string
-  eta: string
-  downloaded_bytes: number
-  total_bytes: number
-  fragment_index: number | null
-  fragment_count: number | null
+  percent: number;
+  speed: string;
+  eta: string;
+  downloaded_bytes: number;
+  total_bytes: number;
+  fragment_index: number | null;
+  fragment_count: number | null;
 }
 
 /**
@@ -254,8 +341,8 @@ export function withDownloadingState(steps?: DownloadProgress[]): Decorator {
   const script: DownloadProgress[] = steps ?? [
     {
       percent: 18,
-      speed: '2.41 MiB/s',
-      eta: '01:12',
+      speed: "2.41 MiB/s",
+      eta: "01:12",
       downloaded_bytes: 18 * 1024 * 1024,
       total_bytes: 104 * 1024 * 1024,
       fragment_index: 24,
@@ -263,8 +350,8 @@ export function withDownloadingState(steps?: DownloadProgress[]): Decorator {
     },
     {
       percent: 47,
-      speed: '4.08 MiB/s',
-      eta: '00:38',
+      speed: "4.08 MiB/s",
+      eta: "00:38",
       downloaded_bytes: 49 * 1024 * 1024,
       total_bytes: 104 * 1024 * 1024,
       fragment_index: 67,
@@ -273,79 +360,83 @@ export function withDownloadingState(steps?: DownloadProgress[]): Decorator {
     // Final message — stays on screen with all four stat cells populated.
     {
       percent: 63,
-      speed: '3.72 MiB/s',
-      eta: '00:24',
+      speed: "3.72 MiB/s",
+      eta: "00:24",
       downloaded_bytes: 66 * 1024 * 1024,
       total_bytes: 104 * 1024 * 1024,
       fragment_index: 89,
       fragment_count: 142,
     },
-  ]
+  ];
 
   const Wrapper: Decorator = (Story) => {
     useState(() => {
       // 1) Mock the POST that kicks off the download.
-      const realPost = axios.post.bind(axios)
+      const realPost = axios.post.bind(axios);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ;(axios as any).post = (url: string, ...rest: any[]) => {
-        if (typeof url === 'string' && url.includes('/api/download')) {
-          return Promise.resolve({ data: { job_id: 'mock-download-job' } })
+      (axios as any).post = (url: string, ...rest: any[]) => {
+        if (typeof url === "string" && url.includes("/api/download")) {
+          return Promise.resolve({ data: { job_id: "mock-download-job" } });
         }
-        return realPost(url, ...rest)
-      }
+        return realPost(url, ...rest);
+      };
 
       // 2) Replace WebSocket with a scripted fake that emits progress messages.
       class MockWebSocket {
-        onmessage: ((ev: { data: string }) => void) | null = null
-        onerror: (() => void) | null = null
-        onopen: (() => void) | null = null
-        onclose: (() => void) | null = null
+        onmessage: ((ev: { data: string }) => void) | null = null;
+        onerror: (() => void) | null = null;
+        onopen: (() => void) | null = null;
+        onclose: (() => void) | null = null;
         constructor() {
-          let i = 0
+          let i = 0;
           const tick = () => {
-            if (i >= script.length) return
+            if (i >= script.length) return;
             this.onmessage?.({
-              data: JSON.stringify({ status: 'downloading', progress: script[i] }),
-            })
-            i += 1
-            setTimeout(tick, 600)
-          }
-          setTimeout(tick, 150)
+              data: JSON.stringify({
+                status: "downloading",
+                progress: script[i],
+              }),
+            });
+            i += 1;
+            setTimeout(tick, 600);
+          };
+          setTimeout(tick, 150);
         }
         send() {}
         close() {}
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ;(window as any).WebSocket = MockWebSocket as any
-      return null
-    })
+      (window as any).WebSocket = MockWebSocket as any;
+      return null;
+    });
 
     // Auto-fill the URL input and click "Download" once mounted so the
     // downloading UI (and the rich stats grid) is visible without a play fn.
     React.useEffect(() => {
       const id = setInterval(() => {
-        const input = document.querySelector<HTMLInputElement>('input[type="text"]')
-        const btn = Array.from(document.querySelectorAll('button')).find((b) =>
-          /^\s*download\s*$/i.test(b.textContent || ''),
-        )
+        const input =
+          document.querySelector<HTMLInputElement>('input[type="text"]');
+        const btn = Array.from(document.querySelectorAll("button")).find((b) =>
+          /^\s*download\s*$/i.test(b.textContent || ""),
+        );
         if (input && btn) {
           const setter = Object.getOwnPropertyDescriptor(
             window.HTMLInputElement.prototype,
-            'value',
-          )?.set
-          setter?.call(input, 'https://youtube.com/watch?v=dQw4w9WgXcQ')
-          input.dispatchEvent(new Event('input', { bubbles: true }))
+            "value",
+          )?.set;
+          setter?.call(input, "https://youtube.com/watch?v=dQw4w9WgXcQ");
+          input.dispatchEvent(new Event("input", { bubbles: true }));
           // Let React flush the controlled value before clicking.
-          setTimeout(() => (btn as HTMLButtonElement).click(), 50)
-          clearInterval(id)
+          setTimeout(() => (btn as HTMLButtonElement).click(), 50);
+          clearInterval(id);
         }
-      }, 100)
-      return () => clearInterval(id)
-    }, [])
+      }, 100);
+      return () => clearInterval(id);
+    }, []);
 
-    return <Story />
-  }
-  return Wrapper
+    return <Story />;
+  };
+  return Wrapper;
 }
 
 /**
@@ -363,34 +454,91 @@ export function withDownloadingState(steps?: DownloadProgress[]): Decorator {
 export function withDetectionBlocked(): Decorator {
   const Wrapper: Decorator = (Story) => {
     useState(() => {
-      const realPost = axios.post.bind(axios)
+      const realPost = axios.post.bind(axios);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ;(axios as any).post = (url: string, ...rest: any[]) => {
-        if (typeof url === 'string' && url.includes('/api/moments/detect')) {
+      (axios as any).post = (url: string, ...rest: any[]) => {
+        if (typeof url === "string" && url.includes("/api/moments/detect")) {
           // Resolve immediately as an already-"completed" detection that found
           // zero moments. MomentsPage flips detecting back off and keeps the
           // moments list empty, so it renders the Detection Settings card and
           // the "No moments detected yet" empty state for the screenshot —
           // never entering the live progress view.
-          return Promise.resolve({ data: { status: 'completed', moments: [] } })
+          return Promise.resolve({
+            data: { status: "completed", moments: [] },
+          });
         }
-        return realPost(url, ...rest)
-      }
+        return realPost(url, ...rest);
+      };
 
       class MockWebSocket {
-        onmessage: ((ev: { data: string }) => void) | null = null
-        onerror: (() => void) | null = null
-        onopen: (() => void) | null = null
-        onclose: (() => void) | null = null
+        onmessage: ((ev: { data: string }) => void) | null = null;
+        onerror: (() => void) | null = null;
+        onopen: (() => void) | null = null;
+        onclose: (() => void) | null = null;
         send() {}
         close() {}
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ;(window as any).WebSocket = MockWebSocket as any
-      return null
-    })
+      (window as any).WebSocket = MockWebSocket as any;
+      return null;
+    });
 
-    return <Story />
-  }
-  return Wrapper
+    return <Story />;
+  };
+  return Wrapper;
+}
+
+export interface GpuStatusSeed {
+  device?: string;
+  is_gpu?: boolean;
+  vram_usage?: {
+    allocated_gb: number;
+    reserved_gb: number;
+    total_gb: number;
+    free_gb: number;
+  };
+  nvenc_available?: boolean;
+  loaded_models?: string[];
+}
+
+/**
+ * Mocks `GET /api/gpu/status` so both the GPUStatusIndicator (reads
+ * is_gpu / vram_usage / nvenc_available) and MomentsPage (reads
+ * cuda_available to enable the LLM instructions field) render their
+ * GPU-active state without a backend. All other axios.get calls pass through.
+ *
+ * Used by the MomentsPage settings-card story so the new GPU status indicator
+ * shows a green pulsing dot + VRAM bar and the LLM instructions textarea is
+ * enabled rather than dimmed.
+ */
+export function withGpuStatusMock(seed: GpuStatusSeed = {}): Decorator {
+  const status = {
+    device: seed.device ?? "cuda:0 (NVIDIA RTX 4060 Ti)",
+    is_gpu: seed.is_gpu ?? true,
+    cuda_available: seed.is_gpu ?? true,
+    vram_usage: seed.vram_usage ?? {
+      allocated_gb: 1.8,
+      reserved_gb: 2.1,
+      total_gb: 8,
+      free_gb: 5.9,
+    },
+    nvenc_available: seed.nvenc_available ?? true,
+    loaded_models: seed.loaded_models ?? ["whisper-distil-large-v3"],
+  };
+
+  const Wrapper: Decorator = (Story) => {
+    useState(() => {
+      const realGet = axios.get.bind(axios);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (axios as any).get = (url: string, ...rest: any[]) => {
+        if (typeof url === "string" && url.includes("/api/gpu/status")) {
+          return Promise.resolve({ data: status });
+        }
+        return realGet(url, ...rest);
+      };
+      return null;
+    });
+    return <Story />;
+  };
+  return Wrapper;
 }
