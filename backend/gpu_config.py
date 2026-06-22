@@ -15,7 +15,10 @@ MODELS_DIR.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("HF_HOME", str(MODELS_DIR / "whisper"))
 
 # ─── Whisper Configuration ─────────────────────────────────────────────────
-WHISPER_GPU_MODEL = os.getenv("CLIPFORGE_WHISPER_MODEL", "Systran/faster-distil-whisper-large-v3")
+# IMPORTANT: distil-large-v3 is English-only despite claiming multilingual support.
+# For Russian/multilingual content we use the full large-v3 (~2.9 GB VRAM fp16).
+# RTX 5060 has 8 GB VRAM — large-v3 fits comfortably.
+WHISPER_GPU_MODEL = os.getenv("CLIPFORGE_WHISPER_MODEL", "Systran/faster-whisper-large-v3")
 WHISPER_GPU_COMPUTE = os.getenv("CLIPFORGE_WHISPER_COMPUTE", "float16")
 
 # ─── Face Detection Configuration ──────────────────────────────────────────

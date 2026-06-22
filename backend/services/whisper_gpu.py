@@ -172,7 +172,7 @@ class WhisperGPU:
         cap.release()
 
         load_start = time.time()
-        logger.info(f"🎙️  [Whisper] Загрузка модели distil-large-v3 (~2.4 GB VRAM)...")
+        logger.info(f"🎙️  [Whisper] Загрузка модели large-v3 (~3.0 GB VRAM, мультиязычная)...")
 
         def _load():
             return WhisperModel(
