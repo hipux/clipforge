@@ -37,6 +37,7 @@ httpx>=0.27.0
 
 # YOLOv8 face detection
 ultralytics>=8.1.0
+lap>=0.5.12  # Required by ultralytics BYTETrack
 
 # Audio analysis
 scipy>=1.12.0

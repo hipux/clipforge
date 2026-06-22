@@ -41,12 +41,13 @@ class FaceDetector:
         def _load():
             model_path = str(FACE_MODEL_PATH)
             if not Path(model_path).exists():
-                logger.info("👤 [YOLO] Первая загрузка — скачиваю модель (~6 MB), подождите...")
-                # Ultralytics will download standard YOLOv8n if face model not found
-                # For production, pre-download the face model
-                m = YOLO("yolov8n.pt")
-                m.save(model_path)
-                return YOLO(model_path)
+                logger.info("👤 [YOLO] Первая загрузка — скачиваю yolov8n-face.pt (~6 MB)...")
+                # Download face-specific model from GitHub release
+                import urllib.request
+                FACE_MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+                face_model_url = "https://github.com/akanametov/yolov8-face/releases/download/v0.0.0/yolov8n-face.pt"
+                urllib.request.urlretrieve(face_model_url, model_path)
+                logger.info("👤 [YOLO] Модель yolov8n-face.pt успешно скачана")
             return YOLO(model_path)
 
         model = vram_manager.load_model("face", _load)

@@ -24,8 +24,8 @@ FACE_SAMPLE_FPS = float(os.getenv("CLIPFORGE_FACE_SAMPLE_FPS", "2.0"))
 FACE_CONFIDENCE_THRESHOLD = float(os.getenv("CLIPFORGE_FACE_CONF", "0.5"))
 
 # ─── LLM Configuration (Qwen3-8B GGUF) ─────────────────────────────────────
-QWEN_MODEL_REPO = "Qwen/Qwen2.5-7B-Instruct-GGUF"
-QWEN_MODEL_FILE = "qwen2.5-7b-instruct-q4_k_m.gguf"
+QWEN_MODEL_REPO = "Qwen/Qwen3-8B-GGUF"
+QWEN_MODEL_FILE = "qwen3-8b-q4_k_m.gguf"
 QWEN_MODEL_PATH = MODELS_DIR / QWEN_MODEL_FILE
 QWEN_N_CTX = int(os.getenv("CLIPFORGE_QWEN_N_CTX", "8192"))
 QWEN_N_GPU_LAYERS = int(os.getenv("CLIPFORGE_QWEN_N_GPU_LAYERS", "-1"))  # -1 = all layers on GPU

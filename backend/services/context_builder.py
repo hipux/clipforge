@@ -45,41 +45,88 @@ class ContextBuilder:
             user_instructions: Optional user-provided analysis instructions
             
         Returns:
-            Structured text log for LLM consumption
+            Structured text log for LLM consumption (truncated to ~6000 tokens)
         """
+        MAX_TOKENS = 6000  # Target ~6000 tokens to leave room for system prompt + response
+        TOKEN_CHARS = 4  # Approximate characters per token
+        MAX_CHARS = MAX_TOKENS * TOKEN_CHARS
+
         lines = []
         lines.append(f"VIDEO DURATION: {ctx.video_duration:.1f}s")
         lines.append(f"AUDIO: avg_rms={ctx.audio_analysis.avg_rms:.4f}, max_rms={ctx.audio_analysis.max_rms:.4f}")
         lines.append("")
 
-        lines.append("=== TRANSCRIPT ===")
-        for seg in ctx.transcript:
-            lines.append(f"[{seg.start:.1f}s-{seg.end:.1f}s][{seg.language}] {seg.text}")
-        lines.append("")
+        # Build transcript section (with smart truncation)
+        transcript_lines = ["=== TRANSCRIPT ==="]
+        total_segments = len(ctx.transcript)
+        
+        # For long transcripts (>500 segments), sample intelligently
+        if total_segments > 500:
+            # Keep first 100, last 100, and sample middle 300
+            sampled = [
+                *ctx.transcript[:100],
+                *ctx.transcript[100:-100:max(1, (total_segments - 200) // 300)],
+                *ctx.transcript[-100:]
+            ]
+            transcript_lines.append(f"(Showing {len(sampled)}/{total_segments} segments - sampled for brevity)")
+            for seg in sampled:
+                transcript_lines.append(f"[{seg.start:.1f}s-{seg.end:.1f}s][{seg.language}] {seg.text[:200]}")
+        else:
+            for seg in ctx.transcript:
+                # Truncate very long text to 300 chars per segment
+                text = seg.text if len(seg.text) <= 300 else seg.text[:297] + "..."
+                transcript_lines.append(f"[{seg.start:.1f}s-{seg.end:.1f}s][{seg.language}] {text}")
+        transcript_lines.append("")
 
-        lines.append("=== AUDIO PEAKS ===")
-        for peak in ctx.audio_analysis.peaks[:50]:  # top 50 peaks
-            lines.append(f"[{peak.timestamp:.1f}s] {peak.peak_type} magnitude={peak.magnitude:.3f}")
-        lines.append("")
+        # Audio peaks - top 50 only
+        peaks_lines = ["=== AUDIO PEAKS ==="]
+        for peak in ctx.audio_analysis.peaks[:50]:
+            peaks_lines.append(f"[{peak.timestamp:.1f}s] {peak.peak_type} magnitude={peak.magnitude:.3f}")
+        peaks_lines.append("")
 
-        lines.append("=== FACE TIMELINE ===")
-        lines.append(f"Unique speakers/faces: {len(ctx.face_timeline.unique_face_ids)}")
-        for frame in ctx.face_timeline.frames[::5]:  # every 5th frame to reduce size
+        # Face timeline - significantly reduced sampling
+        face_lines = ["=== FACE TIMELINE ==="]
+        face_lines.append(f"Unique speakers/faces: {len(ctx.face_timeline.unique_face_ids)}")
+        # Sample every 20th frame instead of every 5th for very long videos
+        sample_rate = 20 if len(ctx.face_timeline.frames) > 1000 else 5
+        for frame in ctx.face_timeline.frames[::sample_rate]:
             if frame.faces:
                 face_info = ", ".join([
-                    f"id={f.track_id} conf={f.confidence:.2f} bbox={[round(x,2) for x in f.bbox]}"
-                    for f in frame.faces
+                    f"id={f.track_id}"
+                    for f in frame.faces[:3]  # Max 3 faces per frame
                 ])
-                lines.append(f"[{frame.timestamp:.1f}s] {face_info}")
-        lines.append("")
+                face_lines.append(f"[{frame.timestamp:.1f}s] {face_info}")
+        face_lines.append("")
 
+        # User instructions
+        instructions_lines = []
         if user_instructions:
-            lines.append("=== USER INSTRUCTIONS ===")
-            lines.append(user_instructions)
-            lines.append("")
+            instructions_lines = ["=== USER INSTRUCTIONS ===", user_instructions, ""]
 
-        log = "\n".join(lines)
-        token_count = len(log) // 4
+        # Combine all sections
+        all_lines = lines + transcript_lines + peaks_lines + face_lines + instructions_lines
+        log = "\n".join(all_lines)
+        
+        # Final truncation if still too long
+        if len(log) > MAX_CHARS:
+            logger.warning(f"📝 [Контекст] Контекст слишком большой ({len(log)} символов), обрезаю транскрипт...")
+            # Keep header + peaks + faces, truncate transcript
+            header = "\n".join(lines)
+            peaks_text = "\n".join(peaks_lines)
+            faces_text = "\n".join(face_lines)
+            instructions_text = "\n".join(instructions_lines)
+            
+            reserved = len(header) + len(peaks_text) + len(faces_text) + len(instructions_text) + 100
+            transcript_budget = MAX_CHARS - reserved
+            
+            # Rebuild transcript with budget
+            transcript_text = "\n".join(transcript_lines)
+            if len(transcript_text) > transcript_budget:
+                transcript_text = transcript_text[:transcript_budget] + "\n... (transcript truncated)\n"
+            
+            log = f"{header}\n{transcript_text}\n{peaks_text}\n{faces_text}\n{instructions_text}"
+        
+        token_count = len(log) // TOKEN_CHARS
         logger.info(f"📝 [Контекст] Собран контекст: {len(log)} символов, ~{token_count} токенов")
         return log
 

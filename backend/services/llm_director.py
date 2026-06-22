@@ -1,4 +1,4 @@
-"""LLM Director - Qwen2.5-7B-Instruct GGUF for moment analysis.
+"""LLM Director - Qwen3-8B GGUF for moment analysis.
 
 GPU-first: loads all layers on GPU when CUDA available.
 """
@@ -18,14 +18,14 @@ logger = logging.getLogger(__name__)
 
 
 class LLMDirector:
-    """Qwen2.5-7B-Instruct Q4_K_M GGUF via llama-cpp-python.
+    """Qwen3-8B Q4_K_M GGUF via llama-cpp-python.
     
     GPU-first: n_gpu_layers=-1 loads all layers on GPU.
     Uses instructor library for structured JSON output.
     """
 
     def _download_model_if_needed(self) -> None:
-        """Download Qwen2.5-7B-Instruct GGUF if not present."""
+        """Download Qwen3-8B GGUF if not present."""
         if QWEN_MODEL_PATH.exists():
             return
         
@@ -72,7 +72,7 @@ class LLMDirector:
                 verbose=False,
             )
 
-        llm = vram_manager.load_model("qwen2.5", _load)
+        llm = vram_manager.load_model("qwen3", _load)
         client = instructor.from_llama_cpp(llm)
         load_time = time.time() - load_start
         logger.info(f"🧠 [Qwen3] Модель загружена за {load_time:.1f}с")
@@ -84,7 +84,7 @@ class LLMDirector:
         
         analyze_start = time.time()
         result = client.chat.completions.create(
-            model="qwen2.5",
+            model="qwen3",
             response_model=DirectorOutput,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
