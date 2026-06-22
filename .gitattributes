@@ -1,7 +1,9 @@
-# Force CRLF for Windows batch files
-*.bat text eol=crlf
-*.cmd text eol=crlf
+# Windows batch files - store with CRLF, checkout with CRLF
+*.bat text working-tree-encoding=UTF-8 eol=crlf
+*.cmd text working-tree-encoding=UTF-8 eol=crlf
 
-# Force LF for everything else
-* text=auto eol=lf
+# Shell scripts - always LF
 *.sh text eol=lf
+
+# Default
+* text=auto
