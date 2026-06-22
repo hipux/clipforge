@@ -37,80 +37,156 @@ class ContextBuilder:
     that fits within LLM token limits (~6000 tokens).
     """
 
-    def build_log(self, ctx: Stage1Context, user_instructions: str = "") -> str:
-        """Build structured context log from Stage 1 data.
+    def build_chunks(
+        self,
+        ctx: Stage1Context,
+        user_instructions: str = "",
+        max_tokens_per_chunk: int = 6000
+    ) -> list[str]:
+        """Build dynamic time-based chunks for long videos.
+        
+        Divides video into time windows, each generating a chunk ≤ max_tokens_per_chunk.
         
         Args:
             ctx: Stage1Context with all assembled data
             user_instructions: Optional user-provided analysis instructions
+            max_tokens_per_chunk: Maximum tokens per chunk (default 6000)
             
         Returns:
-            Structured text log for LLM consumption (truncated to ~6000 tokens)
+            List of context log strings, one per time chunk
         """
-        MAX_TOKENS = 6000  # Target ~6000 tokens to leave room for system prompt + response
         TOKEN_CHARS = 4  # Approximate characters per token
-        MAX_CHARS = MAX_TOKENS * TOKEN_CHARS
+        TOKENS_PER_MIN = 400  # Estimate: 400 tokens per minute of speech
+        
+        video_duration_min = ctx.video_duration / 60.0
+        
+        # Calculate chunk duration
+        chunk_duration_min = max_tokens_per_chunk / TOKENS_PER_MIN
+        num_chunks = max(1, int((video_duration_min / chunk_duration_min) + 0.5))  # Round up
+        
+        # Recalculate exact chunk duration to evenly divide video
+        chunk_duration_sec = ctx.video_duration / num_chunks
+        
+        logger.info(f"📝 [Контекст] Видео {video_duration_min:.1f} мин → {num_chunks} чанков по {chunk_duration_sec/60:.1f} мин")
+        logger.info(f"📝 [Контекст] Ожидаемо ~{max_tokens_per_chunk} токенов на чанк, макс {max_tokens_per_chunk}")
+        
+        chunks = []
+        for i in range(num_chunks):
+            chunk_start = i * chunk_duration_sec
+            chunk_end = min((i + 1) * chunk_duration_sec, ctx.video_duration)
+            
+            chunk_log = self._build_chunk_log(
+                ctx,
+                chunk_start,
+                chunk_end,
+                i + 1,
+                num_chunks,
+                user_instructions,
+                max_tokens_per_chunk
+            )
+            chunks.append(chunk_log)
+            
+            token_count = len(chunk_log) // TOKEN_CHARS
+            logger.info(f"📝 [Контекст] Чанк {i+1}/{num_chunks} ({chunk_start/60:.1f}-{chunk_end/60:.1f} мин): {len(chunk_log)} символов, ~{token_count} токенов")
+        
+        return chunks
 
+    def _build_chunk_log(
+        self,
+        ctx: Stage1Context,
+        start_sec: float,
+        end_sec: float,
+        chunk_num: int,
+        total_chunks: int,
+        user_instructions: str,
+        max_tokens: int
+    ) -> str:
+        """Build context log for a single time chunk.
+        
+        Args:
+            ctx: Stage1Context with all data
+            start_sec: Chunk start time (seconds)
+            end_sec: Chunk end time (seconds)
+            chunk_num: Current chunk number (1-indexed)
+            total_chunks: Total number of chunks
+            user_instructions: User instructions (included in all chunks)
+            max_tokens: Maximum tokens for this chunk
+            
+        Returns:
+            Context log string for this time window
+        """
+        TOKEN_CHARS = 4
+        MAX_CHARS = max_tokens * TOKEN_CHARS
+        
         lines = []
+        lines.append(f"=== CHUNK {chunk_num}/{total_chunks} ===")
+        lines.append(f"TIME WINDOW: {start_sec:.1f}s - {end_sec:.1f}s ({start_sec/60:.1f} - {end_sec/60:.1f} мин)")
         lines.append(f"VIDEO DURATION: {ctx.video_duration:.1f}s")
         lines.append(f"AUDIO: avg_rms={ctx.audio_analysis.avg_rms:.4f}, max_rms={ctx.audio_analysis.max_rms:.4f}")
         lines.append("")
 
-        # Build transcript section (with smart truncation)
+        # Filter transcript segments in time window
         transcript_lines = ["=== TRANSCRIPT ==="]
-        total_segments = len(ctx.transcript)
+        chunk_segments = [
+            seg for seg in ctx.transcript
+            if seg.start < end_sec and seg.end > start_sec
+        ]
         
-        # For long transcripts (>500 segments), sample intelligently
-        if total_segments > 500:
-            # Keep first 100, last 100, and sample middle 300
-            sampled = [
-                *ctx.transcript[:100],
-                *ctx.transcript[100:-100:max(1, (total_segments - 200) // 300)],
-                *ctx.transcript[-100:]
-            ]
-            transcript_lines.append(f"(Showing {len(sampled)}/{total_segments} segments - sampled for brevity)")
-            for seg in sampled:
-                transcript_lines.append(f"[{seg.start:.1f}s-{seg.end:.1f}s][{seg.language}] {seg.text[:200]}")
-        else:
-            for seg in ctx.transcript:
-                # Truncate very long text to 300 chars per segment
+        if chunk_segments:
+            for seg in chunk_segments:
                 text = seg.text if len(seg.text) <= 300 else seg.text[:297] + "..."
                 transcript_lines.append(f"[{seg.start:.1f}s-{seg.end:.1f}s][{seg.language}] {text}")
+        else:
+            transcript_lines.append("(No speech in this segment)")
         transcript_lines.append("")
 
-        # Audio peaks - top 50 only
+        # Filter audio peaks in time window
         peaks_lines = ["=== AUDIO PEAKS ==="]
-        for peak in ctx.audio_analysis.peaks[:50]:
-            peaks_lines.append(f"[{peak.timestamp:.1f}s] {peak.peak_type} magnitude={peak.magnitude:.3f}")
+        chunk_peaks = [
+            peak for peak in ctx.audio_analysis.peaks
+            if start_sec <= peak.timestamp < end_sec
+        ]
+        
+        if chunk_peaks:
+            for peak in chunk_peaks[:50]:  # Max 50 peaks per chunk
+                peaks_lines.append(f"[{peak.timestamp:.1f}s] {peak.peak_type} magnitude={peak.magnitude:.3f}")
+        else:
+            peaks_lines.append("(No significant audio activity)")
         peaks_lines.append("")
 
-        # Face timeline - significantly reduced sampling
+        # Filter face timeline in time window
         face_lines = ["=== FACE TIMELINE ==="]
-        face_lines.append(f"Unique speakers/faces: {len(ctx.face_timeline.unique_face_ids)}")
-        # Sample every 20th frame instead of every 5th for very long videos
-        sample_rate = 20 if len(ctx.face_timeline.frames) > 1000 else 5
-        for frame in ctx.face_timeline.frames[::sample_rate]:
-            if frame.faces:
-                face_info = ", ".join([
-                    f"id={f.track_id}"
-                    for f in frame.faces[:3]  # Max 3 faces per frame
-                ])
-                face_lines.append(f"[{frame.timestamp:.1f}s] {face_info}")
+        chunk_frames = [
+            frame for frame in ctx.face_timeline.frames
+            if start_sec <= frame.timestamp < end_sec
+        ]
+        
+        if chunk_frames:
+            # Sample to keep token count down
+            sample_rate = max(1, len(chunk_frames) // 50)  # Max 50 frames per chunk
+            for frame in chunk_frames[::sample_rate]:
+                if frame.faces:
+                    face_info = ", ".join([
+                        f"id={f.track_id}"
+                        for f in frame.faces[:3]
+                    ])
+                    face_lines.append(f"[{frame.timestamp:.1f}s] {face_info}")
+        else:
+            face_lines.append("(No faces detected in this segment)")
         face_lines.append("")
 
-        # User instructions
+        # User instructions (same for all chunks)
         instructions_lines = []
         if user_instructions:
             instructions_lines = ["=== USER INSTRUCTIONS ===", user_instructions, ""]
 
-        # Combine all sections
+        # Combine sections
         all_lines = lines + transcript_lines + peaks_lines + face_lines + instructions_lines
         log = "\n".join(all_lines)
         
-        # Final truncation if still too long
+        # Hard limit: if chunk still exceeds max_chars, trim transcript
         if len(log) > MAX_CHARS:
-            logger.warning(f"📝 [Контекст] Контекст слишком большой ({len(log)} символов), обрезаю транскрипт...")
-            # Keep header + peaks + faces, truncate transcript
+            logger.warning(f"📝 [Контекст] Чанк {chunk_num} слишком большой ({len(log)} символов), обрезаю транскрипт...")
             header = "\n".join(lines)
             peaks_text = "\n".join(peaks_lines)
             faces_text = "\n".join(face_lines)
@@ -119,15 +195,12 @@ class ContextBuilder:
             reserved = len(header) + len(peaks_text) + len(faces_text) + len(instructions_text) + 100
             transcript_budget = MAX_CHARS - reserved
             
-            # Rebuild transcript with budget
             transcript_text = "\n".join(transcript_lines)
             if len(transcript_text) > transcript_budget:
-                transcript_text = transcript_text[:transcript_budget] + "\n... (transcript truncated)\n"
+                transcript_text = transcript_text[:transcript_budget] + "\n... (transcript truncated to fit token limit)\n"
             
             log = f"{header}\n{transcript_text}\n{peaks_text}\n{faces_text}\n{instructions_text}"
         
-        token_count = len(log) // TOKEN_CHARS
-        logger.info(f"📝 [Контекст] Собран контекст: {len(log)} символов, ~{token_count} токенов")
         return log
 
 

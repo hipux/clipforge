@@ -198,12 +198,21 @@ class DetectionPipeline:
         if progress_callback:
             await progress_callback({"stage": 2, "step": "context_building", "progress": 0.65})
 
-        context_log = context_builder.build_log(ctx, user_instructions)
+        # Build context chunks (dynamic based on video duration)
+        context_chunks = context_builder.build_chunks(ctx, user_instructions)
+        
+        # Estimate total LLM time based on number of chunks
+        chunk_analyze_time = 30  # ~30s per chunk estimate for RTX 5060
+        est_llm_time = len(context_chunks) * chunk_analyze_time
+        if len(context_chunks) > 1:
+            est_llm_time += 20  # +20s for consolidation pass
+        
+        logger.info(f"🧠 [LLM] Ожидаемое время анализа: ~{est_llm_time}с ({len(context_chunks)} чанков)")
 
         if progress_callback:
             await progress_callback({"stage": 2, "step": "llm_analysis", "progress": 0.70})
 
-        director_output = llm_director.analyze(context_log, user_instructions)
+        director_output = llm_director.analyze(context_chunks, user_instructions)
         vram_manager.unload_all()  # Safety flush
         
         stage2_time = time.time() - stage2_start
