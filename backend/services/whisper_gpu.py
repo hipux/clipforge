@@ -31,11 +31,21 @@ class WhisperGPU:
             List of transcript segments with word timestamps
         """
         from faster_whisper import WhisperModel
+        import time
+        import cv2
 
         device = vram_manager.device
         compute_type = WHISPER_GPU_COMPUTE if device == "cuda" else "int8"
+        
+        # Get video duration for logging
+        cap = cv2.VideoCapture(audio_path)
+        fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        video_duration_min = (total_frames / fps) / 60.0
+        cap.release()
 
-        logger.info(f"Loading Whisper distil-large-v3 on {device} ({compute_type})")
+        load_start = time.time()
+        logger.info(f"🎙️  [Whisper] Загрузка модели distil-large-v3 (~2.4 GB VRAM)...")
 
         def _load():
             return WhisperModel(
@@ -46,8 +56,11 @@ class WhisperGPU:
             )
 
         model = vram_manager.load_model("whisper", _load)
-
-        logger.info("Transcribing audio...")
+        load_time = time.time() - load_start
+        logger.info(f"🎙️  [Whisper] Модель загружена за {load_time:.1f}с")
+        logger.info(f"🎙️  [Whisper] Транскрибирую аудио ({video_duration_min:.1f} мин)...")
+        
+        transcribe_start = time.time()
         segments_raw, info = model.transcribe(
             audio_path,
             language=language,
@@ -57,6 +70,7 @@ class WhisperGPU:
         )
 
         segments: List[TranscriptSegment] = []
+        total_words = 0
         for seg in segments_raw:
             words = []
             if seg.words:
@@ -69,6 +83,7 @@ class WhisperGPU:
                     )
                     for w in seg.words
                 ]
+                total_words += len(words)
             segments.append(TranscriptSegment(
                 text=seg.text.strip(),
                 start=seg.start,
@@ -76,9 +91,25 @@ class WhisperGPU:
                 language=info.language,
                 words=words,
             ))
+        
+        transcribe_time = time.time() - transcribe_start
+        
+        # Language mapping for display
+        lang_map = {
+            'ru': 'русский',
+            'en': 'английский',
+            'es': 'испанский',
+            'fr': 'французский',
+            'de': 'немецкий',
+        }
+        lang_name = lang_map.get(info.language, info.language)
+        prob_percent = int(info.language_probability * 100) if hasattr(info, 'language_probability') else 0
+        
+        logger.info(f"🎙️  [Whisper] Обнаруженный язык: {lang_name} ({prob_percent}%)")
+        logger.info(f"🎙️  [Whisper] Транскрипция завершена: {total_words} слов, {len(segments)} сегментов за {transcribe_time:.1f}с")
 
         vram_manager.unload_model("whisper")
-        logger.info(f"Transcription complete: {len(segments)} segments, language={info.language}")
+        logger.info(f"🎙️  [Whisper] Модель выгружена из VRAM")
         return segments
 
 

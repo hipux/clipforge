@@ -32,19 +32,29 @@ class AudioAnalyzer:
         import librosa
         import numpy as np
         from scipy.signal import find_peaks
+        import time
+        import cv2
+        
+        # Get video duration for logging
+        cap = cv2.VideoCapture(video_path)
+        fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        video_duration_min = (total_frames / fps) / 60.0
+        cap.release()
 
         # Extract audio to temporary WAV file
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             tmp_path = tmp.name
 
         try:
-            logger.info("Extracting audio for analysis...")
+            start_time = time.time()
+            logger.info(f"🔊 [Аудио] Загрузка аудиодорожки...")
             subprocess.run([
                 "ffmpeg", "-y", "-i", video_path,
                 "-vn", "-ar", "16000", "-ac", "1", tmp_path
             ], check=True, capture_output=True)
 
-            logger.info("Loading audio with librosa...")
+            logger.info(f"🔊 [Аудио] Анализирую пики громкости ({video_duration_min:.1f} мин)...")
             y, sr = librosa.load(tmp_path, sr=16000)
             hop_length = 512
             frame_duration = hop_length / sr
@@ -104,7 +114,9 @@ class AudioAnalyzer:
                 for t, r in zip(times[::10], rms[::10])
             ]
 
-            logger.info(f"Audio analysis complete: {len(peaks)} peaks detected")
+            analysis_time = time.time() - start_time
+            logger.info(f"🔊 [Аудио] Найдено {len(peaks)} пиков активности (смех, крики, эмоции)")
+            logger.info(f"🔊 [Аудио] Анализ завершён за {analysis_time:.1f}с")
             return AudioAnalysis(
                 peaks=peaks,
                 rms_timeline=rms_timeline,

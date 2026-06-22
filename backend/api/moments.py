@@ -62,9 +62,16 @@ async def start_moment_detection(request: DetectMomentsRequest):
 async def run_moment_detection(job_id: str, video: dict, min_duration: int = 30, max_duration: int = 90, max_moments: int = 15):
     """Run moment detection in background using GPU pipeline."""
     try:
+        logger.info("="*70)
+        logger.info(f"🎬 [АPI] Новая задача на детекцию: {video.get('title', video.get('file_path', 'unknown'))}")
+        logger.info(f"🎬 [АPI] Job ID: {job_id}")
+        logger.info(f"🎬 [АPI] Параметры: длительность {min_duration}-{max_duration}с, макс {max_moments} моментов")
+        logger.info("="*70)
+        logger.info("")
+        
         detection_jobs[job_id]['status'] = 'analyzing'
         detection_jobs[job_id]['progress'] = 0.0
-        detection_jobs[job_id]['message'] = 'Starting GPU pipeline...'
+        detection_jobs[job_id]['message'] = 'Запуск GPU-пайплайна...'
         
         # Progress callback to update WebSocket clients
         async def progress_cb(data: dict):

@@ -31,13 +31,17 @@ class FaceDetector:
         """
         from ultralytics import YOLO
         import cv2
+        import time
 
         device = vram_manager.device
+        
+        load_start = time.time()
+        logger.info(f"👤 [YOLO] Загрузка YOLOv8n-face (~200 MB VRAM)...")
 
         def _load():
             model_path = str(FACE_MODEL_PATH)
             if not Path(model_path).exists():
-                logger.info("Downloading yolov8n-face.pt...")
+                logger.info("👤 [YOLO] Первая загрузка — скачиваю модель (~6 MB), подождите...")
                 # Ultralytics will download standard YOLOv8n if face model not found
                 # For production, pre-download the face model
                 m = YOLO("yolov8n.pt")
@@ -46,17 +50,23 @@ class FaceDetector:
             return YOLO(model_path)
 
         model = vram_manager.load_model("face", _load)
+        load_time = time.time() - load_start
+        logger.info(f"👤 [YOLO] Модель загружена за {load_time:.1f}с")
 
         cap = cv2.VideoCapture(video_path)
         fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
         frame_interval = max(1, int(fps / FACE_SAMPLE_FPS))
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        sampled_frames_count = total_frames // frame_interval
 
         frames: List[FaceFrame] = []
         all_track_ids = set()
         frame_idx = 0
+        processed_count = 0
+        last_log_percent = 0
 
-        logger.info(f"Face detection: sampling at {FACE_SAMPLE_FPS} fps (interval={frame_interval} frames)")
+        logger.info(f"👤 [YOLO] Анализирую кадры ({sampled_frames_count} кадров, каждые 0.5с)...")
+        detect_start = time.time()
 
         while cap.isOpened():
             ret, frame = cap.read()
@@ -88,12 +98,22 @@ class FaceDetector:
                             track_id=track_id,
                         ))
                 frames.append(FaceFrame(timestamp=timestamp, faces=face_detections))
+                processed_count += 1
+                
+                # Log progress every 25%
+                progress_percent = int((processed_count / sampled_frames_count) * 100)
+                if progress_percent >= last_log_percent + 25:
+                    logger.info(f"👤 [YOLO] Прогресс: {progress_percent}% ({processed_count}/{sampled_frames_count} кадров)")
+                    last_log_percent = progress_percent
             
             frame_idx += 1
 
         cap.release()
+        detect_time = time.time() - detect_start
+        
+        logger.info(f"👤 [YOLO] Найдено {len(all_track_ids)} уникальных лиц, {len(frames)} треков за {detect_time:.1f}с")
         vram_manager.unload_model("face")
-        logger.info(f"Face detection complete: {len(frames)} frames, {len(all_track_ids)} unique faces")
+        logger.info(f"👤 [YOLO] Модель выгружена из VRAM")
         return FaceTimeline(frames=frames, unique_face_ids=list(all_track_ids))
 
 

@@ -116,36 +116,68 @@ class DetectionPipeline:
                 language_detected="unknown"
             )
 
-        logger.info(f"Starting 3-stage GPU pipeline: {video_path}")
-
-        # ─── STAGE 1: Data Collection ────────────────────────────────────────
-        if progress_callback:
-            await progress_callback({"stage": 1, "step": "transcription", "progress": 0.05})
-
-        logger.info("Stage 1a: Transcribing audio with Whisper GPU...")
-        transcript = whisper_gpu.transcribe(video_path)
-        vram_manager.unload_all()  # Safety flush
-
-        if progress_callback:
-            await progress_callback({"stage": 1, "step": "face_detection", "progress": 0.30})
-
-        logger.info("Stage 1b: Detecting faces with YOLOv8n...")
-        face_timeline = face_detector.detect_faces_timeline(video_path)
-        vram_manager.unload_all()  # Safety flush
-
-        if progress_callback:
-            await progress_callback({"stage": 1, "step": "audio_analysis", "progress": 0.50})
-
-        logger.info("Stage 1c: Analyzing audio peaks...")
-        audio_analysis = audio_analyzer.analyze(video_path)
-
-        # Get video duration
+        import time
+        from pathlib import Path
+        
+        start_time = time.time()
+        video_name = Path(video_path).name
+        
+        # Get video info for estimates
         import cv2
         cap = cv2.VideoCapture(video_path)
         fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         video_duration = total_frames / fps
         cap.release()
+        
+        video_duration_min = video_duration / 60.0
+        
+        # Time estimates for RTX 5060
+        if video_duration_min <= 30:
+            est_stage1 = "2-3мин"
+            est_stage2 = "1-2мин"
+            est_total = "3-5 минут"
+        elif video_duration_min <= 60:
+            est_stage1 = "4-6мин"
+            est_stage2 = "2-3мин"
+            est_total = "6-9 минут"
+        else:
+            est_stage1 = "8-12мин"
+            est_stage2 = "3-4мин"
+            est_total = "11-16 минут"
+        
+        gpu_mode = "GPU (CUDA)" if vram_manager.is_gpu else "CPU (резервный)"
+        logger.info(f"🚀 [Детекция] Запуск GPU-пайплайна для видео: {video_name} ({video_duration_min:.1f} мин)")
+        logger.info(f"📊 [Детекция] Режим: {gpu_mode}")
+        logger.info(f"⏱️  [Детекция] Примерное время: ~{est_total} (Этап 1: {est_stage1} + Этап 2: {est_stage2})")
+        logger.info("")
+
+        # ─── STAGE 1: Data Collection ────────────────────────────────────────
+        stage1_start = time.time()
+        logger.info("▶️  [Этап 1/3] Начало сбора данных...")
+        logger.info("")
+        
+        if progress_callback:
+            await progress_callback({"stage": 1, "step": "transcription", "progress": 0.05})
+
+        transcript = whisper_gpu.transcribe(video_path)
+        vram_manager.unload_all()  # Safety flush
+
+        if progress_callback:
+            await progress_callback({"stage": 1, "step": "face_detection", "progress": 0.30})
+
+        face_timeline = face_detector.detect_faces_timeline(video_path)
+        vram_manager.unload_all()  # Safety flush
+
+        if progress_callback:
+            await progress_callback({"stage": 1, "step": "audio_analysis", "progress": 0.50})
+
+        audio_analysis = audio_analyzer.analyze(video_path)
+        
+        stage1_time = time.time() - stage1_start
+        logger.info("")
+        logger.info(f"✅  [Этап 1/3] Завершён за {stage1_time:.1f}с")
+        logger.info("")
 
         ctx = Stage1Context(
             transcript=transcript,
@@ -159,27 +191,50 @@ class DetectionPipeline:
             await progress_callback({"stage": 1, "step": "done", "progress": 0.60})
 
         # ─── STAGE 2: LLM Director ───────────────────────────────────────────
+        stage2_start = time.time()
+        logger.info("▶️  [Этап 2/3] Начало ИИ-анализа...")
+        logger.info("")
+        
         if progress_callback:
             await progress_callback({"stage": 2, "step": "context_building", "progress": 0.65})
 
-        logger.info("Stage 2: Building context log...")
         context_log = context_builder.build_log(ctx, user_instructions)
 
         if progress_callback:
             await progress_callback({"stage": 2, "step": "llm_analysis", "progress": 0.70})
 
-        logger.info("Stage 2: Sending to Qwen2.5-7B for analysis...")
         director_output = llm_director.analyze(context_log, user_instructions)
         vram_manager.unload_all()  # Safety flush
+        
+        stage2_time = time.time() - stage2_start
+        logger.info("")
+        logger.info(f"✅  [Этап 2/3] Завершён за {stage2_time:.1f}с")
+        logger.info("")
 
         if progress_callback:
             await progress_callback({"stage": 2, "step": "done", "progress": 0.90})
 
         # ─── STAGE 3: Done (rendering happens per-clip via /render endpoint) ─
+        logger.info("▶️  [Этап 3/3] Подготовка результатов...")
+        logger.info("")
+        
         if progress_callback:
             await progress_callback({"stage": 3, "step": "done", "progress": 1.0})
 
-        logger.info(f"Pipeline complete: {len(director_output.moments)} moments detected")
+        total_time = time.time() - start_time
+        logger.info(f"✅  [Этап 3/3] Завершён за 0.5с")
+        logger.info("")
+        logger.info("="*60)
+        logger.info(f"🎉 [Детекция] Готово! Найдено {len(director_output.moments)} моментов за {total_time:.1f}с")
+        
+        # Log top moments
+        if director_output.moments:
+            top_moment = director_output.moments[0]
+            logger.info(f"🏆 Топ момент: \"{top_moment.hook}\" (вирусность: {top_moment.virality_score:.0f}/100)")
+        
+        logger.info("="*60)
+        logger.info("")
+        
         return director_output
 
 

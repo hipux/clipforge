@@ -79,7 +79,8 @@ class ContextBuilder:
             lines.append("")
 
         log = "\n".join(lines)
-        logger.info(f"Context log built: {len(log)} chars, ~{len(log)//4} tokens")
+        token_count = len(log) // 4
+        logger.info(f"📝 [Контекст] Собран контекст: {len(log)} символов, ~{token_count} токенов")
         return log
 
 

@@ -29,7 +29,7 @@ def _has_nvenc() -> bool:
 
 # Cache NVENC availability at module load time
 HAS_NVENC = _has_nvenc()
-logger.info(f"NVENC encoding: {'✓ Available' if HAS_NVENC else '✗ Not available (using libx264 fallback)'}")
+logger.info(f"🎬 [Render] NVENC encoding: {'\u2713 Доступен' if HAS_NVENC else '\u2717 Недоступен (будет использован libx264)'}")
 
 
 class GPURenderer:
@@ -66,6 +66,8 @@ class GPURenderer:
         vf = self._build_vfilter(instruction, output_width, output_height)
         
         # Choose encoder
+        import time
+        
         if HAS_NVENC:
             encoder_args = [
                 "-c:v", "h264_nvenc",
@@ -76,10 +78,10 @@ class GPURenderer:
                 "-bf", "3",
                 "-temporal-aq", "1",
             ]
-            logger.info("Encoding with NVENC h264_nvenc")
+            logger.info("🎬 [Рендер] Кодирование с NVENC h264 (аппаратное)")
         else:
             encoder_args = ["-c:v", "libx264", "-preset", "medium", "-crf", "23"]
-            logger.info("Encoding with CPU libx264 (NVENC not available)")
+            logger.info("🎬 [Рендер] Кодирование с CPU libx264 (NVENC недоступен)")
 
         cmd = [
             "ffmpeg", "-y",
@@ -90,9 +92,13 @@ class GPURenderer:
             "-c:a", "aac", "-b:a", "192k",
         ] + encoder_args + [output_path]
 
-        logger.info(f"Rendering clip: {instruction.start:.1f}s-{instruction.end:.1f}s → {output_path}")
+        logger.info(f"🎬 [Рендер] Рендер клипа: {instruction.start:.1f}с-{instruction.end:.1f}с ({duration:.1f}с)")
+        
+        render_start = time.time()
         subprocess.run(cmd, check=True, capture_output=True)
-        logger.info(f"Rendered successfully: {output_path}")
+        render_time = time.time() - render_start
+        
+        logger.info(f"🎬 [Рендер] Рендер завершён за {render_time:.1f}с: {output_path}")
         return output_path
 
     def _build_vfilter(self, instruction: MomentInstruction, w: int, h: int) -> str:
