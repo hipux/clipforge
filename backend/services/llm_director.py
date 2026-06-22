@@ -5,6 +5,7 @@ GPU-first: loads all layers on GPU when CUDA available.
 from __future__ import annotations
 import logging
 import time
+import requests
 from typing import Optional
 from backend.gpu_config import (
     QWEN_MODEL_PATH, QWEN_MODEL_REPO, QWEN_MODEL_FILE,
@@ -26,23 +27,51 @@ class LLMDirector:
     """
 
     def _download_model_if_needed(self) -> None:
-        """Download Qwen3-8B GGUF if not present."""
-        if QWEN_MODEL_PATH.exists():
+        """Download Qwen3-8B GGUF if not present.
+        
+        Uses requests library directly to avoid httpx/huggingface_hub client closure issues.
+        """
+        # Check if model exists and has reasonable size (> 1 GB)
+        if QWEN_MODEL_PATH.exists() and QWEN_MODEL_PATH.stat().st_size > 1_000_000_000:
+            logger.info(f"🧠 [Qwen3] Модель найдена: {QWEN_MODEL_PATH}")
             return
         
         logger.info(f"🧠 [Qwen3] Первая загрузка — скачиваю модель (~4.7 GB), подождите...")
         logger.info("🧠 [Qwen3] Это может занять 5-15 минут в зависимости от скорости интернета...")
         
         try:
-            from huggingface_hub import hf_hub_download
-            hf_hub_download(
-                repo_id=QWEN_MODEL_REPO,
-                filename=QWEN_MODEL_FILE,
-                local_dir=str(QWEN_MODEL_PATH.parent),
-                local_dir_use_symlinks=False,
-            )
+            # Direct download via requests to avoid httpx client issues
+            url = f"https://huggingface.co/{QWEN_MODEL_REPO}/resolve/main/{QWEN_MODEL_FILE}"
+            QWEN_MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Stream download with progress logging
+            with requests.get(url, stream=True, timeout=300) as r:
+                r.raise_for_status()
+                total = int(r.headers.get('content-length', 0))
+                downloaded = 0
+                last_log_percent = 0
+                
+                with open(QWEN_MODEL_PATH, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192 * 1024):  # 8MB chunks
+                        if chunk:
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            
+                            # Log progress every 10%
+                            if total:
+                                pct = downloaded / total * 100
+                                if int(pct / 10) > int(last_log_percent / 10):
+                                    logger.info(
+                                        f"🧠 [Qwen3] Скачано: {pct:.0f}% "
+                                        f"({downloaded/1e9:.1f}/{total/1e9:.1f} GB)"
+                                    )
+                                    last_log_percent = pct
+            
             logger.info("🧠 [Qwen3] Модель успешно скачана")
         except Exception as e:
+            # Clean up partial download
+            if QWEN_MODEL_PATH.exists():
+                QWEN_MODEL_PATH.unlink()
             raise RuntimeError(f"Failed to download Qwen model: {e}")
 
     def analyze(
@@ -52,123 +81,150 @@ class LLMDirector:
     ) -> DirectorOutput:
         """Analyze video context and generate moment instructions.
         
-        Supports both single context string and list of chunks for long videos.
-        For multi-chunk mode, runs LLM on each chunk separately, then consolidates.
+        Supports both single context string and chunked analysis for long videos.
         
         Args:
-            context_log_or_chunks: Single context string OR list of chunk strings
-            user_instructions: Optional user-provided analysis instructions
+            context_log_or_chunks: Either a single context string or list of chunk strings
+            user_instructions: Optional user instructions for the LLM
             
         Returns:
-            DirectorOutput with ranked moments and camera plans
+            DirectorOutput with moment candidates
         """
-        import instructor
         from llama_cpp import Llama
-
-        self._download_model_if_needed()
-
-        # Determine if we're in chunked mode
-        is_chunked = isinstance(context_log_or_chunks, list)
-        chunks = context_log_or_chunks if is_chunked else [context_log_or_chunks]
+        import instructor
         
-        # Load model once for all chunks
-        n_gpu_layers = QWEN_N_GPU_LAYERS if vram_manager.is_gpu else 0
+        # Download model if needed (first run only)
+        self._download_model_if_needed()
+        
+        # Determine device/layers
+        n_gpu_layers = QWEN_N_GPU_LAYERS if vram_manager.device == "cuda" else 0
+        device_str = "GPU (все слои)" if n_gpu_layers == -1 else f"GPU ({n_gpu_layers} слоёв)" if n_gpu_layers > 0 else "CPU"
+        
         load_start = time.time()
-        logger.info(f"🧠 [Qwen3] Загрузка модели Qwen3-8B Q4_K_M (~4.5 GB VRAM)...")
-
-        def _load():
+        logger.info(f"🧠 [Qwen3] Загрузка модели (~4.5 GB VRAM, {device_str})...")
+        
+        def _load_llm():
             return Llama(
                 model_path=str(QWEN_MODEL_PATH),
-                n_ctx=QWEN_N_CTX,
                 n_gpu_layers=n_gpu_layers,
+                n_ctx=QWEN_N_CTX,
+                chat_format="qwen2",
                 verbose=False,
             )
-
-        llm = vram_manager.load_model("qwen3", _load)
-        client = instructor.from_llama_cpp(llm)
+        
+        llm = vram_manager.load_model("llm", _load_llm)
         load_time = time.time() - load_start
         logger.info(f"🧠 [Qwen3] Модель загружена за {load_time:.1f}с")
         
-        if is_chunked:
-            logger.info(f"🧠 [Qwen3] Режим чанков: анализирую {len(chunks)} частей...")
+        # Create instructor client
+        client = instructor.from_llama_cpp(llm)
         
-        # Analyze each chunk
-        all_candidates = []
-        total_analyze_time = 0.0
+        # Handle chunked vs single analysis
+        if isinstance(context_log_or_chunks, list):
+            return self._analyze_chunked(client, context_log_or_chunks, user_instructions)
+        else:
+            return self._analyze_single(client, context_log_or_chunks, user_instructions)
+
+    def _analyze_single(
+        self,
+        client,
+        context_log: str,
+        user_instructions: str
+    ) -> DirectorOutput:
+        """Single-pass LLM analysis for videos that fit in context window."""
+        logger.info(f"🧠 [Qwen3] Анализирую контекст ({len(context_log)} символов)...")
         
-        for i, chunk_log in enumerate(chunks):
-            chunk_num = i + 1
-            token_count = len(chunk_log) // 4
-            
-            if is_chunked:
-                # Extract time window from chunk header
-                import re
-                match = re.search(r'TIME WINDOW: (\d+\.\d+)s - (\d+\.\d+)s \((\d+\.\d+) - (\d+\.\d+)', chunk_log)
-                time_range = f"{match.group(3)}-{match.group(4)} мин" if match else "?"
-                logger.info(f"🧠 [Qwen3] Анализирую чанк {chunk_num}/{len(chunks)} ({time_range})...")
-            else:
-                logger.info(f"🧠 [Qwen3] Отправляю контекст (~{token_count} токенов) на анализ...")
-                logger.info(f"🧠 [Qwen3] ИИ анализирует содержание...")
-            
-            analyze_start = time.time()
-            chunk_result = client.chat.completions.create(
+        analyze_start = time.time()
+        
+        system_prompt_filled = SYSTEM_PROMPT.format(user_instructions=user_instructions or "Нет")
+        
+        try:
+            result = client.chat.completions.create(
                 model="qwen3",
                 response_model=DirectorOutput,
                 messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": chunk_log},
+                    {"role": "system", "content": system_prompt_filled},
+                    {"role": "user", "content": context_log},
                 ],
                 temperature=QWEN_TEMPERATURE,
                 top_p=QWEN_TOP_P,
                 presence_penalty=QWEN_PRESENCE_PENALTY,
                 max_tokens=4096,
+                max_retries=3,
             )
-            analyze_time = time.time() - analyze_start
-            total_analyze_time += analyze_time
             
-            all_candidates.extend(chunk_result.moments)
-            logger.info(f"🧠 [Qwen3] Чанк {chunk_num}/{len(chunks)} обработан: {len(chunk_result.moments)} кандидатов за {analyze_time:.1f}с")
-        
-        # Consolidation pass for multi-chunk mode
-        if is_chunked and len(all_candidates) > 10:
-            logger.info(f"🧠 [Qwen3] Консолидация: {len(all_candidates)} кандидатов → финальный ранкинг...")
-            final_result = self._consolidate_candidates(client, all_candidates)
-        elif is_chunked:
-            # Few candidates, just sort by virality
-            sorted_moments = sorted(all_candidates, key=lambda m: m.virality_score, reverse=True)
-            final_result = DirectorOutput(
-                moments=sorted_moments,
-                total_analyzed=len(all_candidates),
-                language_detected="ru"
-            )
-            logger.info(f"🧠 [Qwen3] Мало кандидатов, консолидация не нужна")
-        else:
-            # Single chunk mode, use result directly
-            final_result = DirectorOutput(
-                moments=all_candidates,
-                total_analyzed=len(all_candidates),
-                language_detected="ru"
-            )
-        
-        logger.info(f"🧠 [Qwen3] Анализ завершён: выбрано {len(final_result.moments)} моментов за {total_analyze_time:.1f}с")
-        
-        if final_result.moments:
-            top_moment = final_result.moments[0]
-            logger.info(f"🧠 [Qwen3] Топ момент: \"{top_moment.hook}\" (вирусность: {top_moment.virality_score:.0f}/100)")
+            analyze_time = time.time() - analyze_start
+            logger.info(f"🧠 [Qwen3] Анализ завершён за {analyze_time:.1f}с: найдено {len(result.moments)} моментов")
+            
+            vram_manager.unload_model("llm")
+            logger.info("🧠 [Qwen3] Модель выгружена из VRAM")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"🧠 [Qwen3] Ошибка при анализе: {e}")
+            vram_manager.unload_model("llm")
+            raise
 
-        vram_manager.unload_model("qwen3")
-        logger.info(f"🧠 [Qwen3] Модель выгружена из VRAM")
+    def _analyze_chunked(
+        self,
+        client,
+        chunks: list[str],
+        user_instructions: str
+    ) -> DirectorOutput:
+        """Multi-pass analysis for long videos split into chunks.
+        
+        Each chunk is analyzed independently, then results are consolidated.
+        """
+        logger.info(f"🧠 [Qwen3] Режим chunks: анализирую {len(chunks)} частей...")
+        
+        all_candidates = []
+        
+        for i, chunk in enumerate(chunks):
+            logger.info(f"🧠 [Qwen3] Обрабатываю chunk {i+1}/{len(chunks)} ({len(chunk)} символов)...")
+            
+            chunk_start = time.time()
+            system_prompt = SYSTEM_PROMPT.format(user_instructions=user_instructions or "Нет")
+            
+            try:
+                chunk_result = client.chat.completions.create(
+                    model="qwen3",
+                    response_model=DirectorOutput,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": chunk},
+                    ],
+                    temperature=QWEN_TEMPERATURE,
+                    top_p=QWEN_TOP_P,
+                    presence_penalty=QWEN_PRESENCE_PENALTY,
+                    max_tokens=3072,
+                    max_retries=2,
+                )
+                
+                chunk_time = time.time() - chunk_start
+                logger.info(
+                    f"🧠 [Qwen3] Chunk {i+1}/{len(chunks)} за {chunk_time:.1f}с: "
+                    f"{len(chunk_result.moments)} моментов"
+                )
+                all_candidates.extend(chunk_result.moments)
+                
+            except Exception as e:
+                logger.error(f"🧠 [Qwen3] Ошибка в chunk {i+1}: {e}")
+                continue
+        
+        # Consolidate all candidates
+        logger.info(f"🧠 [Qwen3] Консолидирую {len(all_candidates)} кандидатов...")
+        final_result = self._consolidate_moments(client, all_candidates)
+        
+        vram_manager.unload_model("llm")
+        logger.info("🧠 [Qwen3] Модель выгружена из VRAM")
+        
         return final_result
 
-    def _consolidate_candidates(self, client, candidates: list) -> DirectorOutput:
-        """Run final consolidation pass to rank and deduplicate candidates.
+    def _consolidate_moments(self, client, candidates: list) -> DirectorOutput:
+        """Consolidate and rank moment candidates from all chunks.
         
-        Args:
-            client: instructor client
-            candidates: List of MomentInstruction from all chunks
-            
-        Returns:
-            DirectorOutput with final ranked moments
+        Removes duplicates/overlaps and selects top moments.
         """
         # Build summary of all candidates for consolidation prompt
         summary_lines = ["=== ALL MOMENT CANDIDATES ==="]

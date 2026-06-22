@@ -24,7 +24,7 @@ WHISPER_GPU_COMPUTE = os.getenv("CLIPFORGE_WHISPER_COMPUTE", "float16")
 # ─── Face Detection Configuration ──────────────────────────────────────────
 FACE_MODEL_PATH = MODELS_DIR / "yolov8n-face.pt"
 FACE_SAMPLE_FPS = float(os.getenv("CLIPFORGE_FACE_SAMPLE_FPS", "2.0"))
-FACE_CONFIDENCE_THRESHOLD = float(os.getenv("CLIPFORGE_FACE_CONF", "0.5"))
+FACE_CONFIDENCE_THRESHOLD = float(os.getenv("CLIPFORGE_FACE_CONF", "0.65"))
 
 # ─── LLM Configuration (Qwen3-8B GGUF) ─────────────────────────────────────
 QWEN_MODEL_REPO = "Qwen/Qwen3-8B-GGUF"
