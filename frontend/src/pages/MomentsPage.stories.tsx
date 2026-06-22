@@ -1,20 +1,21 @@
-import type { Meta, StoryObj } from '@storybook/react-vite'
-import MomentsPage from './MomentsPage'
+import type { Meta, StoryObj } from "@storybook/react-vite";
+import MomentsPage from "./MomentsPage";
 import {
   withClipForge,
   withDetectionBlocked,
+  withGpuStatusMock,
   mockVideo,
   mockMoments,
-} from '../stories/mocks'
+} from "../stories/mocks";
 
 const meta = {
-  title: 'Pages/MomentsPage',
+  title: "Pages/MomentsPage",
   component: MomentsPage,
-  parameters: { layout: 'fullscreen' },
-} satisfies Meta<typeof MomentsPage>
+  parameters: { layout: "fullscreen" },
+} satisfies Meta<typeof MomentsPage>;
 
-export default meta
-type Story = StoryObj<typeof meta>
+export default meta;
+type Story = StoryObj<typeof meta>;
 
 /**
  * Pre-detection view shown before any moments are detected: the Detection
@@ -28,15 +29,16 @@ type Story = StoryObj<typeof meta>
  * empty state on screen.
  */
 export const SettingsCard: Story = {
-  name: 'Detection Settings (empty, sliders)',
+  name: "Detection Settings (GPU status + LLM)",
   decorators: [
+    withGpuStatusMock(),
     withDetectionBlocked(),
-    withClipForge({ currentVideo: mockVideo }, '/moments'),
+    withClipForge({ currentVideo: mockVideo }, "/moments"),
   ],
-}
+};
 
 export const WithMoments: Story = {
-  name: 'Detected Moments',
+  name: "Detected Moments",
   decorators: [
     withClipForge(
       {
@@ -44,21 +46,21 @@ export const WithMoments: Story = {
         moments: mockMoments,
         selectedMomentIds: mockMoments.map((m) => m.id),
       },
-      '/moments',
+      "/moments",
     ),
   ],
-}
+};
 
 export const PartialSelection: Story = {
-  name: 'Partial Selection',
+  name: "Partial Selection",
   decorators: [
     withClipForge(
       {
         currentVideo: mockVideo,
         moments: mockMoments,
-        selectedMomentIds: ['m1', 'm3'],
+        selectedMomentIds: ["m1", "m3"],
       },
-      '/moments',
+      "/moments",
     ),
   ],
-}
+};
