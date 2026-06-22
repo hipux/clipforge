@@ -1,95 +1,121 @@
 #!/bin/bash
+# ClipForge GPU-Accelerated Setup Script
+# Make executable with: chmod +x setup.sh
+
 set -e
 
-echo "🎬 Setting up ClipForge..."
+echo "========================================"
+echo "   ClipForge GPU-Accelerated Setup"
+echo "========================================"
 echo ""
 
-# Detect OS
-if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" || "$OSTYPE" == "cygwin" ]]; then
-    echo "⚠️  Windows detected. This script is designed for WSL2 (Windows Subsystem for Linux)."
-    echo "   If you're running in WSL2, continue. Otherwise use Git Bash."
-    echo ""
-fi
-
-# Check if FFmpeg is installed
-if ! command -v ffmpeg &> /dev/null; then
-    echo "📦 FFmpeg not found. Installing..."
-    # Linux/WSL2
-    if command -v apt-get &> /dev/null; then
-        sudo apt-get update -qq && sudo apt-get install -y ffmpeg
-    elif command -v brew &> /dev/null; then
-        brew install ffmpeg
-    else
-        echo "❌ Could not auto-install FFmpeg."
-        echo "   Windows/WSL2: Run 'sudo apt-get install ffmpeg' in WSL2 terminal"
-        echo "   Or download from https://ffmpeg.org/download.html"
-        exit 1
-    fi
-else
-    echo "✅ FFmpeg already installed"
-fi
-
-# Check Python version
+# Check Python
 if ! command -v python3 &> /dev/null; then
-    echo "❌ Python 3 not found. Please install Python 3.11 or higher"
+    echo "[X] Python 3 not found"
+    echo "    Install Python 3.11+ from https://www.python.org/"
     exit 1
 fi
+echo "[OK] Python found: $(python3 --version)"
 
-PYTHON_VERSION=$(python3 --version | cut -d' ' -f2 | cut -d'.' -f1,2)
-echo "✅ Python $PYTHON_VERSION found"
+# Create venv if not exists
+if [ -d "venv" ]; then
+    echo "[OK] Virtual environment already exists"
+else
+    echo "[+] Creating virtual environment..."
+    python3 -m venv venv
+    echo "[OK] Virtual environment created"
+fi
 
-# Create Python virtual environment
-echo "📦 Creating Python virtual environment..."
-python3 -m venv venv
-
-# Activate virtual environment
-echo "🔧 Activating virtual environment..."
+# Activate venv
+echo "[+] Activating virtual environment..."
 source venv/bin/activate
 
-# Install Python dependencies
-echo "📦 Installing Python dependencies..."
-pip install --upgrade pip
-pip install -r requirements.txt
+# Upgrade pip
+echo "[+] Upgrading pip..."
+pip install --upgrade pip --quiet
 
+# Check CUDA
 echo ""
-echo "📦 Setting up frontend..."
-
-# Check if Node.js is installed
-if ! command -v node &> /dev/null; then
-    echo "❌ Node.js not found. Please install Node.js 18 or higher"
-    exit 1
+echo "[+] Checking for NVIDIA GPU..."
+if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
+    echo "[OK] CUDA detected! Installing GPU-accelerated packages..."
+    echo ""
+    
+    # Install PyTorch with CUDA 12.1
+    echo "[+] Installing PyTorch with CUDA 12.1 (~2.5 GB)..."
+    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+    
+    # Install llama-cpp-python with CUDA
+    echo "[+] Installing llama-cpp-python with CUDA support..."
+    CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python --no-cache-dir
+    
+    echo "[OK] GPU packages installed"
+else
+    echo "[!] CUDA not detected - installing CPU-only packages"
+    echo "    GPU pipeline will not be available"
+    echo ""
+    
+    # Install PyTorch CPU-only
+    echo "[+] Installing PyTorch (CPU-only)..."
+    pip install torch torchvision torchaudio
+    
+    # Install llama-cpp-python CPU-only
+    echo "[+] Installing llama-cpp-python (CPU-only)..."
+    pip install llama-cpp-python
 fi
 
-NODE_VERSION=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
-echo "✅ Node.js v$NODE_VERSION found"
+# Install remaining Python dependencies
+echo ""
+echo "[+] Installing Python dependencies..."
+pip install -r requirements.txt
+
+# Check Node.js
+echo ""
+echo "[+] Checking Node.js..."
+if ! command -v node &> /dev/null; then
+    echo "[X] Node.js not found"
+    echo "    Download from https://nodejs.org/"
+    exit 1
+fi
+echo "[OK] Node.js found: $(node --version)"
 
 # Install frontend dependencies
+echo "[+] Installing frontend dependencies..."
 cd frontend
 npm install
 cd ..
 
 # Create workspace directories
-echo "📁 Creating workspace directories..."
+echo ""
+echo "[+] Creating workspace directories..."
 mkdir -p workspace/downloads
 mkdir -p workspace/output
 mkdir -p workspace/temp
-mkdir -p workspace/models
+mkdir -p models
+echo "[OK] Directories created"
+
+# Run database migration
+echo ""
+echo "[+] Running database migration..."
+if python3 backend/migrate_gpu_fields.py; then
+    echo "[OK] Database migration completed"
+else
+    echo "[!] Database migration failed (this is OK if already migrated)"
+fi
 
 echo ""
-echo "🤖 Downloading Whisper AI model (one-time, ~150MB)..."
-python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Systran/faster-whisper-base', local_dir='workspace/models/whisper-base')" && echo "✅ Whisper model downloaded successfully!" || echo "⚠️  Whisper model download failed. It will be downloaded on first use."
-
+echo "========================================"
+echo "    Setup Complete!"
+echo "========================================"
 echo ""
-echo "✅ Setup complete!"
+echo "Models will be downloaded automatically on first run:"
+echo "  - Whisper (~1.5 GB) to models/whisper/"
+echo "  - YOLOv8n-face (~6 MB) to models/yolov8n-face.pt"
+echo "  - Qwen3-8B (~4.7 GB) to models/qwen3-8b-q4_k_m.gguf"
 echo ""
-echo "📋 Next steps:"
-echo "  1. (Optional) Set up YouTube API credentials:"
-echo "     - Go to https://console.cloud.google.com"
-echo "     - Create a project and enable YouTube Data API v3"
-echo "     - Create OAuth 2.0 credentials"
-echo "     - Download client_secrets.json to project root"
+echo "To start ClipForge:"
+echo "  1. Backend:  ./start.sh"
+echo "  2. Frontend: cd frontend && npm run dev"
 echo ""
-echo "  2. Start ClipForge:"
-echo "     ./start.sh"
+echo "Or check start.sh for combined startup"
 echo ""
-echo "🎉 Enjoy creating clips!"
