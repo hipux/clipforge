@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import List, Dict
 from backend.gpu_config import FACE_MODEL_PATH, FACE_SAMPLE_FPS, FACE_CONFIDENCE_THRESHOLD
 from backend.services.vram_manager import vram_manager
-from backend.schemas.moment_instruction import FaceDetection, FaceFrame, FaceTimeline
+from backend.schemas.moment_instruction import FaceDetection, FaceFrame, FaceTimeline, FacePresenceSegment
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +158,65 @@ class FaceDetector:
         logger.info(f"👤 [YOLO] Модель выгружена из VRAM")
         
         return FaceTimeline(frames=filtered_frames, unique_face_ids=valid_track_ids)
+
+
+    def _build_presence_timeline(self, timeline: FaceTimeline) -> list[FacePresenceSegment]:
+        """Build temporal segments when faces are visible.
+        
+        Instead of counting unique IDs (which explodes due to tracker losing faces),
+        we compute time segments when ANY face is visible in frame.
+        
+        Two frames are considered part of the same segment if they're within 2 seconds.
+        
+        Args:
+            timeline: FaceTimeline with all face detections
+            
+        Returns:
+            List of FacePresenceSegment with start/end times and face count
+        """
+        if not timeline.frames:
+            return []
+        
+        # Collect all timestamps where at least one face is visible
+        face_times = sorted([frame.timestamp for frame in timeline.frames if frame.faces])
+        
+        if not face_times:
+            return []
+        
+        # Build segments with 2-second gap threshold
+        segments = []
+        seg_start = face_times[0]
+        prev_time = face_times[0]
+        frames_in_segment = []
+        
+        for t in face_times:
+            if t - prev_time > 2.0:  # Gap > 2 seconds = new segment
+                # Calculate avg face count for this segment
+                segment_frames = [f for f in timeline.frames if seg_start <= f.timestamp <= prev_time and f.faces]
+                avg_faces = sum(len(f.faces) for f in segment_frames) / len(segment_frames) if segment_frames else 0
+                
+                segments.append(FacePresenceSegment(
+                    start=seg_start,
+                    end=prev_time,
+                    avg_face_count=round(avg_faces, 1)
+                ))
+                seg_start = t
+                frames_in_segment = []
+            
+            frames_in_segment.append(t)
+            prev_time = t
+        
+        # Add final segment
+        segment_frames = [f for f in timeline.frames if seg_start <= f.timestamp <= prev_time and f.faces]
+        avg_faces = sum(len(f.faces) for f in segment_frames) / len(segment_frames) if segment_frames else 0
+        
+        segments.append(FacePresenceSegment(
+            start=seg_start,
+            end=prev_time,
+            avg_face_count=round(avg_faces, 1)
+        ))
+        
+        return segments
 
     def _filter_tracks(self, tracks: Dict[int, List[FaceDetection]]) -> Dict[int, List[FaceDetection]]:
         """Filter tracks to remove short tracks and small faces.
