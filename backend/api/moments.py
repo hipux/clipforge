@@ -253,8 +253,10 @@ async def detect_moments_websocket(
         # Run detection
         moments = await detection_pipeline.run(
             video_path=video['file_path'],
-            video_id=video_id,
-            settings=request,
+            user_instructions=request.user_instructions or "",
+            max_moments=request.max_moments,
+            min_duration=request.min_duration,
+            max_duration=request.max_duration,
             progress_callback=progress_callback
         )
         
