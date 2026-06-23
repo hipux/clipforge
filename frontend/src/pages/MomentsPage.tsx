@@ -90,8 +90,8 @@ function SubstepRow({
   return (
     <div className="flex items-start gap-2.5 py-1.5">
       <div className="mt-0.5 shrink-0">
-        {status === 'done' && <CheckCircle2 size={15} className="text-success" />}
-        {status === 'active' && <Loader2 size={15} className="text-accent animate-spin" />}
+        {status === 'done' && <CheckCircle2 size={15} className="text-emerald-400" />}
+        {status === 'active' && <Loader2 size={15} className="text-violet-400 animate-spin" />}
         {status === 'pending' && <Circle size={15} className="text-slate-700" />}
       </div>
       <div className="min-w-0 flex-1">
@@ -105,7 +105,7 @@ function SubstepRow({
           </span>
           {status !== 'pending' && (
             <span className={`${
-              status === 'done' ? 'text-slate-600' : 'text-accent/60'
+              status === 'done' ? 'text-slate-600' : 'text-violet-400/60'
             }`}>
               {substep.icon}
             </span>
@@ -149,28 +149,28 @@ function StageCard({
   return (
     <div className={`rounded-xl border p-4 transition-all duration-300 ${
       isActive
-        ? 'bg-surface-2 border-accent/30'
+        ? 'bg-slate-800/50 border-violet-500/30'
         : isDone
           ? 'bg-surface border-slate-800 opacity-70'
           : 'bg-surface border-slate-800/50 opacity-40'
     }`}>
       <div className="flex items-center gap-2 mb-3">
         <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold ${
-          isDone ? 'bg-success/20 text-success' :
-          isActive ? 'bg-accent/20 text-accent' :
+          isDone ? 'bg-emerald-500/20 text-emerald-400' :
+          isActive ? 'bg-violet-500/20 text-violet-400' :
           'bg-slate-800 text-slate-600'
         }`}>
           {isDone ? <CheckCircle2 size={12} /> : stageNum}
         </div>
         <span className={`text-sm font-semibold ${
-          isDone ? 'text-success' :
+          isDone ? 'text-emerald-400' :
           isActive ? 'text-accent' :
           'text-slate-600'
         }`}>
           {STAGE_NAMES[stageNum]}
         </span>
-        {isActive && <Loader2 size={13} className="text-accent animate-spin ml-auto" />}
-        {isDone && <CheckCircle2 size={13} className="text-success ml-auto" />}
+        {isActive && <Loader2 size={13} className="text-violet-400 animate-spin ml-auto" />}
+        {isDone && <CheckCircle2 size={13} className="text-emerald-400 ml-auto" />}
       </div>
       <div className="space-y-0.5 pl-1">
         {substeps.map(sub => (
@@ -349,7 +349,7 @@ export default function MomentsPage() {
           {/* Section 1: Detection settings */}
           <div>
             <div className="flex items-center gap-2 mb-4">
-              <div className="w-7 h-7 rounded-lg bg-accent/10 flex items-center justify-center border border-accent/20">
+              <div className="w-7 h-7 rounded-lg bg-violet-500/10 flex items-center justify-center border border-violet-500/20">
                 <SlidersHorizontal size={14} className="text-accent" />
               </div>
               <span className="text-sm font-semibold text-slate-200">Detection Settings</span>
@@ -358,26 +358,26 @@ export default function MomentsPage() {
               <div>
                 <div className="flex justify-between mb-1.5">
                   <label className="text-xs text-slate-400">Clip duration</label>
-                  <span className="text-xs text-accent font-medium tabular-nums">{minDuration}–{maxDuration}s</span>
+                  <span className="text-xs text-violet-400 font-medium tabular-nums">{minDuration}–{maxDuration}s</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <input type="range" min={10} max={120} value={minDuration}
                     onChange={e => setMinDuration(Number(e.target.value))}
-                    className="flex-1 accent-accent h-1.5" />
+                    className="flex-1 accent-violet-500 h-1.5" />
                   <span className="text-slate-600 text-xs">to</span>
                   <input type="range" min={30} max={300} value={maxDuration}
                     onChange={e => setMaxDuration(Number(e.target.value))}
-                    className="flex-1 accent-accent h-1.5" />
+                    className="flex-1 accent-violet-500 h-1.5" />
                 </div>
               </div>
               <div>
                 <div className="flex justify-between mb-1.5">
                   <label className="text-xs text-slate-400">Max moments</label>
-                  <span className="text-xs text-accent font-medium tabular-nums">{maxMoments}</span>
+                  <span className="text-xs text-violet-400 font-medium tabular-nums">{maxMoments}</span>
                 </div>
                 <input type="range" min={3} max={30} value={maxMoments}
                   onChange={e => setMaxMoments(Number(e.target.value))}
-                  className="w-full accent-accent h-1.5" />
+                  className="w-full accent-violet-500 h-1.5" />
               </div>
             </div>
           </div>
@@ -387,7 +387,7 @@ export default function MomentsPage() {
           {/* Section 2: AI instructions */}
           <div>
             <div className="flex items-center gap-2 mb-4">
-              <div className="w-7 h-7 rounded-lg bg-accent/10 flex items-center justify-center border border-accent/20">
+              <div className="w-7 h-7 rounded-lg bg-violet-500/10 flex items-center justify-center border border-violet-500/20">
                 <Sparkles size={14} className="text-accent" />
               </div>
               <span className="text-sm font-semibold text-slate-200">AI Instructions</span>
@@ -407,7 +407,7 @@ export default function MomentsPage() {
           {/* Section 3: Launch */}
           <div>
             <div className="flex items-center gap-2 mb-4">
-              <div className="w-7 h-7 rounded-lg bg-accent/10 flex items-center justify-center border border-accent/20">
+              <div className="w-7 h-7 rounded-lg bg-violet-500/10 flex items-center justify-center border border-violet-500/20">
                 <Play size={14} className="text-accent" />
               </div>
               <span className="text-sm font-semibold text-slate-200">Launch</span>
@@ -459,12 +459,12 @@ export default function MomentsPage() {
             <span className="text-xs text-slate-500">Overall progress</span>
             <div className="flex items-center gap-3">
               <span className="text-xs text-slate-500 tabular-nums">{formatTime(elapsedSeconds)}</span>
-              <span className="text-xs text-accent font-semibold tabular-nums">{overallPct}%</span>
+              <span className="text-xs text-violet-400 font-semibold tabular-nums">{overallPct}%</span>
             </div>
           </div>
           <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
             <div
-              className="h-full bg-accent rounded-full transition-all duration-1000"
+              className="h-full bg-gradient-to-r from-violet-500 to-purple-500 rounded-full transition-all duration-1000"
               style={{ width: `${overallPct}%` }}
             />
           </div>

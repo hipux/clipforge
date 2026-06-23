@@ -19,15 +19,15 @@
   }
 
   .btn-primary {
-    @apply bg-accent hover:bg-accent-hover text-white shadow-glow hover:shadow-glow-lg hover:scale-[1.02] active:scale-[0.98];
+    @apply bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white shadow-glow hover:shadow-glow-lg hover:scale-[1.02] active:scale-[0.98];
   }
 
   .btn-secondary {
-    @apply bg-surface-2 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-slate-600;
+    @apply bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-slate-600;
   }
 
   .btn-success {
-    @apply bg-success hover:bg-green-600 text-white;
+    @apply bg-success hover:bg-emerald-600 text-white;
   }
 
   .btn-danger {
@@ -39,13 +39,13 @@
   }
 
   .card-2 {
-    @apply bg-surface-2 rounded-xl p-5 border border-slate-700/50 shadow-md;
+    @apply bg-slate-800/50 rounded-xl p-5 border border-slate-700/50 shadow-md;
   }
 
   .input {
-    @apply bg-surface-2 border border-slate-700 rounded-lg px-4 py-2.5 text-slate-100
-           placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-accent/50
-           focus:border-accent transition-colors duration-200;
+    @apply bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-2.5 text-slate-100
+           placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30
+           focus:border-violet-500/50 transition-colors duration-200;
   }
 
   .badge {
@@ -53,7 +53,7 @@
   }
 
   .badge-accent {
-    @apply badge bg-accent/15 text-accent border border-accent/20;
+    @apply badge bg-violet-500/10 text-violet-400 border border-violet-500/20;
   }
 
   .badge-success {
@@ -65,7 +65,7 @@
   }
 
   .step-active {
-    @apply relative bg-accent/10 text-accent border-l-2 border-accent;
+    @apply relative bg-violet-500/10 text-violet-400 border-l-2 border-violet-500;
   }
 
   .step-complete {

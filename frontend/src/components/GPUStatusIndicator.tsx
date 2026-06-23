@@ -38,9 +38,9 @@ export function GPUStatusIndicator() {
   const pct = total > 0 ? (used / total) * 100 : 0
 
   return (
-    <div className="flex items-center gap-3 px-3 py-1.5 rounded-lg bg-surface-2 border border-slate-700 text-sm">
+    <div className="flex items-center gap-3 px-3 py-1.5 rounded-lg bg-slate-800/50 border border-slate-700/50 text-sm">
       <div className={`w-2 h-2 rounded-full shrink-0 ${
-        status.is_gpu ? 'bg-success animate-pulse' : 'bg-warning'
+        status.is_gpu ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
       }`} />
       <span className="text-slate-300 font-medium text-xs">
         {status.is_gpu ? 'GPU' : 'CPU'}
@@ -51,7 +51,7 @@ export function GPUStatusIndicator() {
             <div className="w-20 h-1.5 bg-slate-700 rounded-full overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all duration-500 ${
-                  pct > 80 ? 'bg-danger' : pct > 60 ? 'bg-warning' : 'bg-accent'
+                  pct > 80 ? 'bg-red-500' : pct > 60 ? 'bg-amber-400' : 'bg-violet-500'
                 }`}
                 style={{ width: `${pct}%` }}
               />
@@ -61,7 +61,7 @@ export function GPUStatusIndicator() {
             </span>
           </div>
           {status.nvenc_available && (
-            <span className="badge badge-accent text-[10px] py-0">NVENC</span>
+            <span className="text-xs px-1.5 py-0.5 rounded-full bg-violet-500/10 text-violet-400 border border-violet-500/20 font-medium">NVENC</span>
           )}
         </>
       )}

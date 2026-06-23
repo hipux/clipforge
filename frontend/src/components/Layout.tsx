@@ -54,13 +54,13 @@ export default function Layout() {
         {/* Logo */}
         <div className="px-5 py-5 border-b border-slate-800/80">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-accent/15 border border-accent/25 flex items-center justify-center">
-              <Clapperboard size={16} className="text-accent" />
+            <div className="w-8 h-8 rounded-lg bg-violet-500/10 border border-violet-500/20 flex items-center justify-center">
+              <Clapperboard size={16} className="text-violet-400" />
             </div>
             <div>
               <h1
                 className="text-base font-bold leading-tight"
-                style={{ background: 'linear-gradient(90deg, #06b6d4, #38bdf8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}
+                style={{ background: 'linear-gradient(90deg, #7c3aed, #a78bfa)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}
               >
                 ClipForge
               </h1>
@@ -96,13 +96,13 @@ export default function Layout() {
                 disabled={!isAccessible}
                 className={cls}
               >
-                <Icon size={16} className={isCurrent ? 'text-accent' : ''} />
+                <Icon size={16} className={isCurrent ? 'text-violet-400' : ''} />
                 <span className="flex-1 text-left">{step.name}</span>
                 {isComplete && !isCurrent && (
                   <Check size={13} className="text-success shrink-0" />
                 )}
                 {isCurrent && (
-                  <div className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
+                  <div className="w-1.5 h-1.5 rounded-full bg-violet-500 shrink-0" />
                 )}
               </button>
             )
@@ -112,7 +112,7 @@ export default function Layout() {
         {/* Footer */}
         <div className="px-5 py-4 border-t border-slate-800/80">
           <div className="flex items-center gap-1.5 text-[11px] text-slate-600">
-            <Zap size={11} className="text-accent/60" />
+            <Zap size={11} className="text-violet-400/60" />
             <span>100% Free · No API Costs</span>
           </div>
         </div>
