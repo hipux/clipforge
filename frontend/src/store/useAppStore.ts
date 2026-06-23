@@ -77,6 +77,10 @@ interface AppState {
   detectionSettings: DetectionSettings
   updateDetectionSettings: (settings: Partial<DetectionSettings>) => void
   
+  // LLM Instructions
+  llmInstructions: string
+  setLlmInstructions: (v: string) => void
+  
   // Navigation state
   currentStep: number
   setCurrentStep: (step: number) => void
@@ -106,6 +110,7 @@ export const useAppStore = create<AppState>()(persist((set) => ({
     maxDuration: 90,
     maxMoments: 15,
   },
+  llmInstructions: '',
   currentStep: 1,
   
   // Actions
@@ -135,6 +140,8 @@ export const useAppStore = create<AppState>()(persist((set) => ({
   updateDetectionSettings: (settings) => set((state) => ({
     detectionSettings: { ...state.detectionSettings, ...settings }
   })),
+  
+  setLlmInstructions: (v) => set({ llmInstructions: v }),
 }), {
   name: 'clipforge-session',
   partialize: (state) => ({
@@ -144,6 +151,7 @@ export const useAppStore = create<AppState>()(persist((set) => ({
     globalEffects: state.globalEffects,
     processedClips: state.processedClips,
     detectionSettings: state.detectionSettings,
+    llmInstructions: state.llmInstructions,
     currentStep: state.currentStep,
   }),
 }))
