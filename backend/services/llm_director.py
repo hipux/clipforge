@@ -34,71 +34,151 @@ class LLMDirector:
     """
 
     def _download_model_if_needed(self) -> None:
-        """Download Qwen3-8B GGUF if not present.
+        """Download Qwen3-8B GGUF with resumable Range-request download.
         
-        Uses requests library directly to avoid httpx/huggingface_hub client closure issues.
+        Uses HTTP Range headers + retry loop to handle HuggingFace CDN drops.
+        Never deletes a partial file — always resumes from where it left off.
         """
-        # Check if model exists and has reasonable size (> 1 GB)
-        if QWEN_MODEL_PATH.exists() and QWEN_MODEL_PATH.stat().st_size > 1_000_000_000:
-            logger.info(f"🧠 [Qwen3] Модель найдена: {QWEN_MODEL_PATH}")
-            return
-        
-        logger.info(f"🧠 [Qwen3] Первая загрузка — скачиваю модель (~4.7 GB), подождите...")
-        logger.info("🧠 [Qwen3] Это может занять 5-15 минут в зависимости от скорости интернета...")
-        
-        # Primary: huggingface_hub (handles auth, redirects, resumable, case-sensitive filenames)
-        if _HF_HUB_AVAILABLE:
-            try:
-                logger.info(f"🧠 [Qwen3] Downloading via huggingface_hub (primary method)...")
-                downloaded_path = _hf_hub_download(
-                    repo_id=QWEN_MODEL_REPO,
-                    filename=QWEN_MODEL_FILE,
-                    local_dir=str(QWEN_MODEL_PATH.parent),
-                    local_dir_use_symlinks=False,
-                )
-                # Move to expected path if huggingface_hub saved to different name
-                import shutil
-                if str(downloaded_path) != str(QWEN_MODEL_PATH):
-                    shutil.move(downloaded_path, QWEN_MODEL_PATH)
-                logger.info(f"🧠 [Qwen3] ✓ Модель загружена через huggingface_hub")
+        import time as _time
+
+        EXPECTED_SIZE = 5_030_000_000  # ~4.7 GB — abort if server reports different (sanity check)
+        MIN_VALID_SIZE = 4_500_000_000  # accept if >= 4.5 GB (allows slight variation)
+
+        # Check if model already fully downloaded
+        if QWEN_MODEL_PATH.exists():
+            size = QWEN_MODEL_PATH.stat().st_size
+            if size >= MIN_VALID_SIZE:
+                logger.info(f"🧠 [Qwen3] Модель найдена: {QWEN_MODEL_PATH} ({size/1e9:.2f} GB)")
                 return
-            except Exception as hf_err:
-                logger.warning(f"🧠 [Qwen3] huggingface_hub failed: {hf_err} — falling back to requests...")
-        
+            else:
+                logger.info(f"🧠 [Qwen3] Частично скачана: {size/1e6:.0f} MB — возобновляю...")
+
+        logger.info(f"🧠 [Qwen3] Скачиваю модель (~4.7 GB), подождите...")
+        logger.info("🧠 [Qwen3] Resumable download: автоматически продолжается при обрывах соединения")
+
+        QWEN_MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+        url = f"https://huggingface.co/{QWEN_MODEL_REPO}/resolve/main/{QWEN_MODEL_FILE}"
+        tmp_path = QWEN_MODEL_PATH.with_suffix('.part')
+
+        # Get total file size from HEAD
         try:
-            # Fallback: Direct download via requests
-            url = f"https://huggingface.co/{QWEN_MODEL_REPO}/resolve/main/{QWEN_MODEL_FILE}"
-            QWEN_MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Stream download with progress logging
-            with requests.get(url, stream=True, timeout=300) as r:
-                r.raise_for_status()
-                total = int(r.headers.get('content-length', 0))
-                downloaded = 0
-                last_log_percent = 0
-                
-                with open(QWEN_MODEL_PATH, 'wb') as f:
-                    for chunk in r.iter_content(chunk_size=8192 * 1024):  # 8MB chunks
-                        if chunk:
-                            f.write(chunk)
-                            downloaded += len(chunk)
-                            
-                            # Log progress every 10%
-                            if total:
-                                pct = downloaded / total * 100
-                                if int(pct / 10) > int(last_log_percent / 10):
-                                    logger.info(
-                                        f"🧠 [Qwen3] Скачано: {pct:.0f}% "
-                                        f"({downloaded/1e9:.1f}/{total/1e9:.1f} GB)"
-                                    )
-                                    last_log_percent = pct
-            
-            logger.info("🧠 [Qwen3] Модель успешно скачана")
-        except Exception as e:
-            # Clean up partial download
-            if QWEN_MODEL_PATH.exists():
-                QWEN_MODEL_PATH.unlink()
-            raise RuntimeError(f"Failed to download Qwen model: {e}")
+            head = requests.head(url, allow_redirects=True, timeout=30)
+            total_size = int(head.headers.get('content-length', 0))
+            if total_size < MIN_VALID_SIZE:
+                # HEAD may not return content-length on redirect — try GET
+                total_size = 0
+        except Exception:
+            total_size = 0
+
+        MAX_RETRIES = 50        # unlimited practical retries
+        RETRY_DELAY = 5         # seconds between retries
+        CHUNK_SIZE = 4 * 1024 * 1024  # 4 MB chunks
+        READ_TIMEOUT = 60       # seconds per chunk read
+        CONNECT_TIMEOUT = 30    # seconds to establish connection
+
+        attempt = 0
+        last_log_pct = -1
+
+        while attempt < MAX_RETRIES:
+            attempt += 1
+
+            # Calculate resume offset
+            resume_from = tmp_path.stat().st_size if tmp_path.exists() else 0
+            # Also check if final path has partial content
+            if resume_from == 0 and QWEN_MODEL_PATH.exists():
+                resume_from = QWEN_MODEL_PATH.stat().st_size
+                if resume_from >= MIN_VALID_SIZE:
+                    break  # done
+                # rename to .part to resume
+                import shutil
+                shutil.move(str(QWEN_MODEL_PATH), str(tmp_path))
+
+            headers = {}
+            if resume_from > 0:
+                headers['Range'] = f'bytes={resume_from}-'
+                logger.info(f"🧠 [Qwen3] Попытка {attempt}: возобновляю с {resume_from/1e6:.0f} MB...")
+            else:
+                logger.info(f"🧠 [Qwen3] Попытка {attempt}: начинаю скачивание...")
+
+            try:
+                with requests.get(
+                    url,
+                    headers=headers,
+                    stream=True,
+                    timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
+                    allow_redirects=True
+                ) as r:
+                    if r.status_code == 416:  # Range Not Satisfiable = already complete
+                        logger.info("🧠 [Qwen3] Файл уже полностью скачан (416 Range Not Satisfiable)")
+                        break
+                    r.raise_for_status()
+
+                    # Get total size from response if not known
+                    if total_size == 0:
+                        cr = r.headers.get('content-range', '')
+                        if cr:  # e.g. "bytes 16777216-5029999999/5030000000"
+                            try:
+                                total_size = int(cr.split('/')[-1])
+                            except Exception:
+                                pass
+                        if total_size == 0:
+                            total_size = int(r.headers.get('content-length', 0)) + resume_from
+
+                    write_mode = 'ab' if resume_from > 0 else 'wb'
+                    with open(tmp_path, write_mode) as f:
+                        for chunk in r.iter_content(chunk_size=CHUNK_SIZE):
+                            if chunk:
+                                f.write(chunk)
+                                current_size = resume_from + f.tell() if resume_from else f.tell()
+
+                                # Log progress every 5%
+                                if total_size > 0:
+                                    pct = current_size / total_size * 100
+                                    pct_bucket = int(pct / 5) * 5
+                                    if pct_bucket > last_log_pct:
+                                        last_log_pct = pct_bucket
+                                        logger.info(
+                                            f"🧠 [Qwen3] Скачано: {pct:.0f}% "
+                                            f"({current_size/1e9:.2f}/{total_size/1e9:.2f} GB)"
+                                        )
+
+                # Check if download complete
+                downloaded_size = tmp_path.stat().st_size if tmp_path.exists() else 0
+                if downloaded_size >= MIN_VALID_SIZE:
+                    import shutil
+                    shutil.move(str(tmp_path), str(QWEN_MODEL_PATH))
+                    logger.info(f"🧠 [Qwen3] ✓ Модель скачана: {downloaded_size/1e9:.2f} GB")
+                    return
+                else:
+                    logger.warning(
+                        f"🧠 [Qwen3] Неполная загрузка: {downloaded_size/1e6:.0f} MB. "
+                        f"Повтор через {RETRY_DELAY}с..."
+                    )
+                    _time.sleep(RETRY_DELAY)
+
+            except (requests.exceptions.ConnectionError,
+                    requests.exceptions.ChunkedEncodingError,
+                    requests.exceptions.ReadTimeout,
+                    requests.exceptions.Timeout) as e:
+                downloaded_size = tmp_path.stat().st_size if tmp_path.exists() else 0
+                logger.warning(
+                    f"🧠 [Qwen3] Обрыв соединения ({type(e).__name__}): "
+                    f"{downloaded_size/1e6:.0f} MB сохранено. "
+                    f"Повтор {attempt}/{MAX_RETRIES} через {RETRY_DELAY}с..."
+                )
+                _time.sleep(RETRY_DELAY)
+            except Exception as e:
+                logger.error(f"🧠 [Qwen3] Ошибка загрузки: {e}")
+                raise RuntimeError(f"Failed to download Qwen model: {e}")
+
+        # Final check
+        final_size = QWEN_MODEL_PATH.stat().st_size if QWEN_MODEL_PATH.exists() else 0
+        if final_size < MIN_VALID_SIZE:
+            raise RuntimeError(
+                f"Failed to download Qwen model after {MAX_RETRIES} attempts. "
+                f"Downloaded: {final_size/1e6:.0f} MB / {MIN_VALID_SIZE/1e9:.1f} GB required"
+            )
 
     def analyze(
         self,
