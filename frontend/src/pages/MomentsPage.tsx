@@ -43,7 +43,7 @@ export default function MomentsPage() {
   useEffect(() => {
     // Fetch GPU status on mount
     axios.get('/api/gpu/status')
-      .then(r => setIsGPUAvailable(r.data.cuda_available ?? false))
+      .then(r => setIsGPUAvailable(r.data.is_gpu ?? false))
       .catch(() => {})
   }, [])
 
