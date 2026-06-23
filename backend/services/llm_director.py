@@ -223,7 +223,12 @@ class LLMDirector:
         logger.info(f"🧠 [Qwen3] Модель загружена за {load_time:.1f}с")
         
         # Create instructor client
-        client = instructor.from_llama_cpp(llm)
+        # instructor.from_llama_cpp() was removed in newer instructor versions.
+        # Use instructor.patch() with JSON_SCHEMA mode for llama-cpp-python.
+        create = instructor.patch(
+            create=llm.create_chat_completion_openai_v1,
+            mode=instructor.Mode.JSON_SCHEMA,
+        )
         
         # Handle chunked vs single analysis
         if isinstance(context_log_or_chunks, list):
@@ -245,7 +250,7 @@ class LLMDirector:
         system_prompt_filled = SYSTEM_PROMPT.format(user_instructions=user_instructions or "Нет")
         
         try:
-            result = client.chat.completions.create(
+            result = create(
                 model="qwen3",
                 response_model=DirectorOutput,
                 messages=[
@@ -293,7 +298,7 @@ class LLMDirector:
             system_prompt = SYSTEM_PROMPT.format(user_instructions=user_instructions or "Нет")
             
             try:
-                chunk_result = client.chat.completions.create(
+                chunk_result = create(
                     model="qwen3",
                     response_model=DirectorOutput,
                     messages=[
@@ -364,7 +369,7 @@ RULES:
         
         consolidate_start = time.time()
         
-        result = client.chat.completions.create(
+        result = create(
             model="qwen3",
             response_model=DirectorOutput,
             messages=[
