@@ -16,6 +16,13 @@ from backend.services.vram_manager import vram_manager
 from backend.schemas.moment_instruction import DirectorOutput
 from backend.services.context_builder import SYSTEM_PROMPT
 
+# Try to import huggingface_hub for robust model downloads (handles auth, resumable, case-sensitive filenames)
+try:
+    from huggingface_hub import hf_hub_download as _hf_hub_download
+    _HF_HUB_AVAILABLE = True
+except ImportError:
+    _HF_HUB_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -39,8 +46,27 @@ class LLMDirector:
         logger.info(f"🧠 [Qwen3] Первая загрузка — скачиваю модель (~4.7 GB), подождите...")
         logger.info("🧠 [Qwen3] Это может занять 5-15 минут в зависимости от скорости интернета...")
         
+        # Primary: huggingface_hub (handles auth, redirects, resumable, case-sensitive filenames)
+        if _HF_HUB_AVAILABLE:
+            try:
+                logger.info(f"🧠 [Qwen3] Downloading via huggingface_hub (primary method)...")
+                downloaded_path = _hf_hub_download(
+                    repo_id=QWEN_MODEL_REPO,
+                    filename=QWEN_MODEL_FILE,
+                    local_dir=str(QWEN_MODEL_PATH.parent),
+                    local_dir_use_symlinks=False,
+                )
+                # Move to expected path if huggingface_hub saved to different name
+                import shutil
+                if str(downloaded_path) != str(QWEN_MODEL_PATH):
+                    shutil.move(downloaded_path, QWEN_MODEL_PATH)
+                logger.info(f"🧠 [Qwen3] ✓ Модель загружена через huggingface_hub")
+                return
+            except Exception as hf_err:
+                logger.warning(f"🧠 [Qwen3] huggingface_hub failed: {hf_err} — falling back to requests...")
+        
         try:
-            # Direct download via requests to avoid httpx client issues
+            # Fallback: Direct download via requests
             url = f"https://huggingface.co/{QWEN_MODEL_REPO}/resolve/main/{QWEN_MODEL_FILE}"
             QWEN_MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
             
