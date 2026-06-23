@@ -302,7 +302,7 @@ class LLMDirector:
                     model="qwen3",
                     response_model=DirectorOutput,
                     messages=[
-                        {"role": "system", "content": system_prompt},
+                        {"role": "system", "content": system_prompt + "\n/no_think"},
                         {"role": "user", "content": chunk},
                     ],
                     temperature=QWEN_TEMPERATURE,
@@ -373,7 +373,7 @@ RULES:
             model="qwen3",
             response_model=DirectorOutput,
             messages=[
-                {"role": "system", "content": "You are a viral video editor consolidating moment candidates."},
+                {"role": "system", "content": "You are a viral video editor consolidating moment candidates.\n/no_think"},
                 {"role": "user", "content": consolidation_prompt},
             ],
             temperature=0.3,
