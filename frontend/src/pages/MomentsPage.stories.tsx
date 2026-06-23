@@ -3,6 +3,7 @@ import MomentsPage from "./MomentsPage";
 import {
   withClipForge,
   withDetectionBlocked,
+  withDetectingProgress,
   withGpuStatusMock,
   mockVideo,
   mockMoments,
@@ -18,18 +19,12 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 /**
- * Pre-detection view shown before any moments are detected: the Detection
- * Settings card with three sliders — Min clip duration, Max clip duration and
- * Max moments (store defaults 30s / 90s / 15) — followed by the "No moments
- * detected yet" empty state with a Start Detection button.
- *
- * A video is present (so the page does not redirect to /download), and
- * withDetectionBlocked stubs the /api/moments/detect request so auto-detection
- * never flips the UI into its progress state — keeping the settings card and
- * empty state on screen.
+ * Pre-detection setup wizard: AI Instructions textarea, Detection Settings
+ * sliders (min/max duration, max moments), and the Launch button with
+ * estimated time. GPU status indicator is shown green.
  */
 export const SettingsCard: Story = {
-  name: "Detection Settings (GPU status + LLM)",
+  name: "Setup Wizard",
   decorators: [
     withGpuStatusMock(),
     withDetectionBlocked(),
@@ -37,6 +32,24 @@ export const SettingsCard: Story = {
   ],
 };
 
+/**
+ * Live progress view — Stage 1 (Whisper ✓, YOLO ✓, Audio ✓) complete,
+ * Stage 2 (Qwen LLM) actively analyzing chunk 2/3. The WebSocket is replaced
+ * with a fake that emits a scripted progress sequence so the view stays
+ * mid-detection for the screenshot.
+ */
+export const DetectingProgress: Story = {
+  name: "Live Detection Progress",
+  decorators: [
+    withGpuStatusMock(),
+    withDetectingProgress(),
+    withClipForge({ currentVideo: mockVideo }, "/moments"),
+  ],
+};
+
+/**
+ * Results view with all moments selected.
+ */
 export const WithMoments: Story = {
   name: "Detected Moments",
   decorators: [
@@ -51,6 +64,9 @@ export const WithMoments: Story = {
   ],
 };
 
+/**
+ * Results view with only two moments selected.
+ */
 export const PartialSelection: Story = {
   name: "Partial Selection",
   decorators: [

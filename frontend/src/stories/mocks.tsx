@@ -542,3 +542,84 @@ export function withGpuStatusMock(seed: GpuStatusSeed = {}): Decorator {
   };
   return Wrapper;
 }
+
+/**
+ * Drives MomentsPage into its live "detecting" progress view without a backend.
+ *
+ * Strategy:
+ * 1. Replace WebSocket with a fake that emits a scripted sequence of stage-1
+ *    and stage-2 progress messages every ~800 ms, then stops (no "complete"),
+ *    so the UI stays frozen mid-detection for the screenshot.
+ * 2. After mount, auto-click the "Start Detection" button via a polling
+ *    useEffect — this transitions the view from 'setup' → 'detecting' so the
+ *    progress panel is visible.
+ */
+export function withDetectingProgress(): Decorator {
+  const script = [
+    // Stage 1 — Whisper
+    { status: "progress", stage: 1, step: "transcription", progress: 0.05, detail: null },
+    { status: "progress", stage: 1, step: "transcription", progress: 0.15, detail: null },
+    { status: "progress", stage: 1, step: "whisper_done",  progress: 0.30, detail: { words: 5714, segments: 1011 } },
+    // Stage 1 — YOLO
+    { status: "progress", stage: 1, step: "face_detection", progress: 0.35, detail: null },
+    { status: "progress", stage: 1, step: "face_detection", progress: 0.42, detail: null },
+    { status: "progress", stage: 1, step: "yolo_done",      progress: 0.50, detail: { faces: 32 } },
+    // Stage 1 — Audio
+    { status: "progress", stage: 1, step: "audio_analysis", progress: 0.55, detail: null },
+    { status: "progress", stage: 1, step: "audio_done",     progress: 0.60, detail: { peaks: 3709 } },
+    // Stage 2 — Context + LLM chunks
+    { status: "progress", stage: 2, step: "context_building", progress: 0.65, detail: null },
+    { status: "progress", stage: 2, step: "llm_analysis",     progress: 0.70, detail: null },
+    { status: "progress", stage: 2, step: "llm_chunk",        progress: 0.78, detail: { chunk: 1, total: 3 } },
+    { status: "progress", stage: 2, step: "llm_chunk",        progress: 0.86, detail: { chunk: 2, total: 3 } },
+    // Stopped here — UI stays in "detecting" for the screenshot
+  ];
+
+  const Wrapper: Decorator = (Story) => {
+    useState(() => {
+      let i = 0;
+      class MockWebSocket {
+        onmessage: ((ev: { data: string }) => void) | null = null;
+        onerror: (() => void) | null = null;
+        onopen: (() => void) | null = null;
+        onclose: (() => void) | null = null;
+
+        constructor() {
+          // Fire onopen so MomentsPage knows the socket is live
+          setTimeout(() => {
+            this.onopen?.();
+            const tick = () => {
+              if (i >= script.length) return;
+              this.onmessage?.({ data: JSON.stringify(script[i]) });
+              i += 1;
+              setTimeout(tick, 800);
+            };
+            setTimeout(tick, 300);
+          }, 50);
+        }
+        send() {}
+        close() {}
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).WebSocket = MockWebSocket as any;
+      return null;
+    });
+
+    // Auto-click the "Start Detection" button once the setup view has mounted
+    React.useEffect(() => {
+      const id = setInterval(() => {
+        const btn = Array.from(document.querySelectorAll("button")).find((b) =>
+          /start\s*detection/i.test(b.textContent || ""),
+        );
+        if (btn) {
+          (btn as HTMLButtonElement).click();
+          clearInterval(id);
+        }
+      }, 100);
+      return () => clearInterval(id);
+    }, []);
+
+    return <Story />;
+  };
+  return Wrapper;
+}
