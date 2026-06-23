@@ -214,7 +214,7 @@ class LLMDirector:
                 model_path=str(QWEN_MODEL_PATH),
                 n_gpu_layers=n_gpu_layers,
                 n_ctx=QWEN_N_CTX,
-                chat_format="qwen2",
+                chat_format="chatml",
                 verbose=False,
             )
         
