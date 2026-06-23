@@ -7,15 +7,39 @@ from __future__ import annotations
 import logging
 import os
 import random
-import librosa
+import warnings
+import subprocess
+import io
 import numpy as np
+import soundfile as sf
 from collections import defaultdict
+warnings.filterwarnings('ignore', category=FutureWarning, module='librosa')
 from typing import List, Optional
 from backend.gpu_config import WHISPER_GPU_MODEL, WHISPER_GPU_COMPUTE, MODELS_DIR
 from backend.services.vram_manager import vram_manager
 from backend.schemas.moment_instruction import TranscriptSegment, TranscriptWord
 
 logger = logging.getLogger(__name__)
+
+
+
+def _load_audio_chunk(audio_path: str, start_time: float, duration: float = 30.0, sr: int = 16000) -> np.ndarray:
+    """Load audio chunk via ffmpeg - works with MP4, MKV, any container."""
+    cmd = [
+        "ffmpeg", "-v", "quiet",
+        "-ss", str(start_time),
+        "-t", str(duration),
+        "-i", str(audio_path),
+        "-ar", str(sr),
+        "-ac", "1",
+        "-f", "wav",
+        "pipe:1"
+    ]
+    result = subprocess.run(cmd, capture_output=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg failed extracting audio: {result.stderr.decode()[:500]}")
+    audio_data, _ = sf.read(io.BytesIO(result.stdout), dtype='float32')
+    return audio_data
 
 
 class WhisperGPU:
@@ -78,16 +102,9 @@ class WhisperGPU:
         
         for idx, start_time in enumerate(sample_positions, 1):
             try:
-                # Load 30-second audio chunk using librosa
-                # librosa.load returns (audio_array, sample_rate)
-                # offset= starting position in seconds, duration= chunk length in seconds
-                audio_chunk, sr = librosa.load(
-                    audio_path,
-                    sr=16000,  # Whisper expects 16kHz
-                    mono=True,
-                    offset=start_time,
-                    duration=30.0
-                )
+                # Load audio chunk via ffmpeg (no librosa/audioread needed)
+                audio_chunk = _load_audio_chunk(audio_path, start_time, duration=30.0, sr=16000)
+                sr = 16000
                 
                 # Convert to float32 if not already (Whisper expects float32)
                 if audio_chunk.dtype != np.float32:
