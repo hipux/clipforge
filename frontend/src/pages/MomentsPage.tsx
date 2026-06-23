@@ -14,6 +14,7 @@ import {
   RefreshCw,
   CheckSquare,
   Square,
+  Loader2,
 } from 'lucide-react'
 
 type ViewState = 'setup' | 'detecting' | 'results'
@@ -114,7 +115,8 @@ export default function MomentsPage() {
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = window.location.hostname
-    const wsUrl = `${protocol}//${host}:8000/api/moments/detect_ws?video_id=${currentVideo.id}&min_duration=${detectionSettings.minDuration}&max_duration=${detectionSettings.maxDuration}&max_moments=${detectionSettings.maxMoments}&user_instructions=${encodeURIComponent(llmInstructions.trim())}`
+    const wsUrl = `${protocol}//${host}:8000/api/moments/detect_ws?video_id=${currentVideo.id}&min_duration=${detectionSettings.minDuration}&max_duration=${detectionSettings.maxDuration}&max_moments=${detectionSettings.maxMoments}&user_instructions=${encodeURIComponent(llmInstructions)}`
+
     const ws = new WebSocket(wsUrl)
     wsConnectionRef.current = ws
 
@@ -198,11 +200,7 @@ export default function MomentsPage() {
     }
 
     ws.onclose = () => {
-      wsConnectionRef.current = null
-      if (view === 'detecting') {
-        setUploadError('Connection closed unexpectedly')
-        setView('setup')
-      }
+      console.log('WS closed')
     }
   }
 
@@ -212,33 +210,34 @@ export default function MomentsPage() {
       wsConnectionRef.current = null
     }
     setView('setup')
-    setUploadError(null)
   }
 
   const exportSelected = async () => {
-    if (!currentVideo || selectedMomentIds.size === 0) return
-
+    if (selectedMomentIds.size === 0) return
+    const selectedMoments = moments.filter((m) => selectedMomentIds.has(m.id))
     try {
-      const selected = moments.filter((m) => selectedMomentIds.has(m.id))
-      const response = await axios.post('http://localhost:8000/api/moments/export',
-        { video_id: currentVideo.id, moments: selected },
+      const response = await axios.post(
+        'http://localhost:8000/api/moments/export',
+        {
+          video_id: currentVideo?.id,
+          moment_ids: Array.from(selectedMomentIds),
+        },
         { responseType: 'blob' }
       )
-
       const url = window.URL.createObjectURL(new Blob([response.data]))
       const link = document.createElement('a')
       link.href = url
-      link.download = 'moments.zip'
+      const filename = `moments_${currentVideo?.title || 'export'}.zip`
+      link.setAttribute('download', filename)
       document.body.appendChild(link)
       link.click()
-      document.body.removeChild(link)
-      window.URL.revokeObjectURL(url)
+      link.remove()
     } catch (err) {
       console.error('Failed to export moments:', err)
     }
   }
 
-  const allMomentsSelected = (moments.length > 0 && moments.every((m) => selectedMomentIds.has(m.id)))
+  const allMomentsSelected = moments.length > 0 && moments.every((m) => selectedMomentIds.has(m.id))
   const toggleAllMoments = () => {
     if (allMomentsSelected) {
       moments.forEach((m) => {
@@ -253,6 +252,13 @@ export default function MomentsPage() {
         }
       })
     }
+  }
+
+  // Helper to render substep status icon
+  const renderSubstepIcon = (isActive: boolean, isDone: boolean) => {
+    if (isDone) return <span className="text-green-400">✓</span>
+    if (isActive) return <Loader2 size={14} className="text-yellow-400 animate-spin" />
+    return <span className="text-slate-600">○</span>
   }
 
   if (!currentVideo) {
@@ -286,10 +292,7 @@ export default function MomentsPage() {
             </button>
           )}
           {selectedMomentIds.size > 0 && (
-            <button
-              onClick={exportSelected}
-              className="btn btn-primary flex items-center gap-2"
-            >
+            <button onClick={exportSelected} className="btn btn-primary flex items-center gap-2">
               <ArrowRight size={15} />
               Export Selected ({selectedMomentIds.size})
             </button>
@@ -297,51 +300,61 @@ export default function MomentsPage() {
         </div>
       </div>
 
-      {/* Setup View */}
+      {/* Setup View - Pre-detection Panel */}
       {view === 'setup' && (
         <div className="max-w-lg mx-auto">
           <div className="card">
-            <h2 className="text-xl font-bold text-slate-100 mb-6 text-center">Configure Detection</h2>
+            <div className="absolute top-4 right-4">
+              <GPUStatusIndicator />
+            </div>
+
+            <h2 className="text-xl font-bold text-slate-100 mb-6">Configure Detection</h2>
 
             {/* LLM Instructions */}
             <div className="mb-6">
-              <h3 className="font-semibold text-slate-300 mb-3">🧠 LLM Instructions</h3>
+              <label className="block text-sm font-semibold text-slate-300 mb-2">
+                🧠 LLM Instructions
+              </label>
               <LLMInstructionsInput
                 value={llmInstructions}
                 onChange={setLlmInstructions}
-                heightClass="h-32"
+                placeholder="e.g., Find emotional, dramatic moments with strong dialogue..."
               />
+              <p className="text-xs text-slate-500 mt-1">
+                Guide the AI on what types of moments to detect
+              </p>
             </div>
 
             {/* Detection Settings */}
             <div className="mb-6">
-              <h3 className="font-semibold text-slate-300 mb-4">⚙️ Detection Settings</h3>
+              <h3 className="text-sm font-semibold text-slate-300 mb-3">⚙️ Settings</h3>
               <div className="space-y-4">
-                {/* Min duration */}
+                {/* Min Duration */}
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm text-slate-400">Min Duration</span>
+                    <span className="text-sm text-slate-400">Min Clip Duration</span>
                     <span className="text-sm font-semibold text-accent">{detectionSettings.minDuration}s</span>
                   </div>
                   <input
                     type="range"
                     min="15"
-                    max="90"
+                    max="60"
                     step="5"
                     value={detectionSettings.minDuration}
                     onChange={(e) => updateDetectionSettings({ minDuration: parseInt(e.target.value) })}
                     className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-accent"
                   />
                 </div>
-                {/* Max duration */}
+
+                {/* Max Duration */}
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm text-slate-400">Max Duration</span>
+                    <span className="text-sm text-slate-400">Max Clip Duration</span>
                     <span className="text-sm font-semibold text-accent">{detectionSettings.maxDuration}s</span>
                   </div>
                   <input
                     type="range"
-                    min="60"
+                    min="30"
                     max="180"
                     step="10"
                     value={detectionSettings.maxDuration}
@@ -349,7 +362,8 @@ export default function MomentsPage() {
                     className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-accent"
                   />
                 </div>
-                {/* Max moments */}
+
+                {/* Max Moments */}
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-sm text-slate-400">Max Moments</span>
@@ -376,9 +390,7 @@ export default function MomentsPage() {
               🚀 Start Detection
             </button>
 
-            <p className="text-center text-sm text-slate-500 mt-3">
-              ~6-9 min (your RTX 5060 GPU)
-            </p>
+            <p className="text-center text-sm text-slate-500 mt-3">~6-9 min (your RTX 5060 GPU)</p>
 
             {uploadError && (
               <div className="mt-6 border-2 border-red-500/50 bg-red-900/20 rounded-lg p-4">
@@ -395,25 +407,21 @@ export default function MomentsPage() {
         </div>
       )}
 
-      {/* Detecting View - Progress Timeline */}
+      {/* Detecting View - Rich Progress Timeline */}
       {view === 'detecting' && (
-        <div className="max-w-2xl mx-auto">
+        <div className="max-w-3xl mx-auto">
           <div className="card">
-            <div className="mb-6">
-              <h2 className="text-xl font-bold text-slate-100 mb-2 flex items-center gap-2">
-                <RefreshCw size={20} className="animate-spin" />
-                Detecting Moments...
-              </h2>
+            <div className="mb-6 border-b border-slate-700 pb-4">
               <p className="text-sm text-slate-400">{progressState.statusMessage}</p>
             </div>
 
-            {/* Progress Timeline */}
-            <div className="space-y-6">
-              {/* Stage 1 */}
+            {/* Vertical Progress Timeline */}
+            <div className="space-y-8">
+              {/* Stage 1: Collecting Data */}
               <div>
-                <div className="flex items-center gap-3 mb-3">
+                <div className="flex items-start gap-3 mb-3">
                   <div
-                    className={`w-3 h-3 rounded-full ${
+                    className={`w-4 h-4 rounded-full flex-shrink-0 mt-1 ${
                       progressState.stage1 === 'done'
                         ? 'bg-green-400'
                         : progressState.stage1 === 'active'
@@ -422,9 +430,9 @@ export default function MomentsPage() {
                     }`}
                   />
                   <div className="flex-1">
-                    <div className="flex items-center justify-between mb-1">
-                      <span
-                        className={`font-semibold ${
+                    <div className="flex items-center justify-between mb-2">
+                      <h3
+                        className={`text-base font-semibold ${
                           progressState.stage1 === 'done'
                             ? 'text-green-400'
                             : progressState.stage1 === 'active'
@@ -433,123 +441,101 @@ export default function MomentsPage() {
                         }`}
                       >
                         Stage 1: Collecting Data
-                      </span>
-                      {progressState.stage1 !== 'pending' && (
+                      </h3>
+                      {progressState.stage1 === 'active' && (
                         <span className="text-sm text-slate-400">{formatTime(elapsedSeconds)}</span>
                       )}
+                      {progressState.stage1 === 'done' && (
+                        <span className="text-sm text-green-400">✓ done</span>
+                      )}
                     </div>
-                    <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-accent transition-all duration-300"
-                        style={{
-                          width: `${
-                            progressState.stage1 === 'done'
-                              ? 100
-                              : progressState.stage1 === 'active'
-                              ? Math.min((progressState.overallProgress / 0.6) * 100, 100)
-                              : 0
-                          }%`,
-                        }}
-                      />
+
+                    {/* Mini progress bar for Stage 1 */}
+                    {progressState.stage1 === 'active' && (
+                      <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden mb-3">
+                        <div
+                          className="h-full bg-yellow-400 transition-all duration-300"
+                          style={{
+                            width: `${Math.min(
+                              100,
+                              progressState.overallProgress < 0.6
+                                ? (progressState.overallProgress / 0.6) * 100
+                                : 100
+                            )}%`,
+                          }}
+                        />
+                      </div>
+                    )}
+
+                    {/* Substeps */}
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center gap-2">
+                        {renderSubstepIcon(
+                          progressState.stage1Step === 'transcription',
+                          progressState.stage1 === 'done' ||
+                            (progressState.stage1Step !== 'transcription' &&
+                              progressState.stage1Step !== null)
+                        )}
+                        <span
+                          className={
+                            progressState.stage1Step === 'transcription'
+                              ? 'text-yellow-400'
+                              : progressState.stage1 === 'done' ||
+                                (progressState.stage1Step !== 'transcription' &&
+                                  progressState.stage1Step !== null)
+                              ? 'text-slate-400'
+                              : 'text-slate-600'
+                          }
+                        >
+                          🎙️ Whisper transcription
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {renderSubstepIcon(
+                          progressState.stage1Step === 'face_detection',
+                          progressState.stage1 === 'done' ||
+                            (progressState.stage1Step === 'audio_analysis')
+                        )}
+                        <span
+                          className={
+                            progressState.stage1Step === 'face_detection'
+                              ? 'text-yellow-400'
+                              : progressState.stage1 === 'done' ||
+                                progressState.stage1Step === 'audio_analysis'
+                              ? 'text-slate-400'
+                              : 'text-slate-600'
+                          }
+                        >
+                          👤 YOLO face detection
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {renderSubstepIcon(
+                          progressState.stage1Step === 'audio_analysis',
+                          progressState.stage1 === 'done'
+                        )}
+                        <span
+                          className={
+                            progressState.stage1Step === 'audio_analysis'
+                              ? 'text-yellow-400'
+                              : progressState.stage1 === 'done'
+                              ? 'text-slate-400'
+                              : 'text-slate-600'
+                          }
+                        >
+                          🔊 Audio peak analysis
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                </div>
-
-                {/* Sub-steps */}
-                <div className="ml-6 space-y-2">
-                  <div className="flex items-center gap-2 text-sm">
-                    {progressState.stage1Step === 'transcription' ? (
-                      <RefreshCw size={14} className="animate-spin text-yellow-400" />
-                    ) : progressState.stage1 === 'done' || (progressState.stage1 === 'active' && progressState.stage1Step !== 'transcription') ? (
-                      <span className="text-green-400">✓</span>
-                    ) : (
-                      <span className="text-slate-600">○</span>
-                    )}
-                    <span
-                      className={
-                        progressState.stage1Step === 'transcription'
-                          ? 'text-yellow-400'
-                          : progressState.stage1 === 'done' || (progressState.stage1 === 'active' && progressState.stage1Step !== 'transcription')
-                          ? 'text-green-400'
-                          : 'text-slate-600'
-                      }
-                    >
-                      🎙️ Whisper transcription
-                    </span>
-                    {progressState.stage1Step === 'transcription' && (
-                      <span className="text-slate-500">in progress...</span>
-                    )}
-                    {(progressState.stage1 === 'done' || (progressState.stage1 === 'active' && progressState.stage1Step !== 'transcription')) && (
-                      <span className="text-slate-500">done</span>
-                    )}
-                    {progressState.stage1 === 'pending' && <span className="text-slate-600">pending</span>}
-                  </div>
-
-                  <div className="flex items-center gap-2 text-sm">
-                    {progressState.stage1Step === 'face_detection' ? (
-                      <RefreshCw size={14} className="animate-spin text-yellow-400" />
-                    ) : progressState.stage1 === 'done' || (progressState.stage1 === 'active' && progressState.stage1Step === 'audio_analysis') ? (
-                      <span className="text-green-400">✓</span>
-                    ) : (
-                      <span className="text-slate-600">○</span>
-                    )}
-                    <span
-                      className={
-                        progressState.stage1Step === 'face_detection'
-                          ? 'text-yellow-400'
-                          : progressState.stage1 === 'done' || (progressState.stage1 === 'active' && progressState.stage1Step === 'audio_analysis')
-                          ? 'text-green-400'
-                          : 'text-slate-600'
-                      }
-                    >
-                      👤 YOLO face detection
-                    </span>
-                    {progressState.stage1Step === 'face_detection' && (
-                      <span className="text-slate-500">in progress...</span>
-                    )}
-                    {(progressState.stage1 === 'done' || (progressState.stage1 === 'active' && progressState.stage1Step === 'audio_analysis')) && (
-                      <span className="text-slate-500">done</span>
-                    )}
-                    {(progressState.stage1 === 'pending' || progressState.stage1Step === 'transcription') && (
-                      <span className="text-slate-600">pending</span>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-2 text-sm">
-                    {progressState.stage1Step === 'audio_analysis' ? (
-                      <RefreshCw size={14} className="animate-spin text-yellow-400" />
-                    ) : progressState.stage1 === 'done' ? (
-                      <span className="text-green-400">✓</span>
-                    ) : (
-                      <span className="text-slate-600">○</span>
-                    )}
-                    <span
-                      className={
-                        progressState.stage1Step === 'audio_analysis'
-                          ? 'text-yellow-400'
-                          : progressState.stage1 === 'done'
-                          ? 'text-green-400'
-                          : 'text-slate-600'
-                      }
-                    >
-                      🔊 Audio peak analysis
-                    </span>
-                    {progressState.stage1Step === 'audio_analysis' && (
-                      <span className="text-slate-500">in progress...</span>
-                    )}
-                    {progressState.stage1 === 'done' && <span className="text-slate-500">done</span>}
-                    {(progressState.stage1 === 'pending' || (progressState.stage1 === 'active' && progressState.stage1Step !== 'audio_analysis')) && (
-                      <span className="text-slate-600">pending</span>
-                    )}
                   </div>
                 </div>
               </div>
 
-              {/* Stage 2 */}
+              {/* Stage 2: AI Analysis */}
               <div>
-                <div className="flex items-center gap-3 mb-3">
+                <div className="flex items-start gap-3 mb-3">
                   <div
-                    className={`w-3 h-3 rounded-full ${
+                    className={`w-4 h-4 rounded-full flex-shrink-0 mt-1 ${
                       progressState.stage2 === 'done'
                         ? 'bg-green-400'
                         : progressState.stage2 === 'active'
@@ -558,9 +544,9 @@ export default function MomentsPage() {
                     }`}
                   />
                   <div className="flex-1">
-                    <div className="flex items-center justify-between mb-1">
-                      <span
-                        className={`font-semibold ${
+                    <div className="flex items-center justify-between mb-2">
+                      <h3
+                        className={`text-base font-semibold ${
                           progressState.stage2 === 'done'
                             ? 'text-green-400'
                             : progressState.stage2 === 'active'
@@ -569,93 +555,88 @@ export default function MomentsPage() {
                         }`}
                       >
                         Stage 2: AI Analysis
-                      </span>
-                      {progressState.stage2 !== 'pending' && (
+                      </h3>
+                      {progressState.stage2 === 'active' && (
                         <span className="text-sm text-slate-400">{formatTime(elapsedSeconds)}</span>
                       )}
+                      {progressState.stage2 === 'done' && (
+                        <span className="text-sm text-green-400">✓ done</span>
+                      )}
                     </div>
-                    <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-accent transition-all duration-300"
-                        style={{
-                          width: `${
-                            progressState.stage2 === 'done'
-                              ? 100
-                              : progressState.stage2 === 'active'
-                              ? Math.min(((progressState.overallProgress - 0.6) / 0.3) * 100, 100)
-                              : 0
-                          }%`,
-                        }}
-                      />
+
+                    {/* Mini progress bar for Stage 2 */}
+                    {progressState.stage2 === 'active' && (
+                      <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden mb-3">
+                        <div
+                          className="h-full bg-yellow-400 transition-all duration-300"
+                          style={{
+                            width: `${Math.min(
+                              100,
+                              progressState.overallProgress >= 0.6 && progressState.overallProgress < 0.9
+                                ? ((progressState.overallProgress - 0.6) / 0.3) * 100
+                                : progressState.overallProgress >= 0.9
+                                ? 100
+                                : 0
+                            )}%`,
+                          }}
+                        />
+                      </div>
+                    )}
+
+                    {/* Substeps */}
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center gap-2">
+                        {renderSubstepIcon(
+                          progressState.stage2Step === 'context_building',
+                          progressState.stage2 === 'done' || progressState.stage2Step === 'llm_analysis'
+                        )}
+                        <span
+                          className={
+                            progressState.stage2Step === 'context_building'
+                              ? 'text-yellow-400'
+                              : progressState.stage2 === 'done' || progressState.stage2Step === 'llm_analysis'
+                              ? 'text-slate-400'
+                              : 'text-slate-600'
+                          }
+                        >
+                          🧩 Building context chunks
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {renderSubstepIcon(
+                          progressState.stage2Step === 'llm_analysis',
+                          progressState.stage2 === 'done'
+                        )}
+                        <span
+                          className={
+                            progressState.stage2Step === 'llm_analysis'
+                              ? 'text-yellow-400'
+                              : progressState.stage2 === 'done'
+                              ? 'text-slate-400'
+                              : 'text-slate-600'
+                          }
+                        >
+                          🧠 Qwen3 — analyzing chunks
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {renderSubstepIcon(false, progressState.stage2 === 'done')}
+                        <span
+                          className={progressState.stage2 === 'done' ? 'text-slate-400' : 'text-slate-600'}
+                        >
+                          🔀 Consolidating moments
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                </div>
-
-                {/* Sub-steps */}
-                <div className="ml-6 space-y-2">
-                  <div className="flex items-center gap-2 text-sm">
-                    {progressState.stage2Step === 'context_building' ? (
-                      <RefreshCw size={14} className="animate-spin text-yellow-400" />
-                    ) : progressState.stage2 === 'done' || (progressState.stage2 === 'active' && progressState.stage2Step === 'llm_analysis') ? (
-                      <span className="text-green-400">✓</span>
-                    ) : (
-                      <span className="text-slate-600">○</span>
-                    )}
-                    <span
-                      className={
-                        progressState.stage2Step === 'context_building'
-                          ? 'text-yellow-400'
-                          : progressState.stage2 === 'done' || (progressState.stage2 === 'active' && progressState.stage2Step === 'llm_analysis')
-                          ? 'text-green-400'
-                          : 'text-slate-600'
-                      }
-                    >
-                      🧩 Building context chunks
-                    </span>
-                    {progressState.stage2Step === 'context_building' && (
-                      <span className="text-slate-500">in progress...</span>
-                    )}
-                    {(progressState.stage2 === 'done' || (progressState.stage2 === 'active' && progressState.stage2Step === 'llm_analysis')) && (
-                      <span className="text-slate-500">done</span>
-                    )}
-                    {progressState.stage2 === 'pending' && <span className="text-slate-600">pending</span>}
-                  </div>
-
-                  <div className="flex items-center gap-2 text-sm">
-                    {progressState.stage2Step === 'llm_analysis' ? (
-                      <RefreshCw size={14} className="animate-spin text-yellow-400" />
-                    ) : progressState.stage2 === 'done' ? (
-                      <span className="text-green-400">✓</span>
-                    ) : (
-                      <span className="text-slate-600">○</span>
-                    )}
-                    <span
-                      className={
-                        progressState.stage2Step === 'llm_analysis'
-                          ? 'text-yellow-400'
-                          : progressState.stage2 === 'done'
-                          ? 'text-green-400'
-                          : 'text-slate-600'
-                      }
-                    >
-                      🧠 Qwen3 — analyzing chunks
-                    </span>
-                    {progressState.stage2Step === 'llm_analysis' && (
-                      <span className="text-slate-500">in progress...</span>
-                    )}
-                    {progressState.stage2 === 'done' && <span className="text-slate-500">done</span>}
-                    {(progressState.stage2 === 'pending' || progressState.stage2Step === 'context_building') && (
-                      <span className="text-slate-600">pending</span>
-                    )}
                   </div>
                 </div>
               </div>
 
-              {/* Stage 3 */}
+              {/* Stage 3: Finalizing */}
               <div>
-                <div className="flex items-center gap-3 mb-3">
+                <div className="flex items-start gap-3 mb-3">
                   <div
-                    className={`w-3 h-3 rounded-full ${
+                    className={`w-4 h-4 rounded-full flex-shrink-0 mt-1 ${
                       progressState.stage3 === 'done'
                         ? 'bg-green-400'
                         : progressState.stage3 === 'active'
@@ -664,9 +645,9 @@ export default function MomentsPage() {
                     }`}
                   />
                   <div className="flex-1">
-                    <div className="flex items-center justify-between mb-1">
-                      <span
-                        className={`font-semibold ${
+                    <div className="flex items-center justify-between mb-2">
+                      <h3
+                        className={`text-base font-semibold ${
                           progressState.stage3 === 'done'
                             ? 'text-green-400'
                             : progressState.stage3 === 'active'
@@ -675,60 +656,35 @@ export default function MomentsPage() {
                         }`}
                       >
                         Stage 3: Finalizing
-                      </span>
-                      {progressState.stage3 !== 'pending' && (
-                        <span className="text-sm text-slate-400">{formatTime(elapsedSeconds)}</span>
+                      </h3>
+                      {progressState.stage3 === 'done' && (
+                        <span className="text-sm text-green-400">✓ done</span>
                       )}
                     </div>
-                    <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-accent transition-all duration-300"
-                        style={{
-                          width: `${
-                            progressState.stage3 === 'done'
-                              ? 100
-                              : progressState.stage3 === 'active'
-                              ? 50
-                              : 0
-                          }%`,
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
 
-                {/* Sub-steps */}
-                <div className="ml-6 space-y-2">
-                  <div className="flex items-center gap-2 text-sm">
-                    {progressState.stage3 === 'active' ? (
-                      <RefreshCw size={14} className="animate-spin text-yellow-400" />
-                    ) : progressState.stage3 === 'done' ? (
-                      <span className="text-green-400">✓</span>
-                    ) : (
-                      <span className="text-slate-600">○</span>
-                    )}
-                    <span
-                      className={
-                        progressState.stage3 === 'active'
-                          ? 'text-yellow-400'
-                          : progressState.stage3 === 'done'
-                          ? 'text-green-400'
-                          : 'text-slate-600'
-                      }
-                    >
-                      💾 Saving results
-                    </span>
-                    {progressState.stage3 === 'active' && (
-                      <span className="text-slate-500">in progress...</span>
-                    )}
-                    {progressState.stage3 === 'done' && <span className="text-slate-500">done</span>}
-                    {progressState.stage3 === 'pending' && <span className="text-slate-600">pending</span>}
+                    {/* Substeps */}
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center gap-2">
+                        {renderSubstepIcon(progressState.stage3 === 'active', progressState.stage3 === 'done')}
+                        <span
+                          className={
+                            progressState.stage3 === 'done'
+                              ? 'text-slate-400'
+                              : progressState.stage3 === 'active'
+                              ? 'text-yellow-400'
+                              : 'text-slate-600'
+                          }
+                        >
+                          💾 Saving results
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
 
-            <button onClick={cancelDetection} className="btn btn-secondary w-full mt-6">
+            <button onClick={cancelDetection} className="btn btn-secondary w-full mt-8">
               Cancel Detection
             </button>
           </div>
