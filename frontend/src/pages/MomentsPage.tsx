@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import { useAppStore } from '../store/useAppStore'
 import MomentCard from '../components/MomentCard'
-import ProgressBar from '../components/ProgressBar'
 import { GPUStatusIndicator } from '../components/GPUStatusIndicator'
 import { LLMInstructionsInput } from '../components/LLMInstructionsInput'
 import {
@@ -17,6 +16,18 @@ import {
   Square,
 } from 'lucide-react'
 
+type ViewState = 'setup' | 'detecting' | 'results'
+
+interface ProgressState {
+  stage1: 'pending' | 'active' | 'done'
+  stage1Step: 'transcription' | 'face_detection' | 'audio_analysis' | null
+  stage2: 'pending' | 'active' | 'done'
+  stage2Step: 'context_building' | 'llm_analysis' | null
+  stage3: 'pending' | 'active' | 'done'
+  overallProgress: number
+  statusMessage: string
+}
+
 export default function MomentsPage() {
   const navigate = useNavigate()
   const {
@@ -25,418 +36,743 @@ export default function MomentsPage() {
     setMoments,
     selectedMomentIds,
     toggleMoment,
-    setSelectedMoments,
-    setCurrentStep,
+    llmInstructions,
+    setLlmInstructions,
     detectionSettings,
     updateDetectionSettings,
   } = useAppStore()
 
-  const [detecting, setDetecting] = useState(false)
-  const [progress, setProgress] = useState(0)
-  const [status, setStatus] = useState('')
-  const [error, setError] = useState('')
-  const [isGPUAvailable, setIsGPUAvailable] = useState(false)
-  const [llmInstructions, setLlmInstructions] = useState('')
-  const [detectionStage, setDetectionStage] = useState('')
-  const detectingRef = useRef(false)
+  const [view, setView] = useState<ViewState>('setup')
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [momentKeySeq, setMomentKeySeq] = useState(0)
+  const wsConnectionRef = useRef<WebSocket | null>(null)
+  const detectStartRef = useRef<number>(0)
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
 
-  useEffect(() => {
-    // Fetch GPU status on mount
-    axios.get('/api/gpu/status')
-      .then(r => setIsGPUAvailable(r.data.is_gpu ?? false))
-      .catch(() => {})
-  }, [])
+  const [progressState, setProgressState] = useState<ProgressState>({
+    stage1: 'pending',
+    stage1Step: null,
+    stage2: 'pending',
+    stage2Step: null,
+    stage3: 'pending',
+    overallProgress: 0,
+    statusMessage: '',
+  })
 
   useEffect(() => {
     if (!currentVideo) {
-      navigate('/download')
-      return
+      navigate('/')
     }
-    // Only auto-start if no moments exist and not already detecting
-    if (moments.length === 0 && !detectingRef.current) {
-      startDetection()
+  }, [currentVideo, navigate])
+
+  useEffect(() => {
+    if (moments.length > 0) {
+      const maxSeq = Math.max(...moments.map((m) => m.keySeq || 0))
+      setMomentKeySeq(maxSeq + 1)
+      if (view === 'setup') {
+        setView('results')
+      }
     }
-  }, [currentVideo])
+  }, [moments.length])
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null
+    if (view === 'detecting') {
+      interval = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - detectStartRef.current) / 1000)
+        setElapsedSeconds(elapsed)
+      }, 1000)
+    } else {
+      setElapsedSeconds(0)
+    }
+    return () => {
+      if (interval) clearInterval(interval)
+    }
+  }, [view])
+
+  const formatTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60)
+    const s = seconds % 60
+    return `${m}m ${s}s`
+  }
 
   const startDetection = async () => {
-    if (!currentVideo || detectingRef.current) return
+    if (!currentVideo) return
+    setUploadError(null)
+    setMoments([])
+    setProgressState({
+      stage1: 'pending',
+      stage1Step: null,
+      stage2: 'pending',
+      stage2Step: null,
+      stage3: 'pending',
+      overallProgress: 0,
+      statusMessage: '',
+    })
+    setView('detecting')
+    detectStartRef.current = Date.now()
 
-    detectingRef.current = true
-    setDetecting(true)
-    setError('')
-    setProgress(0)
-    setStatus('Starting moment detection…')
-    setDetectionStage('')
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const host = window.location.hostname
+    const wsUrl = `${protocol}//${host}:8000/api/moments/detect_ws?video_id=${currentVideo.id}&min_duration=${detectionSettings.minDuration}&max_duration=${detectionSettings.maxDuration}&max_moments=${detectionSettings.maxMoments}&user_instructions=${encodeURIComponent(llmInstructions.trim())}`
+    const ws = new WebSocket(wsUrl)
+    wsConnectionRef.current = ws
 
-    try {
-      const { data } = await axios.post('/api/moments/detect', {
-        video_id: currentVideo.id,
-        min_duration: detectionSettings.minDuration,
-        max_duration: detectionSettings.maxDuration,
-        max_moments: detectionSettings.maxMoments,
-        user_instructions: llmInstructions,
-      })
+    ws.onmessage = async (event) => {
+      const data = JSON.parse(event.data)
 
-      // Check if moments already exist
-      if (data.status === 'completed' && data.moments) {
-        setMoments(data.moments)
-        setSelectedMoments(data.moments.map((m: any) => m.id))
-        setDetecting(false)
-        detectingRef.current = false
-        return
-      }
+      if (data.status === 'progress') {
+        const stage = data.stage || 1
+        const step = data.step || ''
+        const progress = data.progress || 0
 
-      // WebSocket for real-time progress
-      const ws = new WebSocket(
-        `${import.meta.env.VITE_WS_URL || 'ws://localhost:8000'}/api/moments/detect_ws?video_id=${currentVideo.id}&min_duration=${detectionSettings.minDuration}&max_duration=${detectionSettings.maxDuration}&max_moments=${detectionSettings.maxMoments}&user_instructions=${encodeURIComponent(llmInstructions)}`
-      )
+        setProgressState((prev) => {
+          const newState = { ...prev }
+          newState.overallProgress = progress
+          newState.statusMessage = data.message || ''
 
-      ws.onmessage = (evt) => {
-        const msg = JSON.parse(evt.data)
-        if (msg.type === 'progress') {
-          setProgress(msg.progress || 0)
-          setStatus(msg.message || '')
-          
-          // Map stages to user-friendly labels
-          if (msg.stage) {
-            if (msg.stage.includes('stage1') || msg.stage.includes('whisper')) {
-              setDetectionStage('Этап 1: Транскрибация (Whisper)')
-            } else if (msg.stage.includes('stage2') || msg.stage.includes('llm') || msg.stage.includes('director')) {
-              setDetectionStage('Этап 2: ИИ-режиссёр (Qwen3)')
-            } else if (msg.stage.includes('stage3') || msg.stage.includes('render')) {
-              setDetectionStage('Этап 3: Рендер (NVENC)')
+          // Stage 1
+          if (stage === 1) {
+            if (step === 'transcription') {
+              newState.stage1 = 'active'
+              newState.stage1Step = 'transcription'
+            } else if (step === 'face_detection') {
+              newState.stage1 = 'active'
+              newState.stage1Step = 'face_detection'
+            } else if (step === 'audio_analysis') {
+              newState.stage1 = 'active'
+              newState.stage1Step = 'audio_analysis'
+            } else if (step === 'done') {
+              newState.stage1 = 'done'
+              newState.stage1Step = null
             }
           }
-        } else if (msg.type === 'complete') {
-          setMoments(msg.moments || [])
-          setSelectedMoments((msg.moments || []).map((m: any) => m.id))
-          setDetecting(false)
-          detectingRef.current = false
-          ws.close()
-        } else if (msg.type === 'error') {
-          setError(msg.message || 'Detection failed')
-          setDetecting(false)
-          detectingRef.current = false
-          ws.close()
+
+          // Stage 2
+          if (stage === 2) {
+            newState.stage1 = 'done'
+            if (step === 'context_building') {
+              newState.stage2 = 'active'
+              newState.stage2Step = 'context_building'
+            } else if (step === 'llm_analysis') {
+              newState.stage2 = 'active'
+              newState.stage2Step = 'llm_analysis'
+            } else if (step === 'done') {
+              newState.stage2 = 'done'
+              newState.stage2Step = null
+            }
+          }
+
+          // Stage 3
+          if (stage === 3) {
+            newState.stage1 = 'done'
+            newState.stage2 = 'done'
+            if (step === 'done') {
+              newState.stage3 = 'done'
+            }
+          }
+
+          return newState
+        })
+      } else if (data.status === 'complete') {
+        const detectionMoments = (data.moments || []).map((m: any, idx: number) => {
+          const seq = momentKeySeq + idx
+          return {
+            ...m,
+            keySeq: seq,
+          }
+        })
+        setMomentKeySeq(momentKeySeq + (data.moments?.length || 0))
+        setMoments(detectionMoments)
+        setView('results')
+      } else if (data.status === 'error') {
+        setUploadError(data.message || 'Detection failed')
+        setView('setup')
+      }
+    }
+
+    ws.onerror = (err) => {
+      console.error('WS error:', err)
+      setUploadError('Connection error occurred')
+      setView('setup')
+    }
+
+    ws.onclose = () => {
+      wsConnectionRef.current = null
+      if (view === 'detecting') {
+        setUploadError('Connection closed unexpectedly')
+        setView('setup')
+      }
+    }
+  }
+
+  const cancelDetection = () => {
+    if (wsConnectionRef.current) {
+      wsConnectionRef.current.close()
+      wsConnectionRef.current = null
+    }
+    setView('setup')
+    setUploadError(null)
+  }
+
+  const exportSelected = async () => {
+    if (!currentVideo || selectedMomentIds.size === 0) return
+
+    try {
+      const selected = moments.filter((m) => selectedMomentIds.has(m.id))
+      const response = await axios.post('http://localhost:8000/api/moments/export',
+        { video_id: currentVideo.id, moments: selected },
+        { responseType: 'blob' }
+      )
+
+      const url = window.URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = 'moments.zip'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Failed to export moments:', err)
+    }
+  }
+
+  const allMomentsSelected = (moments.length > 0 && moments.every((m) => selectedMomentIds.has(m.id)))
+  const toggleAllMoments = () => {
+    if (allMomentsSelected) {
+      moments.forEach((m) => {
+        if (selectedMomentIds.has(m.id)) {
+          toggleMoment(m.id)
         }
-      }
-
-      ws.onerror = () => {
-        setError('WebSocket connection failed')
-        setDetecting(false)
-        detectingRef.current = false
-      }
-
-      ws.onclose = () => {
-        setDetecting(false)
-        detectingRef.current = false
-      }
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Detection failed')
-      setDetecting(false)
-      detectingRef.current = false
+      })
+    } else {
+      moments.forEach((m) => {
+        if (!selectedMomentIds.has(m.id)) {
+          toggleMoment(m.id)
+        }
+      })
     }
   }
 
-  const handleSelectAll = () => {
-    setSelectedMoments(moments.map(m => m.id))
-  }
-
-  const handleDeselectAll = () => {
-    setSelectedMoments([])
-  }
-
-  const goBack = () => {
-    setCurrentStep('download')
-    navigate('/download')
-  }
-
-  const goNext = () => {
-    if (selectedMomentIds.length === 0) {
-      alert('Please select at least one moment')
-      return
-    }
-    setCurrentStep('process')
-    navigate('/process')
+  if (!currentVideo) {
+    return null
   }
 
   return (
-    <div className="min-h-screen bg-dark text-white px-6 py-8 pb-24">
+    <div className="container py-8">
       {/* Header */}
-      <div className="max-w-7xl mx-auto mb-8">
-        <div className="flex items-center gap-3 mb-2">
-          <Scissors size={28} className="text-accent" />
-          <h1 className="text-3xl font-bold">Detected Moments</h1>
-        </div>
-        <p className="text-slate-400 text-sm">
-          {currentVideo?.title || 'No video selected'} •{' '}
-          {moments.length > 0 ? `${moments.length} moments found` : 'Detecting…'}
-        </p>
-      </div>
-
-      {/* Error */}
-      {error && (
-        <div className="max-w-7xl mx-auto mb-6">
-          <div className="bg-red-900/20 border border-red-800 rounded-lg p-4 flex items-start gap-3">
-            <AlertTriangle size={20} className="text-red-500 mt-0.5 flex-shrink-0" />
-            <div>
-              <h3 className="font-semibold text-red-300 mb-1">Detection Error</h3>
-              <p className="text-red-200 text-sm">{error}</p>
-              <button onClick={startDetection} className="btn btn-sm btn-outline mt-3">
-                <RefreshCw size={14} />
-                Retry
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* GPU Status and Settings */}
-      {!detecting && moments.length > 0 && (
-        <div className="max-w-7xl mx-auto mb-6">
-          <div className="card p-6 space-y-4">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-slate-300">GPU Pipeline Status</h2>
-            </div>
-            
-            {/* GPU Status Indicator */}
-            <GPUStatusIndicator />
-            
-            {/* Settings Sliders */}
-            <div className="grid grid-cols-3 gap-6 pt-4 border-t border-slate-800">
-              {/* Min Duration */}
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <label className="text-xs text-slate-400">Min duration</label>
-                  <span className="text-xs font-semibold text-accent">{detectionSettings.minDuration}s</span>
-                </div>
-                <input
-                  type="range"
-                  min="15"
-                  max="60"
-                  step="5"
-                  value={detectionSettings.minDuration}
-                  onChange={(e) => updateDetectionSettings({ minDuration: parseInt(e.target.value) })}
-                  className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-accent"
-                />
-              </div>
-              
-              {/* Max Duration */}
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <label className="text-xs text-slate-400">Max duration</label>
-                  <span className="text-xs font-semibold text-accent">{detectionSettings.maxDuration}s</span>
-                </div>
-                <input
-                  type="range"
-                  min="30"
-                  max="120"
-                  step="5"
-                  value={detectionSettings.maxDuration}
-                  onChange={(e) => updateDetectionSettings({ maxDuration: parseInt(e.target.value) })}
-                  className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-accent"
-                />
-              </div>
-              
-              {/* Max Moments */}
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <label className="text-xs text-slate-400">Max moments</label>
-                  <span className="text-xs font-semibold text-accent">{detectionSettings.maxMoments}</span>
-                </div>
-                <input
-                  type="range"
-                  min="5"
-                  max="30"
-                  step="1"
-                  value={detectionSettings.maxMoments}
-                  onChange={(e) => updateDetectionSettings({ maxMoments: parseInt(e.target.value) })}
-                  className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-accent"
-                />
-              </div>
-            </div>
-            
-            {/* LLM Instructions Input */}
-            <div className="pt-4 border-t border-slate-800">
-              <LLMInstructionsInput 
-                value={llmInstructions}
-                onChange={setLlmInstructions}
-                isGPU={isGPUAvailable}
-              />
-            </div>
-
-            <button onClick={startDetection} className="btn btn-primary w-full" disabled={detecting}>
-              <RefreshCw size={15} className={detecting ? 'animate-spin' : ''} />
-              Re-detect with New Settings
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Detecting */}
-      {detecting && (
-        <div className="max-w-7xl mx-auto mb-6">
-          <div className="card p-8 text-center">
-            <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-accent/10 mb-4">
-              <RefreshCw size={24} className="text-accent animate-spin" />
-            </div>
-            <h3 className="text-lg font-semibold text-slate-300 mb-2">Detecting moments…</h3>
-            <p className="text-slate-500 text-sm mb-4">{status}</p>
-            
-            {/* Stage Indicator */}
-            {detectionStage && (
-              <div className="mb-4">
-                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-purple-500/10 border border-purple-500/30">
-                  <div className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
-                  <span className="text-sm font-medium text-purple-300">{detectionStage}</span>
-                </div>
-              </div>
-            )}
-            
-            <ProgressBar progress={progress} className="max-w-md mx-auto" />
-          </div>
-        </div>
-      )}
-
-      {/* Moments Grid */}
-      {moments.length > 0 && (
-        <>
-          <div className="max-w-7xl mx-auto mb-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-slate-400">
-                  {selectedMomentIds.length} of {moments.length} selected
-                </span>
-                <button onClick={handleSelectAll} className="btn-link text-xs flex items-center gap-1">
-                  <CheckSquare size={14} />
-                  Select All
-                </button>
-                <button onClick={handleDeselectAll} className="btn-link text-xs flex items-center gap-1">
-                  <Square size={14} />
-                  Deselect All
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {moments.map((moment) => (
-              <MomentCard
-                key={moment.id}
-                moment={moment}
-                selected={selectedMomentIds.includes(moment.id)}
-                onToggle={() => toggleMoment(moment.id)}
-              />
-            ))}
-          </div>
-        </>
-      )}
-
-      {/* Bottom Nav */}
-      <div className="fixed bottom-0 left-0 right-0 bg-dark-card border-t border-slate-800 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <button onClick={goBack} className="btn btn-outline">
+      <div className="mb-6 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <button onClick={() => navigate('/')} className="btn btn-secondary flex items-center gap-2">
             <ArrowLeft size={16} />
             Back
           </button>
-          <button
-            onClick={goNext}
-            disabled={selectedMomentIds.length === 0}
-            className="btn btn-primary"
-          >
-            Continue
-            <ArrowRight size={16} />
-          </button>
+          <Scissors size={32} className="text-accent" />
+          <div>
+            <h1 className="text-2xl font-bold text-slate-100">Detect Moments</h1>
+            <p className="text-slate-500">{currentVideo.title}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <GPUStatusIndicator />
+          {view === 'results' && moments.length > 0 && (
+            <button
+              onClick={toggleAllMoments}
+              className="btn btn-secondary flex items-center gap-2"
+            >
+              {allMomentsSelected ? <CheckSquare size={15} /> : <Square size={15} />}
+              Toggle All
+            </button>
+          )}
+          {selectedMomentIds.size > 0 && (
+            <button
+              onClick={exportSelected}
+              className="btn btn-primary flex items-center gap-2"
+            >
+              <ArrowRight size={15} />
+              Export Selected ({selectedMomentIds.size})
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Settings Card (when no moments yet) */}
-      {!detecting && moments.length === 0 && !error && (
-        <div className="max-w-2xl mx-auto">
-          <div className="card p-6 mb-6">
-            <h2 className="text-lg font-semibold text-slate-300 mb-4">Detection Settings</h2>
-            
-            {/* GPU Status */}
-            <div className="mb-6">
-              <GPUStatusIndicator />
-            </div>
-            
+      {/* Setup View */}
+      {view === 'setup' && (
+        <div className="max-w-lg mx-auto">
+          <div className="card">
+            <h2 className="text-xl font-bold text-slate-100 mb-6 text-center">Configure Detection</h2>
+
             {/* LLM Instructions */}
             <div className="mb-6">
-              <LLMInstructionsInput 
+              <h3 className="font-semibold text-slate-300 mb-3">🧠 LLM Instructions</h3>
+              <LLMInstructionsInput
                 value={llmInstructions}
                 onChange={setLlmInstructions}
-                isGPU={isGPUAvailable}
+                heightClass="h-32"
               />
             </div>
-            
-            {/* Sliders */}
-            <div className="grid grid-cols-1 gap-4">
-              {/* Min Duration */}
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <label className="text-xs text-slate-400">Min duration</label>
-                  <span className="text-xs font-semibold text-accent">{detectionSettings.minDuration}s</span>
+
+            {/* Detection Settings */}
+            <div className="mb-6">
+              <h3 className="font-semibold text-slate-300 mb-4">⚙️ Detection Settings</h3>
+              <div className="space-y-4">
+                {/* Min duration */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm text-slate-400">Min Duration</span>
+                    <span className="text-sm font-semibold text-accent">{detectionSettings.minDuration}s</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="15"
+                    max="90"
+                    step="5"
+                    value={detectionSettings.minDuration}
+                    onChange={(e) => updateDetectionSettings({ minDuration: parseInt(e.target.value) })}
+                    className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-accent"
+                  />
                 </div>
-                <input
-                  type="range"
-                  min="15"
-                  max="60"
-                  step="5"
-                  value={detectionSettings.minDuration}
-                  onChange={(e) => updateDetectionSettings({ minDuration: parseInt(e.target.value) })}
-                  className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-accent"
-                />
-              </div>
-              
-              {/* Max Duration */}
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <label className="text-xs text-slate-400">Max duration</label>
-                  <span className="text-xs font-semibold text-accent">{detectionSettings.maxDuration}s</span>
+                {/* Max duration */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm text-slate-400">Max Duration</span>
+                    <span className="text-sm font-semibold text-accent">{detectionSettings.maxDuration}s</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="60"
+                    max="180"
+                    step="10"
+                    value={detectionSettings.maxDuration}
+                    onChange={(e) => updateDetectionSettings({ maxDuration: parseInt(e.target.value) })}
+                    className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-accent"
+                  />
                 </div>
-                <input
-                  type="range"
-                  min="30"
-                  max="120"
-                  step="5"
-                  value={detectionSettings.maxDuration}
-                  onChange={(e) => updateDetectionSettings({ maxDuration: parseInt(e.target.value) })}
-                  className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-accent"
-                />
-              </div>
-              
-              {/* Max Moments */}
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <label className="text-xs text-slate-400">Max moments</label>
-                  <span className="text-xs font-semibold text-accent">{detectionSettings.maxMoments}</span>
+                {/* Max moments */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm text-slate-400">Max Moments</span>
+                    <span className="text-sm font-semibold text-accent">{detectionSettings.maxMoments}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="5"
+                    max="30"
+                    step="1"
+                    value={detectionSettings.maxMoments}
+                    onChange={(e) => updateDetectionSettings({ maxMoments: parseInt(e.target.value) })}
+                    className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-accent"
+                  />
                 </div>
-                <input
-                  type="range"
-                  min="5"
-                  max="30"
-                  step="1"
-                  value={detectionSettings.maxMoments}
-                  onChange={(e) => updateDetectionSettings({ maxMoments: parseInt(e.target.value) })}
-                  className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-accent"
-                />
               </div>
             </div>
-          </div>
 
-          {/* No moments */}
-          <div className="card text-center py-14 border-dashed">
-            <Search size={40} className="text-slate-700 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-slate-300 mb-1">No moments detected yet</h3>
-            <p className="text-slate-500 text-sm mb-6">
-              Start detection to find the best clips in your video
+            {/* Start Button */}
+            <button
+              onClick={startDetection}
+              className="btn btn-primary w-full py-3 text-base font-semibold flex items-center justify-center gap-2"
+            >
+              🚀 Start Detection
+            </button>
+
+            <p className="text-center text-sm text-slate-500 mt-3">
+              ~6-9 min (your RTX 5060 GPU)
             </p>
-            <button onClick={startDetection} className="btn btn-primary mx-auto">
-              <Search size={15} />
-              Start Detection
+
+            {uploadError && (
+              <div className="mt-6 border-2 border-red-500/50 bg-red-900/20 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle size={24} className="text-red-500 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h3 className="font-semibold text-red-500 mb-1">Detection Failed</h3>
+                    <p className="text-slate-300">{uploadError}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Detecting View - Progress Timeline */}
+      {view === 'detecting' && (
+        <div className="max-w-2xl mx-auto">
+          <div className="card">
+            <div className="mb-6">
+              <h2 className="text-xl font-bold text-slate-100 mb-2 flex items-center gap-2">
+                <RefreshCw size={20} className="animate-spin" />
+                Detecting Moments...
+              </h2>
+              <p className="text-sm text-slate-400">{progressState.statusMessage}</p>
+            </div>
+
+            {/* Progress Timeline */}
+            <div className="space-y-6">
+              {/* Stage 1 */}
+              <div>
+                <div className="flex items-center gap-3 mb-3">
+                  <div
+                    className={`w-3 h-3 rounded-full ${
+                      progressState.stage1 === 'done'
+                        ? 'bg-green-400'
+                        : progressState.stage1 === 'active'
+                        ? 'bg-yellow-400 animate-pulse'
+                        : 'bg-slate-600'
+                    }`}
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between mb-1">
+                      <span
+                        className={`font-semibold ${
+                          progressState.stage1 === 'done'
+                            ? 'text-green-400'
+                            : progressState.stage1 === 'active'
+                            ? 'text-yellow-400'
+                            : 'text-slate-600'
+                        }`}
+                      >
+                        Stage 1: Collecting Data
+                      </span>
+                      {progressState.stage1 !== 'pending' && (
+                        <span className="text-sm text-slate-400">{formatTime(elapsedSeconds)}</span>
+                      )}
+                    </div>
+                    <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-accent transition-all duration-300"
+                        style={{
+                          width: `${
+                            progressState.stage1 === 'done'
+                              ? 100
+                              : progressState.stage1 === 'active'
+                              ? Math.min((progressState.overallProgress / 0.6) * 100, 100)
+                              : 0
+                          }%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sub-steps */}
+                <div className="ml-6 space-y-2">
+                  <div className="flex items-center gap-2 text-sm">
+                    {progressState.stage1Step === 'transcription' ? (
+                      <RefreshCw size={14} className="animate-spin text-yellow-400" />
+                    ) : progressState.stage1 === 'done' || (progressState.stage1 === 'active' && progressState.stage1Step !== 'transcription') ? (
+                      <span className="text-green-400">✓</span>
+                    ) : (
+                      <span className="text-slate-600">○</span>
+                    )}
+                    <span
+                      className={
+                        progressState.stage1Step === 'transcription'
+                          ? 'text-yellow-400'
+                          : progressState.stage1 === 'done' || (progressState.stage1 === 'active' && progressState.stage1Step !== 'transcription')
+                          ? 'text-green-400'
+                          : 'text-slate-600'
+                      }
+                    >
+                      🎙️ Whisper transcription
+                    </span>
+                    {progressState.stage1Step === 'transcription' && (
+                      <span className="text-slate-500">in progress...</span>
+                    )}
+                    {(progressState.stage1 === 'done' || (progressState.stage1 === 'active' && progressState.stage1Step !== 'transcription')) && (
+                      <span className="text-slate-500">done</span>
+                    )}
+                    {progressState.stage1 === 'pending' && <span className="text-slate-600">pending</span>}
+                  </div>
+
+                  <div className="flex items-center gap-2 text-sm">
+                    {progressState.stage1Step === 'face_detection' ? (
+                      <RefreshCw size={14} className="animate-spin text-yellow-400" />
+                    ) : progressState.stage1 === 'done' || (progressState.stage1 === 'active' && progressState.stage1Step === 'audio_analysis') ? (
+                      <span className="text-green-400">✓</span>
+                    ) : (
+                      <span className="text-slate-600">○</span>
+                    )}
+                    <span
+                      className={
+                        progressState.stage1Step === 'face_detection'
+                          ? 'text-yellow-400'
+                          : progressState.stage1 === 'done' || (progressState.stage1 === 'active' && progressState.stage1Step === 'audio_analysis')
+                          ? 'text-green-400'
+                          : 'text-slate-600'
+                      }
+                    >
+                      👤 YOLO face detection
+                    </span>
+                    {progressState.stage1Step === 'face_detection' && (
+                      <span className="text-slate-500">in progress...</span>
+                    )}
+                    {(progressState.stage1 === 'done' || (progressState.stage1 === 'active' && progressState.stage1Step === 'audio_analysis')) && (
+                      <span className="text-slate-500">done</span>
+                    )}
+                    {(progressState.stage1 === 'pending' || progressState.stage1Step === 'transcription') && (
+                      <span className="text-slate-600">pending</span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 text-sm">
+                    {progressState.stage1Step === 'audio_analysis' ? (
+                      <RefreshCw size={14} className="animate-spin text-yellow-400" />
+                    ) : progressState.stage1 === 'done' ? (
+                      <span className="text-green-400">✓</span>
+                    ) : (
+                      <span className="text-slate-600">○</span>
+                    )}
+                    <span
+                      className={
+                        progressState.stage1Step === 'audio_analysis'
+                          ? 'text-yellow-400'
+                          : progressState.stage1 === 'done'
+                          ? 'text-green-400'
+                          : 'text-slate-600'
+                      }
+                    >
+                      🔊 Audio peak analysis
+                    </span>
+                    {progressState.stage1Step === 'audio_analysis' && (
+                      <span className="text-slate-500">in progress...</span>
+                    )}
+                    {progressState.stage1 === 'done' && <span className="text-slate-500">done</span>}
+                    {(progressState.stage1 === 'pending' || (progressState.stage1 === 'active' && progressState.stage1Step !== 'audio_analysis')) && (
+                      <span className="text-slate-600">pending</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Stage 2 */}
+              <div>
+                <div className="flex items-center gap-3 mb-3">
+                  <div
+                    className={`w-3 h-3 rounded-full ${
+                      progressState.stage2 === 'done'
+                        ? 'bg-green-400'
+                        : progressState.stage2 === 'active'
+                        ? 'bg-yellow-400 animate-pulse'
+                        : 'bg-slate-600'
+                    }`}
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between mb-1">
+                      <span
+                        className={`font-semibold ${
+                          progressState.stage2 === 'done'
+                            ? 'text-green-400'
+                            : progressState.stage2 === 'active'
+                            ? 'text-yellow-400'
+                            : 'text-slate-600'
+                        }`}
+                      >
+                        Stage 2: AI Analysis
+                      </span>
+                      {progressState.stage2 !== 'pending' && (
+                        <span className="text-sm text-slate-400">{formatTime(elapsedSeconds)}</span>
+                      )}
+                    </div>
+                    <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-accent transition-all duration-300"
+                        style={{
+                          width: `${
+                            progressState.stage2 === 'done'
+                              ? 100
+                              : progressState.stage2 === 'active'
+                              ? Math.min(((progressState.overallProgress - 0.6) / 0.3) * 100, 100)
+                              : 0
+                          }%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sub-steps */}
+                <div className="ml-6 space-y-2">
+                  <div className="flex items-center gap-2 text-sm">
+                    {progressState.stage2Step === 'context_building' ? (
+                      <RefreshCw size={14} className="animate-spin text-yellow-400" />
+                    ) : progressState.stage2 === 'done' || (progressState.stage2 === 'active' && progressState.stage2Step === 'llm_analysis') ? (
+                      <span className="text-green-400">✓</span>
+                    ) : (
+                      <span className="text-slate-600">○</span>
+                    )}
+                    <span
+                      className={
+                        progressState.stage2Step === 'context_building'
+                          ? 'text-yellow-400'
+                          : progressState.stage2 === 'done' || (progressState.stage2 === 'active' && progressState.stage2Step === 'llm_analysis')
+                          ? 'text-green-400'
+                          : 'text-slate-600'
+                      }
+                    >
+                      🧩 Building context chunks
+                    </span>
+                    {progressState.stage2Step === 'context_building' && (
+                      <span className="text-slate-500">in progress...</span>
+                    )}
+                    {(progressState.stage2 === 'done' || (progressState.stage2 === 'active' && progressState.stage2Step === 'llm_analysis')) && (
+                      <span className="text-slate-500">done</span>
+                    )}
+                    {progressState.stage2 === 'pending' && <span className="text-slate-600">pending</span>}
+                  </div>
+
+                  <div className="flex items-center gap-2 text-sm">
+                    {progressState.stage2Step === 'llm_analysis' ? (
+                      <RefreshCw size={14} className="animate-spin text-yellow-400" />
+                    ) : progressState.stage2 === 'done' ? (
+                      <span className="text-green-400">✓</span>
+                    ) : (
+                      <span className="text-slate-600">○</span>
+                    )}
+                    <span
+                      className={
+                        progressState.stage2Step === 'llm_analysis'
+                          ? 'text-yellow-400'
+                          : progressState.stage2 === 'done'
+                          ? 'text-green-400'
+                          : 'text-slate-600'
+                      }
+                    >
+                      🧠 Qwen3 — analyzing chunks
+                    </span>
+                    {progressState.stage2Step === 'llm_analysis' && (
+                      <span className="text-slate-500">in progress...</span>
+                    )}
+                    {progressState.stage2 === 'done' && <span className="text-slate-500">done</span>}
+                    {(progressState.stage2 === 'pending' || progressState.stage2Step === 'context_building') && (
+                      <span className="text-slate-600">pending</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Stage 3 */}
+              <div>
+                <div className="flex items-center gap-3 mb-3">
+                  <div
+                    className={`w-3 h-3 rounded-full ${
+                      progressState.stage3 === 'done'
+                        ? 'bg-green-400'
+                        : progressState.stage3 === 'active'
+                        ? 'bg-yellow-400 animate-pulse'
+                        : 'bg-slate-600'
+                    }`}
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between mb-1">
+                      <span
+                        className={`font-semibold ${
+                          progressState.stage3 === 'done'
+                            ? 'text-green-400'
+                            : progressState.stage3 === 'active'
+                            ? 'text-yellow-400'
+                            : 'text-slate-600'
+                        }`}
+                      >
+                        Stage 3: Finalizing
+                      </span>
+                      {progressState.stage3 !== 'pending' && (
+                        <span className="text-sm text-slate-400">{formatTime(elapsedSeconds)}</span>
+                      )}
+                    </div>
+                    <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-accent transition-all duration-300"
+                        style={{
+                          width: `${
+                            progressState.stage3 === 'done'
+                              ? 100
+                              : progressState.stage3 === 'active'
+                              ? 50
+                              : 0
+                          }%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sub-steps */}
+                <div className="ml-6 space-y-2">
+                  <div className="flex items-center gap-2 text-sm">
+                    {progressState.stage3 === 'active' ? (
+                      <RefreshCw size={14} className="animate-spin text-yellow-400" />
+                    ) : progressState.stage3 === 'done' ? (
+                      <span className="text-green-400">✓</span>
+                    ) : (
+                      <span className="text-slate-600">○</span>
+                    )}
+                    <span
+                      className={
+                        progressState.stage3 === 'active'
+                          ? 'text-yellow-400'
+                          : progressState.stage3 === 'done'
+                          ? 'text-green-400'
+                          : 'text-slate-600'
+                      }
+                    >
+                      💾 Saving results
+                    </span>
+                    {progressState.stage3 === 'active' && (
+                      <span className="text-slate-500">in progress...</span>
+                    )}
+                    {progressState.stage3 === 'done' && <span className="text-slate-500">done</span>}
+                    {progressState.stage3 === 'pending' && <span className="text-slate-600">pending</span>}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <button onClick={cancelDetection} className="btn btn-secondary w-full mt-6">
+              Cancel Detection
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Results View */}
+      {view === 'results' && (
+        <div>
+          {moments.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-slate-300">
+                  Found {moments.length} moment{moments.length !== 1 ? 's' : ''}
+                </h2>
+                <button
+                  onClick={() => setView('setup')}
+                  className="btn btn-secondary flex items-center gap-2"
+                >
+                  <RefreshCw size={15} />
+                  Re-detect
+                </button>
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+                {moments.map((moment) => (
+                  <MomentCard key={moment.keySeq ?? moment.id} moment={moment} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {moments.length === 0 && (
+            <div className="card text-center py-14 border-dashed">
+              <Search size={40} className="text-slate-700 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-slate-300 mb-1">No moments detected</h3>
+              <p className="text-slate-500 text-sm mb-6">
+                The detection completed but found no moments matching the criteria
+              </p>
+              <button onClick={() => setView('setup')} className="btn btn-primary mx-auto">
+                <RefreshCw size={15} />
+                Try Again
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
