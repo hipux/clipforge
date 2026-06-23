@@ -275,13 +275,27 @@ export default function MomentsPage() {
   const estimatedMin = Math.round(videoDurationMin * 0.06) + 3
 
   return (
-    <div className="page-container">
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">AI Moment Detection</h1>
-          <p className="page-description">{currentVideo.title}</p>
+    <div className="p-6 max-w-3xl mx-auto">
+      {/* Page header */}
+      <div className="flex items-start justify-between gap-4 mb-8">
+        <div className="flex items-center gap-4">
+          {currentVideo.thumbnail_url ? (
+            <img
+              src={currentVideo.thumbnail_url}
+              alt=""
+              className="w-20 h-12 rounded-lg object-cover flex-shrink-0 border border-slate-700"
+            />
+          ) : (
+            <div className="w-20 h-12 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center flex-shrink-0">
+              <Search size={18} className="text-slate-600" />
+            </div>
+          )}
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold text-slate-100 mb-0.5">AI Moment Detection</h1>
+            <p className="text-slate-400 text-sm truncate max-w-xs">{currentVideo.title}</p>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-shrink-0">
           <GPUStatusIndicator />
         </div>
       </div>

@@ -33,9 +33,10 @@ export function GPUStatusIndicator() {
 
   if (!status) return null
 
-  const used = status.vram_usage.reserved_gb
+  const used = status.vram_usage.allocated_gb
   const total = status.vram_usage.total_gb
   const pct = total > 0 ? (used / total) * 100 : 0
+  const isIdle = used < 0.1
 
   return (
     <div className="flex items-center gap-3 px-4 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-sm">
@@ -55,7 +56,7 @@ export function GPUStatusIndicator() {
               />
             </div>
             <span className="text-zinc-400 text-xs">
-              {used.toFixed(1)}/{total.toFixed(0)} GB
+              {isIdle ? 'Idle' : `${used.toFixed(1)}/${total.toFixed(0)} GB`}
             </span>
           </div>
           {status.nvenc_available && (

@@ -230,14 +230,25 @@ async def detect_moments_websocket(
             return
         
         # Progress callback
-        async def progress_callback(progress: float, stage: str, message: str, **extra):
+        async def progress_callback(data: dict):
             try:
-                await websocket.send_json({
-                    'status': stage,
+                stage = data.get('stage', 0)
+                step = data.get('step', '')
+                progress = data.get('progress', 0.0)
+                message = data.get('message', '')
+                detail = data.get('detail', None)
+                
+                msg = {
+                    'status': 'progress',
+                    'stage': stage,
+                    'step': step,
                     'progress': progress,
-                    'message': message,
-                    **extra
-                })
+                    'message': message
+                }
+                if detail:
+                    msg['detail'] = detail
+                
+                await websocket.send_json(msg)
             except Exception as e:
                 logger.warning(f"Failed to send progress update: {e}")
         
