@@ -7,7 +7,7 @@ import logging
 import re
 import time
 import requests
-from typing import Optional
+from typing import Optional, Callable
 from backend.gpu_config import (
     QWEN_MODEL_PATH, QWEN_MODEL_REPO, QWEN_MODEL_FILE,
     QWEN_N_CTX, QWEN_N_GPU_LAYERS, QWEN_TEMPERATURE,
@@ -47,152 +47,60 @@ class LLMDirector:
     pydantic validation for best reasoning quality.
     """
 
-    def _download_model_if_needed(self) -> None:
-        """Download Qwen3-8B GGUF with resumable Range-request download.
+    def _download_model_if_needed(self):
+        """Download Qwen3 GGUF model if not present.
         
-        Uses HTTP Range headers + retry loop to handle HuggingFace CDN drops.
-        Never deletes a partial file — always resumes from where it left off.
+        Two-stage download:
+        1. Try huggingface_hub (preferred, handles case-sensitivity + resumable)
+        2. Fallback to direct download via requests (legacy)
         """
-        import time as _time
-
-        EXPECTED_SIZE = 5_030_000_000  # ~4.7 GB — abort if server reports different (sanity check)
-        MIN_VALID_SIZE = 4_500_000_000  # accept if >= 4.5 GB (allows slight variation)
-
-        # Check if model already fully downloaded
         if QWEN_MODEL_PATH.exists():
-            size = QWEN_MODEL_PATH.stat().st_size
-            if size >= MIN_VALID_SIZE:
-                logger.info(f"🧠 [Qwen3] Модель найдена: {QWEN_MODEL_PATH} ({size/1e9:.2f} GB)")
-                return
-            else:
-                logger.info(f"🧠 [Qwen3] Частично скачана: {size/1e6:.0f} MB — возобновляю...")
-
-        logger.info(f"🧠 [Qwen3] Скачиваю модель (~4.7 GB), подождите...")
-        logger.info("🧠 [Qwen3] Resumable download: автоматически продолжается при обрывах соединения")
-
+            file_size_gb = QWEN_MODEL_PATH.stat().st_size / (1024**3)
+            logger.info(f"🧠 [Qwen3] Модель найдена: {QWEN_MODEL_PATH} ({file_size_gb:.2f} GB)")
+            return
+        
+        logger.info("🧠 [Qwen3] Первая загрузка — скачиваю модель (~4.7 GB), подождите...")
+        logger.info("🧠 [Qwen3] Это может занять 5-15 минут в зависимости от скорости интернета...")
+        
         QWEN_MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-        url = f"https://huggingface.co/{QWEN_MODEL_REPO}/resolve/main/{QWEN_MODEL_FILE}"
-        tmp_path = QWEN_MODEL_PATH.with_suffix('.part')
-
-        # Get total file size from HEAD
-        try:
-            head = requests.head(url, allow_redirects=True, timeout=30)
-            total_size = int(head.headers.get('content-length', 0))
-            if total_size < MIN_VALID_SIZE:
-                # HEAD may not return content-length on redirect — try GET
-                total_size = 0
-        except Exception:
-            total_size = 0
-
-        MAX_RETRIES = 50        # unlimited practical retries
-        RETRY_DELAY = 5         # seconds between retries
-        CHUNK_SIZE = 4 * 1024 * 1024  # 4 MB chunks
-        READ_TIMEOUT = 60       # seconds per chunk read
-        CONNECT_TIMEOUT = 30    # seconds to establish connection
-
-        attempt = 0
-        last_log_pct = -1
-
-        while attempt < MAX_RETRIES:
-            attempt += 1
-
-            # Calculate resume offset
-            resume_from = tmp_path.stat().st_size if tmp_path.exists() else 0
-            # Also check if final path has partial content
-            if resume_from == 0 and QWEN_MODEL_PATH.exists():
-                resume_from = QWEN_MODEL_PATH.stat().st_size
-                if resume_from >= MIN_VALID_SIZE:
-                    break  # done
-                # rename to .part to resume
-                import shutil
-                shutil.move(str(QWEN_MODEL_PATH), str(tmp_path))
-
-            headers = {}
-            if resume_from > 0:
-                headers['Range'] = f'bytes={resume_from}-'
-                logger.info(f"🧠 [Qwen3] Попытка {attempt}: возобновляю с {resume_from/1e6:.0f} MB...")
-            else:
-                logger.info(f"🧠 [Qwen3] Попытка {attempt}: начинаю скачивание...")
-
+        
+        # Stage 1: Try huggingface_hub (preferred method)
+        if _HF_HUB_AVAILABLE:
             try:
-                with requests.get(
-                    url,
-                    headers=headers,
-                    stream=True,
-                    timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
-                    allow_redirects=True
-                ) as r:
-                    if r.status_code == 416:  # Range Not Satisfiable = already complete
-                        logger.info("🧠 [Qwen3] Файл уже полностью скачан (416 Range Not Satisfiable)")
-                        break
-                    r.raise_for_status()
-
-                    # Get total size from response if not known
-                    if total_size == 0:
-                        cr = r.headers.get('content-range', '')
-                        if cr:  # e.g. "bytes 16777216-5029999999/5030000000"
-                            try:
-                                total_size = int(cr.split('/')[-1])
-                            except Exception:
-                                pass
-                        if total_size == 0:
-                            total_size = int(r.headers.get('content-length', 0)) + resume_from
-
-                    write_mode = 'ab' if resume_from > 0 else 'wb'
-                    with open(tmp_path, write_mode) as f:
-                        for chunk in r.iter_content(chunk_size=CHUNK_SIZE):
-                            if chunk:
-                                f.write(chunk)
-                                current_size = resume_from + f.tell() if resume_from else f.tell()
-
-                                # Log progress every 5%
-                                if total_size > 0:
-                                    pct = current_size / total_size * 100
-                                    pct_bucket = int(pct / 5) * 5
-                                    if pct_bucket > last_log_pct:
-                                        last_log_pct = pct_bucket
-                                        logger.info(
-                                            f"🧠 [Qwen3] Скачано: {pct:.0f}% "
-                                            f"({current_size/1e9:.2f}/{total_size/1e9:.2f} GB)"
-                                        )
-
-                # Check if download complete
-                downloaded_size = tmp_path.stat().st_size if tmp_path.exists() else 0
-                if downloaded_size >= MIN_VALID_SIZE:
-                    import shutil
-                    shutil.move(str(tmp_path), str(QWEN_MODEL_PATH))
-                    logger.info(f"🧠 [Qwen3] ✓ Модель скачана: {downloaded_size/1e9:.2f} GB")
-                    return
-                else:
-                    logger.warning(
-                        f"🧠 [Qwen3] Неполная загрузка: {downloaded_size/1e6:.0f} MB. "
-                        f"Повтор через {RETRY_DELAY}с..."
-                    )
-                    _time.sleep(RETRY_DELAY)
-
-            except (requests.exceptions.ConnectionError,
-                    requests.exceptions.ChunkedEncodingError,
-                    requests.exceptions.ReadTimeout,
-                    requests.exceptions.Timeout) as e:
-                downloaded_size = tmp_path.stat().st_size if tmp_path.exists() else 0
-                logger.warning(
-                    f"🧠 [Qwen3] Обрыв соединения ({type(e).__name__}): "
-                    f"{downloaded_size/1e6:.0f} MB сохранено. "
-                    f"Повтор {attempt}/{MAX_RETRIES} через {RETRY_DELAY}с..."
+                logger.info("🧠 [Qwen3] Downloading via huggingface_hub (primary method)...")
+                downloaded_path = _hf_hub_download(
+                    repo_id=QWEN_MODEL_REPO,
+                    filename=QWEN_MODEL_FILE,
+                    local_dir=str(QWEN_MODEL_PATH.parent),
+                    local_dir_use_symlinks=False,
                 )
-                _time.sleep(RETRY_DELAY)
+                logger.info(f"🧠 [Qwen3] ✓ Модель загружена через huggingface_hub")
+                return
             except Exception as e:
-                logger.error(f"🧠 [Qwen3] Ошибка загрузки: {e}")
-                raise RuntimeError(f"Failed to download Qwen model: {e}")
-
-        # Final check
-        final_size = QWEN_MODEL_PATH.stat().st_size if QWEN_MODEL_PATH.exists() else 0
-        if final_size < MIN_VALID_SIZE:
-            raise RuntimeError(
-                f"Failed to download Qwen model after {MAX_RETRIES} attempts. "
-                f"Downloaded: {final_size/1e6:.0f} MB / {MIN_VALID_SIZE/1e9:.1f} GB required"
-            )
+                logger.warning(f"🧠 [Qwen3] huggingface_hub failed: {e}, trying direct download...")
+        
+        # Stage 2: Fallback to direct download
+        try:
+            url = f"https://huggingface.co/{QWEN_MODEL_REPO}/resolve/main/{QWEN_MODEL_FILE}"
+            r = requests.get(url, stream=True, timeout=600)
+            r.raise_for_status()
+            
+            total_size = int(r.headers.get('content-length', 0))
+            
+            with open(QWEN_MODEL_PATH, 'wb') as f:
+                downloaded = 0
+                for chunk in r.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        progress_pct = (downloaded / total_size * 100) if total_size else 0
+                        if downloaded % (50 * 1024 * 1024) < 8192:  # Log every ~50MB
+                            logger.info(f"🧠 [Qwen3] Загрузка: {progress_pct:.1f}% ({downloaded / (1024**3):.2f} GB)")
+            
+            logger.info("🧠 [Qwen3] ✓ Модель успешно загружена")
+            
+        except Exception as e:
+            raise RuntimeError(f"Failed to download Qwen model: {e}")
 
     def _call_with_thinking(self, create_fn, **kwargs) -> DirectorOutput:
         """Call instructor and strip <think> blocks from Qwen3 response.
@@ -227,7 +135,8 @@ class LLMDirector:
     def analyze(
         self,
         context_log_or_chunks: str | list[str],
-        user_instructions: str = ""
+        user_instructions: str = "",
+        on_progress: Optional[Callable[[int, int, str], None]] = None
     ) -> DirectorOutput:
         """Analyze video context and generate moment instructions.
         
@@ -236,6 +145,7 @@ class LLMDirector:
         Args:
             context_log_or_chunks: Either a single context string or list of chunk strings
             user_instructions: Optional user instructions for the LLM
+            on_progress: Optional callback(chunk_i, total, phase) for progress updates
             
         Returns:
             DirectorOutput with moment candidates
@@ -276,7 +186,7 @@ class LLMDirector:
         
         # Handle chunked vs single analysis
         if isinstance(context_log_or_chunks, list):
-            return self._analyze_chunked(create_fn, context_log_or_chunks, user_instructions)
+            return self._analyze_chunked(create_fn, context_log_or_chunks, user_instructions, on_progress=on_progress)
         else:
             return self._analyze_single(create_fn, context_log_or_chunks, user_instructions)
 
@@ -325,7 +235,8 @@ class LLMDirector:
         self,
         create_fn,
         chunks: list[str],
-        user_instructions: str
+        user_instructions: str,
+        on_progress: Optional[Callable[[int, int, str], None]] = None
     ) -> DirectorOutput:
         """Multi-pass analysis for long videos split into chunks.
         
@@ -363,12 +274,21 @@ class LLMDirector:
                 )
                 all_candidates.extend(chunk_result.moments)
                 
+                # Report progress after each chunk
+                if on_progress:
+                    on_progress(i + 1, len(chunks), "chunk")
+                
             except Exception as e:
                 logger.error(f"🧠 [Qwen3] Ошибка в chunk {i+1}: {e}")
                 continue
         
         # Consolidate all candidates
         logger.info(f"🧠 [Qwen3] Консолидирую {len(all_candidates)} кандидатов...")
+        
+        # Report consolidation start
+        if on_progress:
+            on_progress(len(chunks), len(chunks), "consolidate")
+        
         final_result = self._consolidate_moments(create_fn, all_candidates)
         
         vram_manager.unload_model("llm")
