@@ -11,6 +11,18 @@ import {
   Search,
   RefreshCw,
   Zap,
+  CheckCircle2,
+  Circle,
+  Loader2,
+  Mic,
+  ScanFace,
+  AudioWaveform,
+  Brain,
+  Layers,
+  GitMerge,
+  SlidersHorizontal,
+  Sparkles,
+  Play,
 } from 'lucide-react'
 
 type ViewState = 'setup' | 'detecting' | 'results'
@@ -35,29 +47,42 @@ interface ProgressState {
   statusMessage: string
 }
 
-// Terminal-style substep row component
-function SubstepRow({ state, label, detail }: {
+// Helper to render status icon based on state
+function StatusIcon({ state }: { state: 'pending' | 'active' | 'done' }) {
+  if (state === 'done')
+    return <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
+  if (state === 'active')
+    return <Loader2 size={14} className="text-violet-400 animate-spin shrink-0" />
+  return <Circle size={14} className="text-slate-600 shrink-0" />
+}
+
+// Premium substep row component
+function SubstepRow({
+  state,
+  icon: Icon,
+  label,
+  detail,
+}: {
   state: 'pending' | 'active' | 'done'
+  icon: typeof Mic
   label: string
   detail?: string
 }) {
+  const textColor =
+    state === 'done'
+      ? 'text-emerald-400'
+      : state === 'active'
+      ? 'text-violet-300'
+      : 'text-slate-500'
+
   return (
-    <div className="flex items-start gap-2 py-0.5 ml-6">
-      <div className="mt-1 flex-shrink-0">
-        {state === 'done' && <span className="text-green-400 text-xs">✓</span>}
-        {state === 'active' && <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse inline-block mt-0.5" />}
-        {state === 'pending' && <span className="w-2 h-2 rounded-full bg-slate-600 inline-block mt-0.5" />}
-      </div>
-      <span className={`text-sm ${
-        state === 'done' ? 'text-slate-400' :
-        state === 'active' ? 'text-slate-100 font-medium' :
-        'text-slate-600'
-      }`}>
-        {label}
-        {state === 'done' && detail && (
-          <span className="text-slate-500 ml-2 font-normal">{detail}</span>
-        )}
-      </span>
+    <div className="flex items-center gap-3 py-1.5">
+      <StatusIcon state={state} />
+      <Icon size={14} className={`shrink-0 ${textColor}`} />
+      <span className={`text-sm ${textColor}`}>{label}</span>
+      {state === 'done' && detail && (
+        <span className="text-xs text-slate-500 ml-auto">{detail}</span>
+      )}
     </div>
   )
 }
@@ -169,9 +194,9 @@ export default function MomentsPage() {
       if (data.status === 'progress') {
         const { stage, step, progress, detail } = data
 
-        setProgressState(prev => {
+        setProgressState((prev) => {
           const s = { ...prev, overallProgress: progress || 0 }
-          
+
           if (stage === 1) {
             s.stage1 = 'active'
             if (step === 'transcription') s.whisper = 'active'
@@ -198,13 +223,17 @@ export default function MomentsPage() {
             }
             if (step === 'done') {
               s.stage1 = 'done'
-              s.whisper = 'done'; s.yolo = 'done'; s.audio = 'done'
+              s.whisper = 'done'
+              s.yolo = 'done'
+              s.audio = 'done'
             }
           }
-          
+
           if (stage === 2) {
             s.stage1 = 'done'
-            s.whisper = 'done'; s.yolo = 'done'; s.audio = 'done'
+            s.whisper = 'done'
+            s.yolo = 'done'
+            s.audio = 'done'
             s.stage2 = 'active'
             if (step === 'context_building') s.contextBuilding = 'active'
             if (step === 'llm_analysis') s.contextBuilding = 'done'
@@ -226,12 +255,12 @@ export default function MomentsPage() {
               if (s.llmTotal) s.llmChunksDone = s.llmTotal
             }
           }
-          
+
           if (stage === 3) {
             s.stage1 = 'done'
             s.stage2 = 'done'
           }
-          
+
           return s
         })
       } else if (data.status === 'complete') {
@@ -274,6 +303,19 @@ export default function MomentsPage() {
   const videoDurationMin = Math.round(currentVideo.duration / 60)
   const estimatedMin = Math.round(videoDurationMin * 0.06) + 3
 
+  // Helper to render stage header colors
+  const stageHeaderColor = (state: 'pending' | 'active' | 'done') => {
+    if (state === 'done') return 'text-emerald-400'
+    if (state === 'active') return 'text-white'
+    return 'text-slate-600'
+  }
+
+  const stageDotColor = (state: 'pending' | 'active' | 'done') => {
+    if (state === 'done') return 'bg-emerald-400'
+    if (state === 'active') return 'bg-violet-400 animate-pulse'
+    return 'bg-slate-600'
+  }
+
   return (
     <div className="p-6 max-w-3xl mx-auto">
       {/* Page header */}
@@ -310,13 +352,13 @@ export default function MomentsPage() {
         </div>
       )}
 
-      {/* Setup View — Pre-Detection Wizard */}
+      {/* Setup View */}
       {view === 'setup' && (
         <div className="flex items-center justify-center py-12">
           <div className="card max-w-lg w-full">
             <div className="mb-8">
-              <h2 className="text-xl font-bold text-slate-200 mb-2 flex items-center gap-2">
-                <Scissors size={20} className="text-cyan-400" />
+              <h2 className="text-xl font-bold text-slate-200 mb-2 flex items-center gap-2.5">
+                <Scissors size={20} className="text-violet-400" />
                 Configure Detection
               </h2>
               <p className="text-slate-400 text-sm">
@@ -328,14 +370,14 @@ export default function MomentsPage() {
               {/* Section 1: Detection Settings */}
               <div>
                 <div className="flex items-center gap-3 mb-4">
-                  <span className="w-6 h-6 rounded-full bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-xs font-bold text-cyan-400">
-                    1
-                  </span>
-                  <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
+                  <div className="w-9 h-9 rounded-xl bg-violet-500/20 border border-violet-500/30 flex items-center justify-center">
+                    <SlidersHorizontal size={16} className="text-violet-400" />
+                  </div>
+                  <h3 className="text-sm font-semibold text-slate-200 uppercase tracking-wider">
                     Detection Settings
                   </h3>
                 </div>
-                <div className="space-y-4 ml-9">
+                <div className="space-y-4 ml-12">
                   <div>
                     <div className="flex justify-between text-sm mb-2">
                       <span className="text-slate-400">Min clip duration</span>
@@ -352,7 +394,7 @@ export default function MomentsPage() {
                       onChange={(e) =>
                         updateDetectionSettings({ minDuration: parseInt(e.target.value) })
                       }
-                      className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                      className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-violet-500"
                     />
                   </div>
 
@@ -372,7 +414,7 @@ export default function MomentsPage() {
                       onChange={(e) =>
                         updateDetectionSettings({ maxDuration: parseInt(e.target.value) })
                       }
-                      className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                      className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-violet-500"
                     />
                   </div>
 
@@ -392,7 +434,7 @@ export default function MomentsPage() {
                       onChange={(e) =>
                         updateDetectionSettings({ maxMoments: parseInt(e.target.value) })
                       }
-                      className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                      className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-violet-500"
                     />
                   </div>
                 </div>
@@ -402,23 +444,23 @@ export default function MomentsPage() {
 
               {/* Section 2: AI Instructions */}
               <div>
-                <div className="flex items-center gap-3 mb-2">
-                  <span className="w-6 h-6 rounded-full bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-xs font-bold text-cyan-400">
-                    2
-                  </span>
-                  <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-9 h-9 rounded-xl bg-violet-500/20 border border-violet-500/30 flex items-center justify-center">
+                    <Sparkles size={16} className="text-violet-400" />
+                  </div>
+                  <h3 className="text-sm font-semibold text-slate-200 uppercase tracking-wider">
                     AI Instructions
                   </h3>
                 </div>
-                <p className="text-slate-500 text-xs ml-9 mb-3">
-                  Guide the AI to find specific types of moments — emotional peaks, action
-                  scenes, dialogue highlights, etc.
+                <p className="text-slate-500 text-xs ml-12 mb-3">
+                  Guide the AI to find specific types of moments — emotional peaks, action scenes,
+                  dialogue highlights, etc.
                 </p>
-                <div className="ml-9">
+                <div className="ml-12">
                   <LLMInstructionsInput
                     value={llmInstructions}
                     onChange={setLlmInstructions}
-                    isGPU={true}
+                    placeholder="e.g. Focus on emotional dialogue scenes and dramatic reveals..."
                   />
                 </div>
               </div>
@@ -428,23 +470,24 @@ export default function MomentsPage() {
               {/* Section 3: Launch */}
               <div>
                 <div className="flex items-center gap-3 mb-4">
-                  <span className="w-6 h-6 rounded-full bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-xs font-bold text-cyan-400">
-                    3
-                  </span>
-                  <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
+                  <div className="w-9 h-9 rounded-xl bg-violet-500/20 border border-violet-500/30 flex items-center justify-center">
+                    <Play size={16} className="text-violet-400" />
+                  </div>
+                  <h3 className="text-sm font-semibold text-slate-200 uppercase tracking-wider">
                     Launch
                   </h3>
                 </div>
-                <div className="ml-9">
+                <div className="ml-12">
                   <button
                     onClick={startDetection}
-                    className="w-full py-3.5 rounded-lg bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 text-white font-semibold text-base transition-all duration-200 flex items-center justify-center gap-2"
+                    className="w-full py-3.5 rounded-lg bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white font-semibold text-base transition-all duration-200 flex items-center justify-center gap-2.5"
                   >
-                    <Zap size={18} />
+                    <Play size={18} />
                     Start Detection
                   </button>
-                  <p className="text-center text-slate-500 text-xs mt-3">
-                    Estimated time: ~{estimatedMin}–{estimatedMin + 3} min on your GPU
+                  <p className="text-center text-slate-500 text-xs mt-3 flex items-center justify-center gap-1">
+                    <Zap size={12} />
+                    Estimated time: ~{estimatedMin} min on your GPU
                   </p>
                 </div>
               </div>
@@ -453,146 +496,138 @@ export default function MomentsPage() {
         </div>
       )}
 
-      {/* Detecting View — Terminal-Log-Style Detailed Progress */}
+      {/* Detecting View */}
       {view === 'detecting' && (
         <div className="flex items-start justify-center py-8">
           <div className="card max-w-2xl w-full">
-            <div className="mb-6 flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-bold text-slate-200 mb-1">Analysing...</h2>
-                <p className="text-slate-400 text-sm">{progressState.statusMessage}</p>
-              </div>
-              <span className="text-slate-400 text-sm">
-                {formatElapsed(elapsedSeconds)}
-              </span>
+            <div className="mb-6">
+              <h2 className="text-xl font-bold text-slate-200 mb-1">Detection in Progress</h2>
+              <p className="text-slate-400 text-sm">{progressState.statusMessage}</p>
             </div>
 
-            {/* Overall progress bar */}
-            <div className="mb-8 bg-slate-700 rounded-full h-2 overflow-hidden">
-              <div
-                className="bg-gradient-to-r from-cyan-500 to-cyan-400 h-full rounded-full transition-all duration-1000 ease-out"
-                style={{
-                  width: `${Math.min(100, progressState.overallProgress * 100)}%`,
-                }}
-              />
-            </div>
-
-            <div className="space-y-8">
-              {/* Stage 1 — Data Collection */}
-              <div>
-                <div className="flex items-center gap-3 mb-4">
-                  <div
-                    className={`w-3 h-3 rounded-full ${
-                      progressState.stage1 === 'done'
-                        ? 'bg-green-400'
-                        : progressState.stage1 === 'active'
-                        ? 'bg-cyan-400 animate-pulse'
-                        : 'bg-slate-600'
-                    }`}
-                  />
+            <div className="space-y-6">
+              {/* Stage 1: Collecting Data */}
+              <div className="rounded-xl border border-slate-700/50 bg-slate-800/30 p-5">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className={`w-3 h-3 rounded-full ${stageDotColor(progressState.stage1)}`} />
                   <h3
-                    className={`text-base font-semibold ${
-                      progressState.stage1 === 'done'
-                        ? 'text-green-400'
-                        : progressState.stage1 === 'active'
-                        ? 'text-cyan-400'
-                        : 'text-slate-600'
-                    }`}
+                    className={`text-sm font-semibold uppercase tracking-wider ${stageHeaderColor(progressState.stage1)}`}
                   >
                     Stage 1 — Data Collection
                   </h3>
+                  {progressState.stage1 === 'active' && (
+                    <Zap size={14} className="text-violet-400 ml-1" />
+                  )}
+                  {progressState.stage1 === 'done' && (
+                    <span className="text-slate-500 text-xs ml-auto">
+                      {formatElapsed(elapsedSeconds)}
+                    </span>
+                  )}
                 </div>
 
-                <SubstepRow
-                  state={progressState.whisper}
-                  label="🎙️ Whisper transcription"
-                  detail={progressState.whisperWords ? `${progressState.whisperWords} words, ${progressState.whisperSegments} segments` : undefined}
-                />
-                <SubstepRow
-                  state={progressState.yolo}
-                  label="👤 YOLO face detection"
-                  detail={progressState.yoloFaces !== null ? `${progressState.yoloFaces} faces` : undefined}
-                />
-                <SubstepRow
-                  state={progressState.audio}
-                  label="🔊 Audio peak analysis"
-                  detail={progressState.audioPeaks !== null ? `${progressState.audioPeaks} peaks` : undefined}
-                />
+                <div className="mb-4 bg-slate-700/50 rounded-full h-1.5 overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-600 ease-out bg-gradient-to-r from-violet-500 to-purple-500"
+                    style={{
+                      width: `${progressState.stage1 === 'done' ? 100 : progressState.overallProgress < 0.6 ? (progressState.overallProgress / 0.6) * 100 : 100}%`,
+                    }}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <SubstepRow
+                    state={progressState.whisper}
+                    icon={Mic}
+                    label="Speech transcription"
+                    detail={
+                      progressState.whisperWords
+                        ? `${progressState.whisperWords} words`
+                        : undefined
+                    }
+                  />
+                  <SubstepRow
+                    state={progressState.yolo}
+                    icon={ScanFace}
+                    label="Face detection"
+                    detail={
+                      progressState.yoloFaces ? `${progressState.yoloFaces} faces` : undefined
+                    }
+                  />
+                  <SubstepRow
+                    state={progressState.audio}
+                    icon={AudioWaveform}
+                    label="Audio peak analysis"
+                    detail={
+                      progressState.audioPeaks ? `${progressState.audioPeaks} peaks` : undefined
+                    }
+                  />
+                </div>
               </div>
 
-              {/* Stage 2 — AI Analysis */}
-              <div>
-                <div className="flex items-center gap-3 mb-4">
-                  <div
-                    className={`w-3 h-3 rounded-full ${
-                      progressState.stage2 === 'done'
-                        ? 'bg-green-400'
-                        : progressState.stage2 === 'active'
-                        ? 'bg-cyan-400 animate-pulse'
-                        : 'bg-slate-600'
-                    }`}
-                  />
+              {/* Stage 2: AI Analysis */}
+              <div className="rounded-xl border border-slate-700/50 bg-slate-800/30 p-5">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className={`w-3 h-3 rounded-full ${stageDotColor(progressState.stage2)}`} />
                   <h3
-                    className={`text-base font-semibold ${
-                      progressState.stage2 === 'done'
-                        ? 'text-green-400'
-                        : progressState.stage2 === 'active'
-                        ? 'text-cyan-400'
-                        : 'text-slate-600'
-                    }`}
+                    className={`text-sm font-semibold uppercase tracking-wider ${stageHeaderColor(progressState.stage2)}`}
                   >
                     Stage 2 — AI Analysis
                   </h3>
+                  {progressState.stage2 === 'active' && (
+                    <Zap size={14} className="text-violet-400 ml-1" />
+                  )}
                 </div>
 
-                <SubstepRow
-                  state={progressState.contextBuilding}
-                  label="🧩 Building context"
-                />
-                
-                <SubstepRow
-                  state={progressState.llmTotal && progressState.llmTotal > 0 ? (progressState.llmChunksDone > 0 ? 'active' : 'pending') : 'pending'}
-                  label="🧠 Qwen3 analysis"
-                  detail={progressState.llmTotal && progressState.llmTotal > 0 ? `${progressState.llmChunksDone}/${progressState.llmTotal} chunks` : undefined}
-                />
+                <div className="mb-4 bg-slate-700/50 rounded-full h-1.5 overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-600 ease-out bg-gradient-to-r from-violet-500 to-purple-500"
+                    style={{
+                      width: `${progressState.stage2 === 'done' ? 100 : progressState.overallProgress >= 0.6 && progressState.overallProgress < 0.9 ? ((progressState.overallProgress - 0.6) / 0.3) * 100 : progressState.stage2 === 'active' ? 10 : 0}%`,
+                    }}
+                  />
+                </div>
 
-                {/* Dynamic chunk lines when llmTotal > 0 */}
-                {progressState.llmTotal && progressState.llmTotal > 0 && (
-                  <div className="ml-8 space-y-0.5">
-                    {Array.from({ length: progressState.llmTotal }).map((_, i) => {
-                      const chunkNum = i + 1
-                      const chunkState = chunkNum < progressState.llmChunksDone ? 'done' :
-                                        chunkNum === progressState.llmChunksDone ? 'active' :
-                                        'pending'
-                      return (
-                        <div key={i} className="flex items-center gap-2 py-0.5 text-xs">
-                          <div className="w-1.5 h-1.5 rounded-full" style={{
-                            backgroundColor: chunkState === 'done' ? 'rgb(74 222 128)' :
-                                           chunkState === 'active' ? 'rgb(34 211 238)' :
-                                           'rgb(71 85 105)'
-                          }} />
-                          <span className={
-                            chunkState === 'done' ? 'text-slate-500' :
-                            chunkState === 'active' ? 'text-cyan-400' :
-                            'text-slate-600'
-                          }>
-                            Chunk {chunkNum}
-                          </span>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-
-                <SubstepRow
-                  state={progressState.llmConsolidating}
-                  label="🔀 Consolidating results"
-                />
+                <div className="space-y-2">
+                  <SubstepRow
+                    state={progressState.contextBuilding}
+                    icon={Layers}
+                    label="Building context"
+                  />
+                  <SubstepRow
+                    state={
+                      progressState.llmChunksDone > 0 && progressState.llmTotal
+                        ? progressState.llmChunksDone >= progressState.llmTotal
+                          ? 'done'
+                          : 'active'
+                        : progressState.contextBuilding === 'done'
+                        ? 'active'
+                        : 'pending'
+                    }
+                    icon={Brain}
+                    label="Qwen3 analysis"
+                    detail={
+                      progressState.llmTotal
+                        ? `${progressState.llmChunksDone}/${progressState.llmTotal} chunks`
+                        : undefined
+                    }
+                  />
+                  <SubstepRow
+                    state={progressState.llmConsolidating}
+                    icon={GitMerge}
+                    label="Consolidating moments"
+                  />
+                </div>
               </div>
             </div>
 
-            {/* Progress percentage + elapsed */}
-            <div className="mt-6 pt-6 border-t border-slate-700">
+            {/* Overall progress bar + elapsed */}
+            <div className="mt-6 pt-5 border-t border-slate-700/50">
+              <div className="mb-3 bg-slate-700/50 rounded-full h-1.5 overflow-hidden">
+                <div
+                  className="bg-gradient-to-r from-violet-500 to-purple-500 h-full rounded-full transition-all duration-1000 ease-out"
+                  style={{ width: `${Math.min(100, progressState.overallProgress * 100)}%` }}
+                />
+              </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-slate-500">
                   {Math.round(progressState.overallProgress * 100)}% complete
