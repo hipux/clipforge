@@ -254,7 +254,7 @@ class LLMDirector:
                 model="qwen3",
                 response_model=DirectorOutput,
                 messages=[
-                    {"role": "system", "content": system_prompt_filled},
+                    {"role": "system", "content": system_prompt_filled + "\n/no_think"},
                     {"role": "user", "content": context_log},
                 ],
                 temperature=QWEN_TEMPERATURE,
