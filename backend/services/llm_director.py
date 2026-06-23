@@ -224,21 +224,21 @@ class LLMDirector:
         
         # Create instructor client
         # instructor.from_llama_cpp() was removed in newer instructor versions.
-        # Use instructor.patch() with JSON_SCHEMA mode for llama-cpp-python.
-        create = instructor.patch(
+        # instructor.patch() wraps llama-cpp's OpenAI-v1 API for structured output.
+        create_fn = instructor.patch(
             create=llm.create_chat_completion_openai_v1,
             mode=instructor.Mode.JSON_SCHEMA,
         )
         
         # Handle chunked vs single analysis
         if isinstance(context_log_or_chunks, list):
-            return self._analyze_chunked(client, context_log_or_chunks, user_instructions)
+            return self._analyze_chunked(create_fn, context_log_or_chunks, user_instructions)
         else:
-            return self._analyze_single(client, context_log_or_chunks, user_instructions)
+            return self._analyze_single(create_fn, context_log_or_chunks, user_instructions)
 
     def _analyze_single(
         self,
-        client,
+        create_fn,
         context_log: str,
         user_instructions: str
     ) -> DirectorOutput:
@@ -250,7 +250,7 @@ class LLMDirector:
         system_prompt_filled = SYSTEM_PROMPT.format(user_instructions=user_instructions or "Нет")
         
         try:
-            result = create(
+            result = create_fn(
                 model="qwen3",
                 response_model=DirectorOutput,
                 messages=[
@@ -279,7 +279,7 @@ class LLMDirector:
 
     def _analyze_chunked(
         self,
-        client,
+        create_fn,
         chunks: list[str],
         user_instructions: str
     ) -> DirectorOutput:
@@ -298,7 +298,7 @@ class LLMDirector:
             system_prompt = SYSTEM_PROMPT.format(user_instructions=user_instructions or "Нет")
             
             try:
-                chunk_result = create(
+                chunk_result = create_fn(
                     model="qwen3",
                     response_model=DirectorOutput,
                     messages=[
@@ -325,14 +325,14 @@ class LLMDirector:
         
         # Consolidate all candidates
         logger.info(f"🧠 [Qwen3] Консолидирую {len(all_candidates)} кандидатов...")
-        final_result = self._consolidate_moments(client, all_candidates)
+        final_result = self._consolidate_moments(create_fn, all_candidates)
         
         vram_manager.unload_model("llm")
         logger.info("🧠 [Qwen3] Модель выгружена из VRAM")
         
         return final_result
 
-    def _consolidate_moments(self, client, candidates: list) -> DirectorOutput:
+    def _consolidate_moments(self, create_fn, candidates: list) -> DirectorOutput:
         """Consolidate and rank moment candidates from all chunks.
         
         Removes duplicates/overlaps and selects top moments.
@@ -369,7 +369,7 @@ RULES:
         
         consolidate_start = time.time()
         
-        result = create(
+        result = create_fn(
             model="qwen3",
             response_model=DirectorOutput,
             messages=[
