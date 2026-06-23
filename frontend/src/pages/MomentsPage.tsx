@@ -14,7 +14,6 @@ import {
   RefreshCw,
   CheckSquare,
   Square,
-  Loader2,
 } from 'lucide-react'
 
 type ViewState = 'setup' | 'detecting' | 'results'
@@ -27,6 +26,9 @@ interface ProgressState {
   stage3: 'pending' | 'active' | 'done'
   overallProgress: number
   statusMessage: string
+  stage1Progress: number
+  stage2Progress: number
+  stage3Progress: number
 }
 
 export default function MomentsPage() {
@@ -58,40 +60,32 @@ export default function MomentsPage() {
     stage3: 'pending',
     overallProgress: 0,
     statusMessage: '',
+    stage1Progress: 0,
+    stage2Progress: 0,
+    stage3Progress: 0,
   })
 
   useEffect(() => {
     if (!currentVideo) {
-      navigate('/')
+      navigate('/videos')
+    } else if (moments.length > 0) {
+      setView('results')
     }
-  }, [currentVideo, navigate])
-
-  useEffect(() => {
-    if (moments.length > 0) {
-      const maxSeq = Math.max(...moments.map((m) => m.keySeq || 0))
-      setMomentKeySeq(maxSeq + 1)
-      if (view === 'setup') {
-        setView('results')
-      }
-    }
-  }, [moments.length])
+  }, [currentVideo, moments.length, navigate])
 
   useEffect(() => {
     let interval: NodeJS.Timeout | null = null
     if (view === 'detecting') {
       interval = setInterval(() => {
-        const elapsed = Math.floor((Date.now() - detectStartRef.current) / 1000)
-        setElapsedSeconds(elapsed)
+        setElapsedSeconds(Math.floor((Date.now() - detectStartRef.current) / 1000))
       }, 1000)
-    } else {
-      setElapsedSeconds(0)
     }
     return () => {
       if (interval) clearInterval(interval)
     }
   }, [view])
 
-  const formatTime = (seconds: number) => {
+  const formatElapsed = (seconds: number): string => {
     const m = Math.floor(seconds / 60)
     const s = seconds % 60
     return `${m}m ${s}s`
@@ -99,7 +93,7 @@ export default function MomentsPage() {
 
   const startDetection = async () => {
     if (!currentVideo) return
-    setUploadError(null)
+
     setMoments([])
     setProgressState({
       stage1: 'pending',
@@ -108,320 +102,272 @@ export default function MomentsPage() {
       stage2Step: null,
       stage3: 'pending',
       overallProgress: 0,
-      statusMessage: '',
+      statusMessage: 'Initializing...',
+      stage1Progress: 0,
+      stage2Progress: 0,
+      stage3Progress: 0,
     })
     setView('detecting')
     detectStartRef.current = Date.now()
+    setElapsedSeconds(0)
+    setUploadError(null)
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const host = window.location.hostname
-    const wsUrl = `${protocol}//${host}:8000/api/moments/detect_ws?video_id=${currentVideo.id}&min_duration=${detectionSettings.minDuration}&max_duration=${detectionSettings.maxDuration}&max_moments=${detectionSettings.maxMoments}&user_instructions=${encodeURIComponent(llmInstructions)}`
+    const wsHost = axios.defaults.baseURL?.replace('http', 'ws') || 'ws://localhost:8000'
+    const wsUrl = `${wsHost}/api/moments/detect_ws?video_id=${currentVideo.id}&min_duration=${detectionSettings.minDuration}&max_duration=${detectionSettings.maxDuration}&max_moments=${detectionSettings.maxMoments}&user_instructions=${encodeURIComponent(llmInstructions)}`
 
     const ws = new WebSocket(wsUrl)
     wsConnectionRef.current = ws
 
-    ws.onmessage = async (event) => {
+    ws.onopen = () => {
+      console.log('WebSocket connected')
+    }
+
+    ws.onmessage = (event) => {
       const data = JSON.parse(event.data)
 
       if (data.status === 'progress') {
-        const stage = data.stage || 1
-        const step = data.step || ''
-        const progress = data.progress || 0
+        const { stage, step, progress, message } = data
 
         setProgressState((prev) => {
-          const newState = { ...prev }
-          newState.overallProgress = progress
-          newState.statusMessage = data.message || ''
+          const newState: ProgressState = { ...prev }
 
-          // Stage 1
+          newState.overallProgress = progress || 0
+          newState.statusMessage = message || ''
+
           if (stage === 1) {
-            if (step === 'transcription') {
-              newState.stage1 = 'active'
-              newState.stage1Step = 'transcription'
-            } else if (step === 'face_detection') {
-              newState.stage1 = 'active'
-              newState.stage1Step = 'face_detection'
-            } else if (step === 'audio_analysis') {
-              newState.stage1 = 'active'
-              newState.stage1Step = 'audio_analysis'
-            } else if (step === 'done') {
+            if (step === 'done') {
               newState.stage1 = 'done'
-              newState.stage1Step = null
+              newState.stage1Step = 'audio_analysis'
+              newState.stage1Progress = 1.0
+            } else {
+              newState.stage1 = 'active'
+              newState.stage1Step = step as any
+              newState.stage1Progress = ((progress || 0) / 0.6) * 1.0
             }
-          }
-
-          // Stage 2
-          if (stage === 2) {
+            newState.stage2 = 'pending'
+            newState.stage2Step = null
+            newState.stage3 = 'pending'
+          } else if (stage === 2) {
             newState.stage1 = 'done'
-            if (step === 'context_building') {
-              newState.stage2 = 'active'
-              newState.stage2Step = 'context_building'
-            } else if (step === 'llm_analysis') {
-              newState.stage2 = 'active'
-              newState.stage2Step = 'llm_analysis'
-            } else if (step === 'done') {
+            newState.stage1Step = 'audio_analysis'
+            newState.stage1Progress = 1.0
+
+            if (step === 'done') {
               newState.stage2 = 'done'
-              newState.stage2Step = null
+              newState.stage2Step = 'llm_analysis'
+              newState.stage2Progress = 1.0
+            } else {
+              newState.stage2 = 'active'
+              newState.stage2Step = step as any
+              const stage2Start = 0.6
+              const stage2End = 0.9
+              newState.stage2Progress =
+                ((progress || 0) - stage2Start) / (stage2End - stage2Start)
             }
-          }
-
-          // Stage 3
-          if (stage === 3) {
+            newState.stage3 = 'pending'
+          } else if (stage === 3) {
             newState.stage1 = 'done'
+            newState.stage1Step = 'audio_analysis'
+            newState.stage1Progress = 1.0
             newState.stage2 = 'done'
+            newState.stage2Step = 'llm_analysis'
+            newState.stage2Progress = 1.0
+
             if (step === 'done') {
               newState.stage3 = 'done'
+              newState.stage3Progress = 1.0
+            } else {
+              newState.stage3 = 'active'
+              const stage3Start = 0.9
+              newState.stage3Progress = ((progress || 0) - stage3Start) / (1.0 - stage3Start)
             }
           }
 
           return newState
         })
       } else if (data.status === 'complete') {
-        const detectionMoments = (data.moments || []).map((m: any, idx: number) => {
-          const seq = momentKeySeq + idx
-          return {
-            ...m,
-            keySeq: seq,
-          }
-        })
-        setMomentKeySeq(momentKeySeq + (data.moments?.length || 0))
-        setMoments(detectionMoments)
+        const receivedMoments = data.moments.map((m: any, idx: number) => ({
+          ...m,
+          keySeq: momentKeySeq + idx,
+        }))
+        setMoments(receivedMoments)
+        setMomentKeySeq((prev) => prev + receivedMoments.length)
         setView('results')
+
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.close()
+        }
       } else if (data.status === 'error') {
-        setUploadError(data.message || 'Detection failed')
+        setUploadError(data.error || 'Detection failed')
         setView('setup')
+
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.close()
+        }
       }
     }
 
-    ws.onerror = (err) => {
-      console.error('WS error:', err)
-      setUploadError('Connection error occurred')
+    ws.onerror = () => {
+      setUploadError('WebSocket connection failed')
       setView('setup')
     }
 
     ws.onclose = () => {
-      console.log('WS closed')
-    }
-  }
-
-  const cancelDetection = () => {
-    if (wsConnectionRef.current) {
-      wsConnectionRef.current.close()
+      console.log('WebSocket disconnected')
       wsConnectionRef.current = null
     }
-    setView('setup')
-  }
-
-  const exportSelected = async () => {
-    if (selectedMomentIds.size === 0) return
-    const selectedMoments = moments.filter((m) => selectedMomentIds.has(m.id))
-    try {
-      const response = await axios.post(
-        'http://localhost:8000/api/moments/export',
-        {
-          video_id: currentVideo?.id,
-          moment_ids: Array.from(selectedMomentIds),
-        },
-        { responseType: 'blob' }
-      )
-      const url = window.URL.createObjectURL(new Blob([response.data]))
-      const link = document.createElement('a')
-      link.href = url
-      const filename = `moments_${currentVideo?.title || 'export'}.zip`
-      link.setAttribute('download', filename)
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-    } catch (err) {
-      console.error('Failed to export moments:', err)
-    }
-  }
-
-  const allMomentsSelected = moments.length > 0 && moments.every((m) => selectedMomentIds.has(m.id))
-  const toggleAllMoments = () => {
-    if (allMomentsSelected) {
-      moments.forEach((m) => {
-        if (selectedMomentIds.has(m.id)) {
-          toggleMoment(m.id)
-        }
-      })
-    } else {
-      moments.forEach((m) => {
-        if (!selectedMomentIds.has(m.id)) {
-          toggleMoment(m.id)
-        }
-      })
-    }
-  }
-
-  // Helper to render substep status icon
-  const renderSubstepIcon = (isActive: boolean, isDone: boolean) => {
-    if (isDone) return <span className="text-green-400">✓</span>
-    if (isActive) return <Loader2 size={14} className="text-yellow-400 animate-spin" />
-    return <span className="text-slate-600">○</span>
   }
 
   if (!currentVideo) {
     return null
   }
 
+  const videoDurationMin = Math.round(currentVideo.duration / 60)
+  const estimatedTimeMin = Math.max(6, Math.min(9, Math.ceil(videoDurationMin * 0.3)))
+
   return (
-    <div className="container py-8">
-      {/* Header */}
-      <div className="mb-6 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <button onClick={() => navigate('/')} className="btn btn-secondary flex items-center gap-2">
-            <ArrowLeft size={16} />
-            Back
-          </button>
-          <Scissors size={32} className="text-accent" />
-          <div>
-            <h1 className="text-2xl font-bold text-slate-100">Detect Moments</h1>
-            <p className="text-slate-500">{currentVideo.title}</p>
-          </div>
+    <div className="page-container">
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">AI Moment Detection</h1>
+          <p className="page-description">{currentVideo.title}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <GPUStatusIndicator />
-          {view === 'results' && moments.length > 0 && (
-            <button
-              onClick={toggleAllMoments}
-              className="btn btn-secondary flex items-center gap-2"
-            >
-              {allMomentsSelected ? <CheckSquare size={15} /> : <Square size={15} />}
-              Toggle All
-            </button>
-          )}
-          {selectedMomentIds.size > 0 && (
-            <button onClick={exportSelected} className="btn btn-primary flex items-center gap-2">
-              <ArrowRight size={15} />
-              Export Selected ({selectedMomentIds.size})
-            </button>
-          )}
         </div>
       </div>
 
-      {/* Setup View - Pre-detection Panel */}
-      {view === 'setup' && (
-        <div className="max-w-lg mx-auto">
-          <div className="card">
-            <div className="absolute top-4 right-4">
-              <GPUStatusIndicator />
-            </div>
-
-            <h2 className="text-xl font-bold text-slate-100 mb-6">Configure Detection</h2>
-
-            {/* LLM Instructions */}
-            <div className="mb-6">
-              <label className="block text-sm font-semibold text-slate-300 mb-2">
-                🧠 LLM Instructions
-              </label>
-              <LLMInstructionsInput
-                value={llmInstructions}
-                onChange={setLlmInstructions}
-                placeholder="e.g., Find emotional, dramatic moments with strong dialogue..."
-              />
-              <p className="text-xs text-slate-500 mt-1">
-                Guide the AI on what types of moments to detect
-              </p>
-            </div>
-
-            {/* Detection Settings */}
-            <div className="mb-6">
-              <h3 className="text-sm font-semibold text-slate-300 mb-3">⚙️ Settings</h3>
-              <div className="space-y-4">
-                {/* Min Duration */}
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm text-slate-400">Min Clip Duration</span>
-                    <span className="text-sm font-semibold text-accent">{detectionSettings.minDuration}s</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="15"
-                    max="60"
-                    step="5"
-                    value={detectionSettings.minDuration}
-                    onChange={(e) => updateDetectionSettings({ minDuration: parseInt(e.target.value) })}
-                    className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-accent"
-                  />
-                </div>
-
-                {/* Max Duration */}
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm text-slate-400">Max Clip Duration</span>
-                    <span className="text-sm font-semibold text-accent">{detectionSettings.maxDuration}s</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="30"
-                    max="180"
-                    step="10"
-                    value={detectionSettings.maxDuration}
-                    onChange={(e) => updateDetectionSettings({ maxDuration: parseInt(e.target.value) })}
-                    className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-accent"
-                  />
-                </div>
-
-                {/* Max Moments */}
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm text-slate-400">Max Moments</span>
-                    <span className="text-sm font-semibold text-accent">{detectionSettings.maxMoments}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="5"
-                    max="30"
-                    step="1"
-                    value={detectionSettings.maxMoments}
-                    onChange={(e) => updateDetectionSettings({ maxMoments: parseInt(e.target.value) })}
-                    className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-accent"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Start Button */}
-            <button
-              onClick={startDetection}
-              className="btn btn-primary w-full py-3 text-base font-semibold flex items-center justify-center gap-2"
-            >
-              🚀 Start Detection
-            </button>
-
-            <p className="text-center text-sm text-slate-500 mt-3">~6-9 min (your RTX 5060 GPU)</p>
-
-            {uploadError && (
-              <div className="mt-6 border-2 border-red-500/50 bg-red-900/20 rounded-lg p-4">
-                <div className="flex items-start gap-3">
-                  <AlertTriangle size={24} className="text-red-500 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <h3 className="font-semibold text-red-500 mb-1">Detection Failed</h3>
-                    <p className="text-slate-300">{uploadError}</p>
-                  </div>
-                </div>
-              </div>
-            )}
+      {uploadError && (
+        <div className="mb-6 rounded-lg bg-red-900/20 border border-red-700/30 p-4 flex items-start gap-3">
+          <AlertTriangle className="text-red-400 mt-0.5" size={20} />
+          <div className="flex-1">
+            <h4 className="text-red-400 font-medium text-sm mb-1">Detection Failed</h4>
+            <p className="text-red-300 text-sm">{uploadError}</p>
           </div>
         </div>
       )}
 
-      {/* Detecting View - Rich Progress Timeline */}
-      {view === 'detecting' && (
-        <div className="max-w-3xl mx-auto">
-          <div className="card">
-            <div className="mb-6 border-b border-slate-700 pb-4">
-              <p className="text-sm text-slate-400">{progressState.statusMessage}</p>
+      {/* Setup View */}
+      {view === 'setup' && (
+        <div className="flex items-center justify-center py-12">
+          <div className="card max-w-lg w-full">
+            <div className="mb-6">
+              <h2 className="text-xl font-bold text-slate-200 mb-2">Configure Detection</h2>
+              <p className="text-slate-400 text-sm">
+                Set up AI analysis parameters before starting
+              </p>
             </div>
 
-            {/* Vertical Progress Timeline */}
+            <div className="space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  🧀 AI Instructions
+                </label>
+                <LLMInstructionsInput
+                  value={llmInstructions}
+                  onChange={setLlmInstructions}
+                  placeholder="Optional: tell the AI what kind of moments to look for..."
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-3">
+                  ⚙ḯ Detection Settings
+                </label>
+                <div className="space-y-4">
+                  <div>
+                    <div className="flex justify-between text-sm mb-2">
+                      <span className="text-slate-400">Min clip duration</span>
+                      <span className="text-slate-300 font-medium">
+                        {detectionSettings.minDuration}s
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="15"
+                      max="60"
+                      step="5"
+                      value={detectionSettings.minDuration}
+                      onChange={(e) =>
+                        updateDetectionSettings({ minDuration: parseInt(e.target.value) })
+                      }
+                      className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between text-sm mb-2">
+                      <span className="text-slate-400">Max clip duration</span>
+                      <span className="text-slate-300 font-medium">
+                        {detectionSettings.maxDuration}s
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="30"
+                      max="180"
+                      step="10"
+                      value={detectionSettings.maxDuration}
+                      onChange={(e) =>
+                        updateDetectionSettings({ maxDuration: parseInt(e.target.value) })
+                      }
+                      className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between text-sm mb-2">
+                      <span className="text-slate-400">Max moments</span>
+                      <span className="text-slate-300 font-medium">
+                        {detectionSettings.maxMoments}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="5"
+                      max="30"
+                      step="5"
+                      value={detectionSettings.maxMoments}
+                      onChange={(e) =>
+                        updateDetectionSettings({ maxMoments: parseInt(e.target.value) })
+                      }
+                      className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-8 pt-6 border-t border-slate-700">
+              <button
+                onClick={startDetection}
+                className="btn btn-primary w-full py-3 text-base font-semibold"
+              >
+                🚀 Start Detection
+              </button>
+              <p className="text-center text-slate-500 text-xs mt-3">
+                Estimated time: ~{estimatedTimeMin}–{estimatedTimeMin + 3} min (your RTX 5060 GPU
+  </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Detecting View - Progress Timeline */}
+      {view === 'detecting' && (
+        <div className="flex items-start justify-center py-8">
+          <div className="card max-w-2xl w-full">
+            <div className="mb-6">
+              <h2 className="text-xl font-bold text-slate-200 mb-1">Detection in Progress</h2>
+              <p className="text-slate-400 text-sm">{progressState.statusMessage}</p>
+            </div>
+
             <div className="space-y-8">
               {/* Stage 1: Collecting Data */}
               <div>
-                <div className="flex items-start gap-3 mb-3">
+                <div className="flex items-center gap-3 mb-3">
                   <div
-                    className={`w-4 h-4 rounded-full flex-shrink-0 mt-1 ${
+                    className={`w-4 h-4 rounded-full ${
                       progressState.stage1 === 'done'
                         ? 'bg-green-400'
                         : progressState.stage1 === 'active'
@@ -429,113 +375,118 @@ export default function MomentsPage() {
                         : 'bg-slate-600'
                     }`}
                   />
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between mb-2">
-                      <h3
-                        className={`text-base font-semibold ${
-                          progressState.stage1 === 'done'
-                            ? 'text-green-400'
-                            : progressState.stage1 === 'active'
-                            ? 'text-yellow-400'
-                            : 'text-slate-600'
-                        }`}
-                      >
-                        Stage 1: Collecting Data
-                      </h3>
-                      {progressState.stage1 === 'active' && (
-                        <span className="text-sm text-slate-400">{formatTime(elapsedSeconds)}</span>
-                      )}
-                      {progressState.stage1 === 'done' && (
-                        <span className="text-sm text-green-400">✓ done</span>
-                      )}
-                    </div>
+                  <h3
+                    className={`text-base font-semibold ${
+                      progressState.stage1 === 'done'
+                        ? 'text-green-400'
+                        : progressState.stage1 === 'active'
+                        ? 'text-yellow-400'
+                        : 'text-slate-600'
+                    }`}
+                  >
+                    Stage 1: Collecting Data
+                  </h3>
+                  {progressState.stage1 !== 'pending' && (
+                    <span className="text-slate-500 text-sm ml-auto">
+                      {progressState.stage1 === 'done' ? formatElapsed(elapsedSeconds) : ''}
+                    </span>
+                  )}
+                </div>
 
-                    {/* Mini progress bar for Stage 1 */}
-                    {progressState.stage1 === 'active' && (
-                      <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden mb-3">
-                        <div
-                          className="h-full bg-yellow-400 transition-all duration-300"
-                          style={{
-                            width: `${Math.min(
-                              100,
-                              progressState.overallProgress < 0.6
-                                ? (progressState.overallProgress / 0.6) * 100
-                                : 100
-                            )}%`,
-                          }}
-                        />
-                      </div>
+                <div className="mb-3 bg-slate-700 rounded-full h-1.5 overflow-hidden">
+                  <div
+                    className="bg-purple-500 h-full transition-all duration-300"
+                    style={{
+                      width: `${Math.min(100, progressState.stage1Progress * 100)}%`,
+                    }}
+                  />
+                </div>
+
+                <div className="ml-7 space-y-2">
+                  <div className="flex items-center gap-2 text-sm">
+                    {progressState.stage1 === 'done' ||
+                    (progressState.stage1 === 'active' &&
+                      progressState.stage1Step !== 'transcription') ? (
+                      <CheckSquare size={14} className="text-green-400" />
+                    ) : progressState.stage1 === 'active' &&
+                      progressState.stage1Step === 'transcription' ? (
+                      <RefreshCw size={14} className="text-yellow-400 animate-spin" />
+                    ) : (
+                      <Square size={14} className="text-slate-600" />
                     )}
-
-                    {/* Substeps */}
-                    <div className="space-y-2 text-sm">
-                      <div className="flex items-center gap-2">
-                        {renderSubstepIcon(
-                          progressState.stage1Step === 'transcription',
-                          progressState.stage1 === 'done' ||
-                            (progressState.stage1Step !== 'transcription' &&
-                              progressState.stage1Step !== null)
-                        )}
-                        <span
-                          className={
+                    <span
+                      className={
+                        progressState.stage1 === 'done' ||
+                        (progressState.stage1 === 'active' &&
+                          progressState.stage1Step !== 'transcription')
+                          ? 'text-green-400'
+                          : progressState.stage1 === 'active' &&
                             progressState.stage1Step === 'transcription'
-                              ? 'text-yellow-400'
-                              : progressState.stage1 === 'done' ||
-                                (progressState.stage1Step !== 'transcription' &&
-                                  progressState.stage1Step !== null)
-                              ? 'text-slate-400'
-                              : 'text-slate-600'
-                          }
-                        >
-                          🎙️ Whisper transcription
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {renderSubstepIcon(
-                          progressState.stage1Step === 'face_detection',
-                          progressState.stage1 === 'done' ||
-                            (progressState.stage1Step === 'audio_analysis')
-                        )}
-                        <span
-                          className={
+                          ? 'text-yellow-400'
+                          : 'text-slate-600'
+                      }
+                    >
+                      🍙️  Whisper transcription
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2 text-sm">
+                    {progressState.stage1 === 'done' ||
+                    (progressState.stage1 === 'active' &&
+                      progressState.stage1Step === 'audio_analysis') ? (
+                      <CheckSquare size={14} className="text-green-400" />
+                    ) : progressState.stage1 === 'active' &&
+                      progressState.stage1Step === 'face_detection' ? (
+                      <RefreshCw size={14} className="text-yellow-400 animate-spin" />
+                    ) : (
+                      <Square size={14} className="text-slate-600" />
+                    )}
+                    <span
+                      className={
+                        progressState.stage1 === 'done' ||
+                        (progressState.stage1 === 'active' &&
+                          progressState.stage1Step === 'audio_analysis')
+                          ? 'text-green-400'
+                          : progressState.stage1 === 'active' &&
                             progressState.stage1Step === 'face_detection'
-                              ? 'text-yellow-400'
-                              : progressState.stage1 === 'done' ||
-                                progressState.stage1Step === 'audio_analysis'
-                              ? 'text-slate-400'
-                              : 'text-slate-600'
-                          }
-                        >
-                          👤 YOLO face detection
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {renderSubstepIcon(
-                          progressState.stage1Step === 'audio_analysis',
-                          progressState.stage1 === 'done'
-                        )}
-                        <span
-                          className={
+                          ? 'text-yellow-400'
+                          : 'text-slate-600'
+                      }
+                    >
+                      👤 YOLO face detection
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2 text-sm">
+                    {progressState.stage1 === 'done' ? (
+                      <CheckSquare size={14} className="text-green-400" />
+                    ) : progressState.stage1 === 'active' &&
+                      progressState.stage1Step === 'audio_analysis' ? (
+                      <RefreshCw size={14} className="text-yellow-400 animate-spin" />
+                    ) : (
+                      <Square size={14} className="text-slate-600" />
+                    )}
+                    <span
+                      className={
+                        progressState.stage1 === 'done'
+                          ? 'text-green-400'
+                          : progressState.stage1 === 'active' &&
                             progressState.stage1Step === 'audio_analysis'
-                              ? 'text-yellow-400'
-                              : progressState.stage1 === 'done'
-                              ? 'text-slate-400'
-                              : 'text-slate-600'
-                          }
-                        >
-                          🔊 Audio peak analysis
-                        </span>
-                      </div>
-                    </div>
+                          ? 'text-yellow-400'
+                          : 'text-slate-600'
+                      }
+                    >
+                      🔊 Audio peak analysis
+                    </span>
                   </div>
                 </div>
               </div>
 
               {/* Stage 2: AI Analysis */}
               <div>
-                <div className="flex items-start gap-3 mb-3">
+                <div className="flex items-center gap-3 mb-3">
                   <div
-                    className={`w-4 h-4 rounded-full flex-shrink-0 mt-1 ${
+                    className={`w-4 h-4 rounded-full ${
                       progressState.stage2 === 'done'
                         ? 'bg-green-400'
                         : progressState.stage2 === 'active'
@@ -543,100 +494,101 @@ export default function MomentsPage() {
                         : 'bg-slate-600'
                     }`}
                   />
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between mb-2">
-                      <h3
-                        className={`text-base font-semibold ${
-                          progressState.stage2 === 'done'
-                            ? 'text-green-400'
-                            : progressState.stage2 === 'active'
-                            ? 'text-yellow-400'
-                            : 'text-slate-600'
-                        }`}
-                      >
-                        Stage 2: AI Analysis
-                      </h3>
-                      {progressState.stage2 === 'active' && (
-                        <span className="text-sm text-slate-400">{formatTime(elapsedSeconds)}</span>
-                      )}
-                      {progressState.stage2 === 'done' && (
-                        <span className="text-sm text-green-400">✓ done</span>
-                      )}
-                    </div>
+                  <h3
+                    className={`text-base font-semibold ${
+                      progressState.stage2 === 'done'
+                        ? 'text-green-400'
+                        : progressState.stage2 === 'active'
+                        ? 'text-yellow-400'
+                        : 'text-slate-600'
+                    }`}
+                  >
+                    Stage 2: AI Analysis
+                  </h3>
+                </div>
 
-                    {/* Mini progress bar for Stage 2 */}
-                    {progressState.stage2 === 'active' && (
-                      <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden mb-3">
-                        <div
-                          className="h-full bg-yellow-400 transition-all duration-300"
-                          style={{
-                            width: `${Math.min(
-                              100,
-                              progressState.overallProgress >= 0.6 && progressState.overallProgress < 0.9
-                                ? ((progressState.overallProgress - 0.6) / 0.3) * 100
-                                : progressState.overallProgress >= 0.9
-                                ? 100
-                                : 0
-                            )}%`,
-                          }}
-                        />
-                      </div>
+                <div className="mb-3 bg-slate-700 rounded-full h-1.5 overflow-hidden">
+                  <div
+                    className="bg-purple-500 h-full transition-all duration-300"
+                    style={{
+                      width: `${Math.min(100, progressState.stage2Progress * 100)}%`,
+                    }}
+                  />
+                </div>
+
+                <div className="ml-7 space-y-2">
+                  <div className="flex items-center gap-2 text-sm">
+                    {progressState.stage2 === 'done' ||
+                    (progressState.stage2 === 'active' &&
+                      progressState.stage2Step === 'llm_analysis') ? (
+                      <CheckSquare size={14} className="text-green-400" />
+                    ) : progressState.stage2 === 'active' &&
+                      progressState.stage2Step === 'context_building' ? (
+                      <RefreshCw size={14} className="text-yellow-400 animate-spin" />
+                    ) : (
+                      <Square size={14} className="text-slate-600" />
                     )}
-
-                    {/* Substeps */}
-                    <div className="space-y-2 text-sm">
-                      <div className="flex items-center gap-2">
-                        {renderSubstepIcon(
-                          progressState.stage2Step === 'context_building',
-                          progressState.stage2 === 'done' || progressState.stage2Step === 'llm_analysis'
-                        )}
-                        <span
-                          className={
+                    <span
+                      className={
+                        progressState.stage2 === 'done' ||
+                        (progressState.stage2 === 'active' &&
+                          progressState.stage2Step === 'llm_analysis')
+                          ? 'text-green-400'
+                          : progressState.stage2 === 'active' &&
                             progressState.stage2Step === 'context_building'
-                              ? 'text-yellow-400'
-                              : progressState.stage2 === 'done' || progressState.stage2Step === 'llm_analysis'
-                              ? 'text-slate-400'
-                              : 'text-slate-600'
-                          }
-                        >
-                          🧩 Building context chunks
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {renderSubstepIcon(
-                          progressState.stage2Step === 'llm_analysis',
-                          progressState.stage2 === 'done'
-                        )}
-                        <span
-                          className={
+                          ? 'text-yellow-400'
+                          : 'text-slate-600'
+                      }
+                    >
+                      🧩 Building context chunks
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2 text-sm">
+                    {progressState.stage2 === 'done' ? (
+                      <CheckSquare size={14} className="text-green-400" />
+                    ) : progressState.stage2 === 'active' &&
+                      progressState.stage2Step === 'llm_analysis' ? (
+                      <RefreshCw size={14} className="text-yellow-400 animate-spin" />
+                    ) : (
+                      <Square size={14} className="text-slate-600" />
+                    )}
+                    <span
+                      className={
+                        progressState.stage2 === 'done'
+                          ? 'text-green-400'
+                          : progressState.stage2 === 'active' &&
                             progressState.stage2Step === 'llm_analysis'
-                              ? 'text-yellow-400'
-                              : progressState.stage2 === 'done'
-                              ? 'text-slate-400'
-                              : 'text-slate-600'
-                          }
-                        >
-                          🧠 Qwen3 — analyzing chunks
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {renderSubstepIcon(false, progressState.stage2 === 'done')}
-                        <span
-                          className={progressState.stage2 === 'done' ? 'text-slate-400' : 'text-slate-600'}
-                        >
-                          🔀 Consolidating moments
-                        </span>
-                      </div>
-                    </div>
+                          ? 'text-yellow-400'
+                          : 'text-slate-600'
+                      }
+                    >
+                      🧰 Qwen3 — analyzing chunks
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2 text-sm">
+                    {progressState.stage2 === 'done' ? (
+                      <CheckSquare size={14} className="text-green-400" />
+                    ) : (
+                      <Square size={14} className="text-slate-600" />
+                    )}
+                    <span
+                      className={
+                        progressState.stage2 === 'done' ? 'text-green-400' : 'text-slate-600'
+                      }
+                    >
+                      🔀 Consolidating moments
+                    </span>
                   </div>
                 </div>
               </div>
 
               {/* Stage 3: Finalizing */}
               <div>
-                <div className="flex items-start gap-3 mb-3">
+                <div className="flex items-center gap-3 mb-3">
                   <div
-                    className={`w-4 h-4 rounded-full flex-shrink-0 mt-1 ${
+                    className={`w-4 h-4 rounded-full ${
                       progressState.stage3 === 'done'
                         ? 'bg-green-400'
                         : progressState.stage3 === 'active'
@@ -644,49 +596,58 @@ export default function MomentsPage() {
                         : 'bg-slate-600'
                     }`}
                   />
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between mb-2">
-                      <h3
-                        className={`text-base font-semibold ${
-                          progressState.stage3 === 'done'
-                            ? 'text-green-400'
-                            : progressState.stage3 === 'active'
-                            ? 'text-yellow-400'
-                            : 'text-slate-600'
-                        }`}
-                      >
-                        Stage 3: Finalizing
-                      </h3>
-                      {progressState.stage3 === 'done' && (
-                        <span className="text-sm text-green-400">✓ done</span>
-                      )}
-                    </div>
+                  <h3
+                    className={`text-base font-semibold ${
+                      progressState.stage3 === 'done'
+                        ? 'text-green-400'
+                        : progressState.stage3 === 'active'
+                        ? 'text-yellow-400'
+                        : 'text-slate-600'
+                    }`}
+                  >
+                    Stage 3: Finalizing
+                  </h3>
+                </div>
 
-                    {/* Substeps */}
-                    <div className="space-y-2 text-sm">
-                      <div className="flex items-center gap-2">
-                        {renderSubstepIcon(progressState.stage3 === 'active', progressState.stage3 === 'done')}
-                        <span
-                          className={
-                            progressState.stage3 === 'done'
-                              ? 'text-slate-400'
-                              : progressState.stage3 === 'active'
-                              ? 'text-yellow-400'
-                              : 'text-slate-600'
-                          }
-                        >
-                          💾 Saving results
-                        </span>
-                      </div>
-                    </div>
+                <div className="mb-3 bg-slate-700 rounded-full h-1.5 overflow-hidden">
+                  <div
+                    className="bg-purple-500 h-full transition-all duration-300"
+                    style={{
+                      width: `${Math.min(100, progressState.stage3Progress * 100)}%`,
+                    }}
+                  />
+                </div>
+
+                <div className="ml-7 space-y-2">
+                  <div className="flex items-center gap-2 text-sm">
+                    {progressState.stage3 === 'done' ? (
+                      <CheckSquare size={14} className="text-green-400" />
+                    ) : progressState.stage3 === 'active' ? (
+                      <RefreshCw size={14} className="text-yellow-400 animate-spin" />
+                    ) : (
+                      <Square size={14} className="text-slate-600" />
+                    )}
+                    <span
+                      className={
+                        progressState.stage3 === 'done'
+                          ? 'text-green-400'
+                          : progressState.stage3 === 'active'
+                          ? 'text-yellow-400'
+                          : 'text-slate-600'
+                      }
+                    >
+                       💾 Saving results
+                    </span>
                   </div>
                 </div>
               </div>
             </div>
 
-            <button onClick={cancelDetection} className="btn btn-secondary w-full mt-8">
-              Cancel Detection
-            </button>
+            <div className="mt-6 pt-6 border-t border-slate-700 text-center">
+              <p className="text-slate-400 text-sm">
+                Elapsed: <span className="text-slate-300 font-medium">{formatElapsed(elapsedSeconds)}</span>
+              </p>
+            </div>
           </div>
         </div>
       )}
