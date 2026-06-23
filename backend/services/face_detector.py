@@ -13,8 +13,9 @@ from backend.schemas.moment_instruction import FaceDetection, FaceFrame, FaceTim
 logger = logging.getLogger(__name__)
 
 # Filtering constants
-MIN_TRACK_FRAMES = 5  # Minimum 5 frames = 2.5 seconds at 2fps
-MIN_FACE_HEIGHT_RATIO = 0.03  # Minimum 3% of frame height
+MIN_TRACK_FRAMES = 15  # face must persist 7.5s at 2fps — eliminates background/incidental faces
+MIN_FACE_HEIGHT_RATIO = 0.05  # face must be >=5% of frame height — eliminates tiny background faces
+MAX_UNIQUE_FACES = 150  # cap to prevent CGI over-detection in films like Avatar
 
 
 class FaceDetector:
@@ -222,8 +223,9 @@ class FaceDetector:
         """Filter tracks to remove short tracks and small faces.
         
         Filters:
-        1. Minimum track length: >= MIN_TRACK_FRAMES (default 5 frames = 2.5s at 2fps)
-        2. Minimum face size: bbox height >= MIN_FACE_HEIGHT_RATIO (default 3% of frame)
+        1. Minimum track length: >= MIN_TRACK_FRAMES (default 15 frames = 7.5s at 2fps)
+        2. Minimum face size: bbox height >= MIN_FACE_HEIGHT_RATIO (default 5% of frame)
+        3. Maximum unique faces: <= MAX_UNIQUE_FACES (default 150) to prevent CGI over-detection
         
         Args:
             tracks: Dict mapping track_id to list of FaceDetection
@@ -249,6 +251,12 @@ class FaceDetector:
             # Track must still have enough frames after size filtering
             if len(large_detections) >= MIN_TRACK_FRAMES:
                 valid_tracks[track_id] = large_detections
+        
+        # Cap at MAX_UNIQUE_FACES most-seen face tracks to prevent CGI over-detection
+        if len(valid_tracks) > MAX_UNIQUE_FACES:
+            sorted_by_freq = sorted(valid_tracks.items(), key=lambda x: len(x[1]), reverse=True)
+            logger.info(f"[YOLO] Capped face tracks from {len(sorted_by_freq)} to {MAX_UNIQUE_FACES}")
+            valid_tracks = dict(sorted_by_freq[:MAX_UNIQUE_FACES])
         
         return valid_tracks
 
