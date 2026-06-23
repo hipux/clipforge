@@ -7,6 +7,7 @@ Stage 3: Rendering (handled separately via API)
 from __future__ import annotations
 import logging
 import os
+import asyncio
 from typing import AsyncGenerator, Optional, Callable
 from backend.services.vram_manager import vram_manager
 from backend.services.whisper_gpu import whisper_gpu
@@ -162,17 +163,50 @@ class DetectionPipeline:
 
         transcript = whisper_gpu.transcribe(video_path)
         vram_manager.unload_all()  # Safety flush
+        
+        # Count words and segments for granular progress detail
+        total_words = sum(len(seg.get("text", "").split()) for seg in transcript) if transcript else 0
+        total_segments = len(transcript) if transcript else 0
+
+        if progress_callback:
+            await progress_callback({
+                "stage": 1,
+                "step": "whisper_done",
+                "progress": 0.27,
+                "detail": {"words": total_words, "segments": total_segments}
+            })
 
         if progress_callback:
             await progress_callback({"stage": 1, "step": "face_detection", "progress": 0.30})
 
         face_timeline = face_detector.detect_faces_timeline(video_path)
         vram_manager.unload_all()  # Safety flush
+        
+        face_count = len(face_timeline) if face_timeline else 0
+
+        if progress_callback:
+            await progress_callback({
+                "stage": 1,
+                "step": "yolo_done",
+                "progress": 0.48,
+                "detail": {"faces": face_count}
+            })
 
         if progress_callback:
             await progress_callback({"stage": 1, "step": "audio_analysis", "progress": 0.50})
 
         audio_analysis = audio_analyzer.analyze(video_path)
+        
+        # Extract peak count from audio analysis
+        peak_count = len(audio_analysis.peaks) if hasattr(audio_analysis, 'peaks') and audio_analysis.peaks else 0
+        
+        if progress_callback:
+            await progress_callback({
+                "stage": 1,
+                "step": "audio_done",
+                "progress": 0.57,
+                "detail": {"peaks": peak_count}
+            })
         
         stage1_time = time.time() - stage1_start
         logger.info("")
@@ -212,7 +246,20 @@ class DetectionPipeline:
         if progress_callback:
             await progress_callback({"stage": 2, "step": "llm_analysis", "progress": 0.70})
 
-        director_output = llm_director.analyze(context_chunks, user_instructions)
+        # Create asyncio-compatible LLM progress callback wrapper
+        _loop = asyncio.get_event_loop()
+        def _llm_progress(chunk_i: int, total: int, phase: str = "chunk"):
+            prog = 0.70 + (chunk_i / max(total, 1)) * 0.14
+            step_name = "llm_chunk" if phase == "chunk" else "llm_consolidate"
+            coro = progress_callback({
+                "stage": 2,
+                "step": step_name,
+                "progress": prog,
+                "detail": {"chunk": chunk_i, "total": total}
+            })
+            asyncio.run_coroutine_threadsafe(coro, _loop)
+
+        director_output = llm_director.analyze(context_chunks, user_instructions, on_progress=_llm_progress)
         vram_manager.unload_all()  # Safety flush
         
         stage2_time = time.time() - stage2_start
