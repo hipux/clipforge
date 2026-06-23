@@ -4,6 +4,7 @@ GPU-first: loads all layers on GPU when CUDA available.
 """
 from __future__ import annotations
 import logging
+import re
 import time
 import requests
 from typing import Optional
@@ -25,12 +26,25 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# Regex to strip Qwen3 thinking blocks before JSON parsing.
+# Qwen3 thinking mode emits <think>...</think> before the JSON — pydantic
+# cannot parse JSON starting with '<', so we intercept and strip it here.
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+
+
+def _strip_think(text: str) -> str:
+    """Remove <think>...</think> blocks from Qwen3 responses."""
+    return _THINK_RE.sub("", text).strip()
+
+
 
 class LLMDirector:
     """Qwen3-8B Q4_K_M GGUF via llama-cpp-python.
     
     GPU-first: n_gpu_layers=-1 loads all layers on GPU.
     Uses instructor library for structured JSON output.
+    Qwen3 thinking mode is ENABLED: <think> blocks stripped transparently before
+    pydantic validation for best reasoning quality.
     """
 
     def _download_model_if_needed(self) -> None:
@@ -180,6 +194,36 @@ class LLMDirector:
                 f"Downloaded: {final_size/1e6:.0f} MB / {MIN_VALID_SIZE/1e9:.1f} GB required"
             )
 
+    def _call_with_thinking(self, create_fn, **kwargs) -> DirectorOutput:
+        """Call instructor and strip <think> blocks from Qwen3 response.
+
+        Qwen3 in thinking mode emits:
+            <think>...reasoning...</think>\n{...json...}
+
+        We call without response_model to get raw text, strip the think block,
+        then validate the clean JSON with pydantic manually.
+        """
+        response_model = kwargs.pop("response_model")
+
+        # Get raw completion (no structured parsing yet)
+        raw = create_fn(response_model=None, **kwargs)
+
+        # Extract content string
+        if hasattr(raw, "choices") and raw.choices:
+            content_text = raw.choices[0].message.content or ""
+        else:
+            content_text = str(raw)
+
+        # Log thinking block presence
+        think_match = _THINK_RE.search(content_text)
+        if think_match:
+            think_len = len(think_match.group(0))
+            logger.debug(f"🧠 [Qwen3] <think> блок: {think_len} символов → удалён перед парсингом")
+
+        # Strip think blocks and validate JSON
+        stripped = _strip_think(content_text)
+        return response_model.model_validate_json(stripped)
+
     def analyze(
         self,
         context_log_or_chunks: str | list[str],
@@ -254,7 +298,7 @@ class LLMDirector:
                 model="qwen3",
                 response_model=DirectorOutput,
                 messages=[
-                    {"role": "system", "content": system_prompt_filled + "\n/no_think"},
+                    {"role": "system", "content": system_prompt_filled},
                     {"role": "user", "content": context_log},
                 ],
                 temperature=QWEN_TEMPERATURE,
@@ -302,7 +346,7 @@ class LLMDirector:
                     model="qwen3",
                     response_model=DirectorOutput,
                     messages=[
-                        {"role": "system", "content": system_prompt + "\n/no_think"},
+                        {"role": "system", "content": system_prompt},
                         {"role": "user", "content": chunk},
                     ],
                     temperature=QWEN_TEMPERATURE,
@@ -373,7 +417,7 @@ RULES:
             model="qwen3",
             response_model=DirectorOutput,
             messages=[
-                {"role": "system", "content": "You are a viral video editor consolidating moment candidates.\n/no_think"},
+                {"role": "system", "content": "You are a viral video editor consolidating moment candidates."},
                 {"role": "user", "content": consolidation_prompt},
             ],
             temperature=0.3,
