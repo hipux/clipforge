@@ -40,6 +40,7 @@ class DetectMomentsRequest(BaseModel):
     min_duration: int = 30  # seconds
     max_duration: int = 90  # seconds
     max_moments: int = 15
+    user_instructions: str = ""  # optional LLM instructions
 
 
 class UpdateMomentRequest(BaseModel):
