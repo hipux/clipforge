@@ -99,17 +99,37 @@ class VRAMManager:
         Returns:
             Dict with allocated_gb, reserved_gb, total_gb, free_gb
         """
+        # Try pynvml first — sees ALL VRAM users (CTranslate2, YOLO, PyTorch, etc.)
+        try:
+            import pynvml
+            pynvml.nvmlInit()
+            handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+            mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            total_gb = mem.total / (1024**3)
+            used_gb = mem.used / (1024**3)
+            free_gb = mem.free / (1024**3)
+            pynvml.nvmlShutdown()
+            return {
+                "allocated_gb": round(used_gb, 2),
+                "reserved_gb": round(used_gb, 2),
+                "total_gb": round(total_gb, 2),
+                "free_gb": round(free_gb, 2),
+            }
+        except Exception:
+            pass
+        # Fallback: PyTorch (only sees PyTorch tensors, but better than nothing)
         try:
             import torch
             if torch.cuda.is_available():
                 allocated = torch.cuda.memory_allocated(0) / 1024**3
                 reserved = torch.cuda.memory_reserved(0) / 1024**3
                 total = torch.cuda.get_device_properties(0).total_memory / 1024**3
+                free = total - reserved
                 return {
                     "allocated_gb": round(allocated, 2),
                     "reserved_gb": round(reserved, 2),
                     "total_gb": round(total, 2),
-                    "free_gb": round(total - reserved, 2),
+                    "free_gb": round(free, 2),
                 }
         except (ImportError, Exception):
             pass
