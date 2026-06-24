@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import { useAppStore } from '../store/useAppStore'
@@ -16,7 +16,7 @@ function formatBytes(bytes: number): string {
 
 export default function DownloadPage() {
   const navigate = useNavigate()
-  const { currentVideo, setVideo, setCurrentStep } = useAppStore()
+  const { currentVideo, setVideo, setCurrentStep, activeDownload, setActiveDownload } = useAppStore()
   const [url, setUrl] = useState('')
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -49,50 +49,90 @@ export default function DownloadPage() {
     try {
       const { data } = await axios.post('/api/download', { url })
       const jobId = data.job_id
-
-      // Connect directly to backend port 8000 (bypass Vite proxy for WebSocket)
-      const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-      const wsHost = window.location.hostname
-      const ws = new WebSocket(`${wsProtocol}://${wsHost}:8000/api/ws/download/${jobId}`)
-
-      ws.onmessage = (event) => {
-        const message = JSON.parse(event.data)
-
-        if (message.status === 'downloading' && message.progress) {
-          setProgress(message.progress.percent || 0)
-          setSpeed(message.progress.speed || '')
-          setEta(message.progress.eta || '')
-          setDownloadedBytes(message.progress.downloaded_bytes || 0)
-          setTotalBytes(message.progress.total_bytes || 0)
-          setFragmentIndex(message.progress.fragment_index || null)
-          setFragmentCount(message.progress.fragment_count || null)
-          setStatus('Downloading...')
-        } else if (message.status === 'processing') {
-          setProgress(95)
-          setStatus('Processing video...')
-        } else if (message.status === 'completed') {
-          setProgress(100)
-          setStatus('Download complete!')
-          setVideo(message.video)
-          setCurrentStep(1) // Save that we're on step 1 (download)
-          ws.close()
-          setLoading(false)
-        } else if (message.status === 'error') {
-          setError(message.message)
-          ws.close()
-          setLoading(false)
-        }
-      }
-
-      ws.onerror = () => {
-        setError('Connection error. Make sure the backend is running.')
-        setLoading(false)
-      }
+      setActiveDownload({ jobId, url })
+      connectDownloadWs(jobId)
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to start download')
+      setActiveDownload(null)
       setLoading(false)
     }
   }
+
+  // Connect to the download progress WebSocket (used both for a fresh download
+  // and when resuming an in-flight download after a page reload).
+  const connectDownloadWs = (jobId: string) => {
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
+    const wsHost = window.location.hostname
+    const ws = new WebSocket(`${wsProtocol}://${wsHost}:8000/api/ws/download/${jobId}`)
+
+    ws.onmessage = (event) => {
+      const message = JSON.parse(event.data)
+
+      if (message.status === 'downloading' && message.progress) {
+        setLoading(true)
+        setProgress(message.progress.percent || 0)
+        setSpeed(message.progress.speed || '')
+        setEta(message.progress.eta || '')
+        setDownloadedBytes(message.progress.downloaded_bytes || 0)
+        setTotalBytes(message.progress.total_bytes || 0)
+        setFragmentIndex(message.progress.fragment_index || null)
+        setFragmentCount(message.progress.fragment_count || null)
+        setStatus('Downloading...')
+      } else if (message.status === 'processing') {
+        setLoading(true)
+        setProgress(95)
+        setStatus('Processing video...')
+      } else if (message.status === 'completed') {
+        setProgress(100)
+        setStatus('Download complete!')
+        setVideo(message.video)
+        setCurrentStep(1)
+        setActiveDownload(null)
+        ws.close()
+        setLoading(false)
+      } else if (message.status === 'error') {
+        setError(message.message)
+        setActiveDownload(null)
+        ws.close()
+        setLoading(false)
+      }
+    }
+
+    ws.onerror = () => {
+      setError('Connection error. Make sure the backend is running.')
+      setLoading(false)
+    }
+    return ws
+  }
+
+  // Resume an in-flight download after a page reload by asking the server.
+  useEffect(() => {
+    if (!activeDownload || currentVideo) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const { data } = await axios.get(`/api/download/${activeDownload.jobId}/status`)
+        if (cancelled) return
+        if (data.status === 'completed' && data.video) {
+          setVideo(data.video)
+          setActiveDownload(null)
+        } else if (data.status === 'error') {
+          setActiveDownload(null)
+        } else {
+          // still running -> reattach to the live progress stream
+          setUrl(activeDownload.url)
+          setLoading(true)
+          setStatus('Resuming download...')
+          connectDownloadWs(activeDownload.jobId)
+        }
+      } catch {
+        // job unknown (backend restarted) -> clean reset
+        if (!cancelled) setActiveDownload(null)
+      }
+    })()
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <div className="p-8 max-w-2xl mx-auto">

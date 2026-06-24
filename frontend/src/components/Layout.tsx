@@ -48,24 +48,24 @@ export default function Layout() {
   return (
     <div className="flex flex-col h-screen overflow-hidden">
       {/* Top bar */}
-      <header className="h-16 shrink-0 border-b border-slate-200 bg-white/90 backdrop-blur-md px-5 sm:px-8 flex items-center justify-between gap-6 z-20">
+      <header className="h-16 shrink-0 border-b border-slate-200 bg-white/90 backdrop-blur-md px-5 sm:px-8 grid grid-cols-[1fr_auto_1fr] items-center gap-6 z-20">
         {/* Logo */}
-        <div className="flex items-center gap-2.5 shrink-0">
+        <div className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center shadow-btn">
             <Clapperboard size={18} className="text-white" />
           </div>
           <span className="text-lg font-bold tracking-tight hidden sm:block" style={{ color: '#4f46e5' }}>ClipForge</span>
         </div>
 
-        {/* Stepper */}
-        <nav className="flex items-center">
-          {steps.map((step, i) => {
+        {/* Stepper (truly centered, no connector lines) */}
+        <nav className="flex items-center gap-1 justify-self-center">
+          {steps.map((step) => {
             const isCurrent = location.pathname === step.path
             const isComplete = isStepComplete(step.id)
             const isAccessible = canAccessStep(step.id)
             const Icon = step.icon
 
-            let btn = 'group flex items-center gap-2 pl-1.5 pr-2.5 py-1.5 rounded-full transition-all duration-150 '
+            let btn = 'group flex items-center gap-2 pl-1.5 pr-3 py-1.5 rounded-full transition-all duration-150 '
             if (isCurrent) btn += 'bg-indigo-50 text-indigo-700'
             else if (isComplete) btn += 'text-green-700 hover:bg-slate-50'
             else if (isAccessible) btn += 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
@@ -78,21 +78,17 @@ export default function Layout() {
             else dot += 'bg-slate-50 text-slate-300 border-slate-200'
 
             return (
-              <div key={step.id} className="flex items-center">
-                <button
-                  onClick={() => isAccessible && navigate(step.path)}
-                  disabled={!isAccessible}
-                  className={btn}
-                >
-                  <span className={dot}>
-                    {isComplete && !isCurrent ? <Check size={14} strokeWidth={3} /> : <Icon size={14} />}
-                  </span>
-                  <span className="text-sm font-medium hidden lg:block">{step.name}</span>
-                </button>
-                {i < steps.length - 1 && (
-                  <div className={`w-4 sm:w-7 h-px mx-0.5 ${isComplete ? 'bg-green-300' : 'bg-slate-200'}`} />
-                )}
-              </div>
+              <button
+                key={step.id}
+                onClick={() => isAccessible && navigate(step.path)}
+                disabled={!isAccessible}
+                className={btn}
+              >
+                <span className={dot}>
+                  {isComplete && !isCurrent ? <Check size={14} strokeWidth={3} /> : <Icon size={14} />}
+                </span>
+                <span className="text-sm font-medium hidden lg:block">{step.name}</span>
+              </button>
             )
           })}
         </nav>
@@ -100,13 +96,11 @@ export default function Layout() {
         {/* Analytics tab */}
         <button
           onClick={() => navigate('/analytics')}
-          className={'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all shrink-0 ' + (location.pathname === '/analytics' ? 'bg-indigo-600 text-white shadow-btn' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800 border border-slate-200')}
+          className={'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all justify-self-end ' + (location.pathname === '/analytics' ? 'bg-indigo-600 text-white shadow-btn' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800 border border-slate-200')}
         >
           <BarChart3 size={15} />
           <span className="hidden md:block">Analytics</span>
         </button>
-
-        <div className="w-9 shrink-0" />
       </header>
 
       {/* Main Content */}

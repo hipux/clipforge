@@ -187,6 +187,24 @@ async def processing_websocket(websocket: WebSocket, job_id: str):
             pass
 
 
+@router.get("/process/{job_id}/status")
+async def get_processing_status(job_id: str):
+    """Server-authoritative processing status so the frontend can resume after a
+    page reload. Returns 404 when the job is unknown (e.g. backend restarted),
+    letting the client fall back to DB-persisted clips or a clean reset."""
+    job = processing_jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Processing job not found")
+    return {
+        "job_id": job_id,
+        "status": job.get("status", "pending"),
+        "current_clip": job.get("current_clip", 0),
+        "total_clips": job.get("total_clips", 0),
+        "clips": job.get("clips", []),
+        "error": job.get("error"),
+    }
+
+
 @router.get("/clips", response_model=List[ProcessedClip])
 async def list_clips():
     """Get all processed clips."""
