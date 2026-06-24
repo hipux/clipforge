@@ -83,11 +83,23 @@ class FaceDetector:
         raw_tracks: Dict[int, List[FaceDetection]] = {}  # track_id -> list of detections
         
         while cap.isOpened():
+            # Only fully DECODE frames we actually sample. For skipped frames use
+            # grab(), which advances the decoder without the expensive colour
+            # conversion + numpy copy that retrieve()/read() perform. Previously
+            # every one of the ~54k source frames was decoded just to process
+            # every Nth — that made YOLO face detection take ~25 min on a 30-min
+            # clip. Skipping decode of non-sampled frames cuts that dramatically.
+            if frame_idx % frame_interval != 0:
+                if not cap.grab():
+                    break
+                frame_idx += 1
+                continue
+
             ret, frame = cap.read()
             if not ret:
                 break
 
-            if frame_idx % frame_interval == 0:
+            if True:
                 timestamp = frame_idx / fps
                 results = model.track(
                     frame,

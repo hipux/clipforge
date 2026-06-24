@@ -124,7 +124,10 @@ async def download_video(
     
     # Find thumbnail
     thumbnail_files = list(output_dir.glob("source.*.jpg")) + list(output_dir.glob("source.*.webp"))
-    thumbnail_url = f"/files/{video_id}/{thumbnail_files[0].name}" if thumbnail_files else ""
+    # Downloaded source thumbnails live in DOWNLOADS_DIR, which is served under
+    # the /downloads mount — NOT /files (that mount is OUTPUT_DIR for rendered clips).
+    # Using /files here produced a 404 and a blank video preview.
+    thumbnail_url = f"/downloads/{video_id}/{thumbnail_files[0].name}" if thumbnail_files else ""
     
     video_info = VideoInfo(
         id=video_id,

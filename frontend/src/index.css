@@ -82,3 +82,40 @@
 
   .text-gradient { @apply text-accent; }
 }
+
+/* ── Range sliders ─────────────────────────────────────────── */
+.range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 9999px;
+  background: #e2e8f0;
+  outline: none;
+  cursor: pointer;
+}
+.range::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 9999px;
+}
+.range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  margin-top: -6px;
+  border-radius: 9999px;
+  background: #fff;
+  border: 2px solid #4f46e5;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.18);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.range::-webkit-slider-thumb:hover { transform: scale(1.12); }
+.range::-webkit-slider-thumb:active { box-shadow: 0 0 0 6px rgba(79, 70, 229, 0.15); }
+.range::-moz-range-track { height: 6px; border-radius: 9999px; background: #e2e8f0; }
+.range::-moz-range-thumb {
+  width: 18px; height: 18px; border-radius: 9999px;
+  background: #fff; border: 2px solid #4f46e5;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.18); cursor: pointer;
+}
+.range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 6px rgba(79, 70, 229, 0.2); }

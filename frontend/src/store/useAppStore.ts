@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { persist, createJSONStorage } from 'zustand/middleware'
 
 export interface VideoInfo {
   id: string
@@ -144,6 +144,10 @@ export const useAppStore = create<AppState>()(persist((set) => ({
   setLlmInstructions: (v) => set({ llmInstructions: v }),
 }), {
   name: 'clipforge-session',
+  // localStorage: state survives page refresh AND tab/window close.
+  // It is invalidated by server-id mismatch (see SessionGuard) when the backend
+  // restarts, i.e. when the project/console is closed and reopened.
+  storage: createJSONStorage(() => localStorage),
   partialize: (state) => ({
     currentVideo: state.currentVideo,
     moments: state.moments,

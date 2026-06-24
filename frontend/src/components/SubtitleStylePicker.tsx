@@ -49,11 +49,11 @@ const styles = [
 ]
 
 export default function SubtitleStylePicker() {
-  const { globalEffects, updateGlobalEffect, currentVideo, moments } = useAppStore()
+  const { globalEffects, updateGlobalEffects, currentVideo, moments } = useAppStore()
   const selectedStyle = globalEffects.subtitle_style || 'karaoke'
 
   const handleStyleChange = (styleId: string) => {
-    updateGlobalEffect({ subtitle_style: styleId })
+    updateGlobalEffects({ subtitle_style: styleId })
   }
 
   const previewBg = moments.length > 0 ? moments[0].thumbnail_url : currentVideo?.thumbnail_url

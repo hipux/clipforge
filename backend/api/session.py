@@ -1,5 +1,6 @@
 """Session persistence API for ClipForge."""
 import logging
+import uuid
 from fastapi import APIRouter, HTTPException
 from backend.db import get_latest_video, get_moments_by_video, get_clips_by_video
 from pydantic import BaseModel
@@ -8,6 +9,20 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Unique id generated ONCE per backend process. The frontend persists UI state in
+# localStorage (so it survives tab/window close), but stamps it with this id. When
+# the backend is restarted (i.e. the project/console was closed and reopened) a new
+# id is generated, the stamps no longer match, and the frontend discards the stale
+# state. Net effect: refresh & tab-close keep your place; closing the app resets it.
+SERVER_BOOT_ID = uuid.uuid4().hex
+
+
+@router.get("/session/server-id")
+async def get_server_id():
+    """Return this backend process's boot id (changes on every restart)."""
+    return {"server_id": SERVER_BOOT_ID}
+
 
 
 class SessionState(BaseModel):
