@@ -84,6 +84,15 @@ interface AppState {
   // Navigation state
   currentStep: number
   setCurrentStep: (step: number) => void
+
+  // In-flight job markers — let the frontend ask the server to resume a
+  // download / detection / processing after a page reload instead of losing it.
+  activeDownload: { jobId: string; url: string } | null
+  setActiveDownload: (v: { jobId: string; url: string } | null) => void
+  activeDetectionVideoId: string | null
+  setActiveDetectionVideoId: (v: string | null) => void
+  activeProcessingJobId: string | null
+  setActiveProcessingJobId: (v: string | null) => void
 }
 
 export const useAppStore = create<AppState>()(persist((set) => ({
@@ -112,6 +121,9 @@ export const useAppStore = create<AppState>()(persist((set) => ({
   },
   llmInstructions: '',
   currentStep: 1,
+  activeDownload: null,
+  activeDetectionVideoId: null,
+  activeProcessingJobId: null,
   
   // Actions
   setVideo: (video) => set({ currentVideo: video }),
@@ -142,6 +154,10 @@ export const useAppStore = create<AppState>()(persist((set) => ({
   })),
   
   setLlmInstructions: (v) => set({ llmInstructions: v }),
+
+  setActiveDownload: (v) => set({ activeDownload: v }),
+  setActiveDetectionVideoId: (v) => set({ activeDetectionVideoId: v }),
+  setActiveProcessingJobId: (v) => set({ activeProcessingJobId: v }),
 }), {
   name: 'clipforge-session',
   // localStorage: state survives page refresh AND tab/window close.
@@ -157,5 +173,8 @@ export const useAppStore = create<AppState>()(persist((set) => ({
     detectionSettings: state.detectionSettings,
     llmInstructions: state.llmInstructions,
     currentStep: state.currentStep,
+    activeDownload: state.activeDownload,
+    activeDetectionVideoId: state.activeDetectionVideoId,
+    activeProcessingJobId: state.activeProcessingJobId,
   }),
 }))

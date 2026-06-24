@@ -123,7 +123,11 @@ async def download_video(
         raise RuntimeError(f"Video file not found after download in {output_dir}")
     
     # Find thumbnail
-    thumbnail_files = list(output_dir.glob("source.*.jpg")) + list(output_dir.glob("source.*.webp"))
+    thumbnail_files = sorted(
+        (f for f in output_dir.glob("source.*")
+         if f.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")),
+        key=lambda f: f.stat().st_mtime,
+    )
     # Downloaded source thumbnails live in DOWNLOADS_DIR, which is served under
     # the /downloads mount — NOT /files (that mount is OUTPUT_DIR for rendered clips).
     # Using /files here produced a 404 and a blank video preview.

@@ -14,7 +14,7 @@ import {
 
 export default function ProcessPage() {
   const navigate = useNavigate()
-  const { selectedMomentIds, globalEffects, setClips, setCurrentStep } = useAppStore()
+  const { selectedMomentIds, globalEffects, setClips, setCurrentStep, activeProcessingJobId, setActiveProcessingJobId } = useAppStore()
 
   const [processing, setProcessing] = useState(false)
   const [currentClip, setCurrentClip] = useState(0)
@@ -47,54 +47,94 @@ export default function ProcessPage() {
 
       const jobId = data.job_id
       setTotalClips(data.total_clips)
-
-      // Connect directly to backend port 8000 (bypass Vite proxy for WebSocket)
-      const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-      const wsHost = window.location.hostname
-      const ws = new WebSocket(`${wsProtocol}://${wsHost}:8000/api/ws/process/${jobId}`)
-
-      ws.onmessage = (event) => {
-        const message = JSON.parse(event.data)
-
-        if (message.status === 'processing') {
-          // Detect clip change and reset current clip progress
-          if (message.current_clip !== previousClip && message.current_clip > 0) {
-            setPreviousClip(message.current_clip)
-            // Reset is handled by backend, but ensure UI updates immediately
-            setClipProgress(0)
-            setClipMessage('Starting...')
-          }
-          
-          setCurrentClip(message.current_clip)
-          setTotalClips(message.total_clips)
-          setClipProgress(message.clip_progress * 100)
-          setClipMessage(message.clip_message)
-          setOverallMessage(
-            `Processing clip ${message.current_clip} of ${message.total_clips}…`
-          )
-        } else if (message.status === 'completed') {
-          setClipProgress(100)
-          setCompleted(true)
-          setCurrentStep(4)
-          setProcessing(false)
-          setClips(message.clips)
-          ws.close()
-        } else if (message.status === 'error') {
-          setError(message.message)
-          setProcessing(false)
-          ws.close()
-        }
-      }
-
-      ws.onerror = () => {
-        setError('Connection error. Make sure the backend is running.')
-        setProcessing(false)
-      }
+      setActiveProcessingJobId(jobId)
+      connectProcessWs(jobId)
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to start processing')
+      setActiveProcessingJobId(null)
       setProcessing(false)
     }
   }
+
+  // Connect to the processing progress WebSocket (used for a fresh run and for
+  // resuming an in-flight run after a page reload).
+  const connectProcessWs = (jobId: string) => {
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
+    const wsHost = window.location.hostname
+    const ws = new WebSocket(`${wsProtocol}://${wsHost}:8000/api/ws/process/${jobId}`)
+
+    ws.onmessage = (event) => {
+      const message = JSON.parse(event.data)
+
+      if (message.status === 'processing') {
+        setProcessing(true)
+        if (message.current_clip !== previousClip && message.current_clip > 0) {
+          setPreviousClip(message.current_clip)
+          setClipProgress(0)
+          setClipMessage('Starting...')
+        }
+        setCurrentClip(message.current_clip)
+        setTotalClips(message.total_clips)
+        setClipProgress(message.clip_progress * 100)
+        setClipMessage(message.clip_message)
+        setOverallMessage(
+          `Processing clip ${message.current_clip} of ${message.total_clips}…`
+        )
+      } else if (message.status === 'completed') {
+        setClipProgress(100)
+        setCompleted(true)
+        setCurrentStep(4)
+        setProcessing(false)
+        setClips(message.clips)
+        setActiveProcessingJobId(null)
+        ws.close()
+      } else if (message.status === 'error') {
+        setError(message.message)
+        setProcessing(false)
+        setActiveProcessingJobId(null)
+        ws.close()
+      }
+    }
+
+    ws.onerror = () => {
+      setError('Connection error. Make sure the backend is running.')
+      setProcessing(false)
+    }
+    return ws
+  }
+
+  // Resume an in-flight processing run after a page reload by asking the server.
+  useEffect(() => {
+    if (!activeProcessingJobId || completed) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const { data } = await axios.get(`/api/process/${activeProcessingJobId}/status`)
+        if (cancelled) return
+        if (data.status === 'completed') {
+          if (data.clips) setClips(data.clips)
+          setCompleted(true)
+          setCurrentStep(4)
+          setActiveProcessingJobId(null)
+        } else if (data.status === 'error') {
+          setError(data.error || 'Processing failed')
+          setActiveProcessingJobId(null)
+        } else {
+          // still running -> reattach to the live progress stream
+          setProcessing(true)
+          setTotalClips(data.total_clips || 0)
+          setCurrentClip(data.current_clip || 0)
+          setOverallMessage('Resuming processing…')
+          connectProcessWs(activeProcessingJobId)
+        }
+      } catch {
+        // job unknown (backend restarted) -> clean reset
+        if (!cancelled) setActiveProcessingJobId(null)
+      }
+    })()
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const overallProgress = totalClips > 0
     ? ((currentClip - 1) / totalClips) * 100 + clipProgress / totalClips

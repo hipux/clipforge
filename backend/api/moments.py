@@ -92,6 +92,31 @@ async def _run_detection_session(session: "DetectionSession", video: dict, reque
         active_detections.pop(session.video_id, None)
 
 
+@router.get("/moments/detect-status/{video_id}")
+async def detection_status(video_id: str):
+    """Server-authoritative detection status so the frontend can resume after a
+    page reload instead of losing the in-flight progress. Returns the live
+    progress of a running detection, the persisted result if it already
+    finished, or 'idle' when there is nothing to resume."""
+    session = active_detections.get(video_id)
+    if session is not None and not getattr(session, "finished", False):
+        lm = getattr(session, "last_message", None) or {}
+        return {
+            "state": "running",
+            "stage": lm.get("stage", 0),
+            "step": lm.get("step", ""),
+            "progress": lm.get("progress", 0.0),
+            "message": lm.get("message", ""),
+        }
+    # Not running -> check persisted results in the DB.
+    try:
+        existing = await get_moments(video_id)
+    except Exception:
+        existing = None
+    if existing:
+        return {"state": "completed", "count": len(existing)}
+    return {"state": "idle"}
+
 
 @router.post("/moments/detect")
 async def start_moment_detection(request: DetectMomentsRequest):

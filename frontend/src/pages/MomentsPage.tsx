@@ -8,7 +8,7 @@ import {
   Play, SlidersHorizontal, Sparkles,
   CheckCircle2, Circle, Loader2,
   Mic, ScanFace, AudioWaveform, Brain, Layers, GitMerge, Save,
-  AlertTriangle, ArrowRight, RotateCcw, Scissors
+  AlertTriangle, ArrowRight, RotateCcw, Scissors, Clock
 } from 'lucide-react'
 
 interface Substep {
@@ -132,6 +132,7 @@ function StageCard({
   progress,
   substepDetail,
   chunkInfo,
+  durationLabel,
 }: {
   stageNum: number
   activeStage: number
@@ -140,6 +141,7 @@ function StageCard({
   progress: ProgressState
   substepDetail?: string
   chunkInfo?: string
+  durationLabel?: string
 }) {
   const substeps = STAGE_SUBSTEPS[stageNum] || []
   const isDone = stagesDone.has(stageNum)
@@ -169,8 +171,15 @@ function StageCard({
         }`}>
           {STAGE_NAMES[stageNum]}
         </span>
-        {isActive && <Loader2 size={13} className="text-indigo-600 animate-spin ml-auto" />}
-        {isDone && <CheckCircle2 size={13} className="text-green-600 ml-auto" />}
+        <div className="ml-auto flex items-center gap-2">
+          {durationLabel && (
+            <span className="text-[11px] font-medium tabular-nums text-slate-400 flex items-center gap-1">
+              <Clock size={11} />{durationLabel}
+            </span>
+          )}
+          {isActive && <Loader2 size={13} className="text-indigo-600 animate-spin" />}
+          {isDone && <CheckCircle2 size={13} className="text-green-600" />}
+        </div>
       </div>
       <div className="space-y-0.5 pl-1">
         {substeps.map(sub => (
@@ -195,7 +204,7 @@ function formatTime(seconds: number): string {
 
 export default function MomentsPage() {
   const navigate = useNavigate()
-  const { currentVideo, moments, setMoments, selectedMomentIds, toggleMoment, setSelectedMoments, llmInstructions, setLlmInstructions, detectionSettings, updateDetectionSettings } = useAppStore()
+  const { currentVideo, moments, setMoments, selectedMomentIds, toggleMoment, setSelectedMoments, llmInstructions, setLlmInstructions, detectionSettings, updateDetectionSettings, activeDetectionVideoId, setActiveDetectionVideoId } = useAppStore()
 
   const [view, setView] = useState<'setup' | 'detecting' | 'results' | 'error'>('setup')
   const [progressState, setProgressState] = useState<ProgressState>({
@@ -207,6 +216,8 @@ export default function MomentsPage() {
   const [chunkInfo, setChunkInfo] = useState<string>('')
   const [errorMessage, setErrorMessage] = useState('')
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  const [stageDurations, setStageDurations] = useState<Record<number, number>>({})
+  const stageStartRef = useRef<Record<number, number>>({})
   const [minDuration, setMinDuration] = useState(detectionSettings.minDuration)
   const [maxDuration, setMaxDuration] = useState(detectionSettings.maxDuration)
   const [maxMoments, setMaxMoments] = useState(detectionSettings.maxMoments)
@@ -228,6 +239,57 @@ export default function MomentsPage() {
     if (moments.length > 0 && view === 'setup') setView('results')
   }, [])
 
+  // Resume an in-flight (or just-finished) detection after a page reload by
+  // asking the server. The detection WebSocket is keyed by video_id, so simply
+  // reconnecting re-attaches to the live job or replays the persisted result.
+  useEffect(() => {
+    if (!currentVideo) return
+    if (activeDetectionVideoId !== currentVideo.id) return
+    if (moments.length > 0 || view !== 'setup') return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/moments/detect-status/${currentVideo.id}`)
+        if (!res.ok) throw new Error('status ' + res.status)
+        const data = await res.json()
+        if (cancelled) return
+        if (data.state === 'running' || data.state === 'completed') {
+          setView('detecting')
+          setProgressState({ stage: data.stage || 1, step: data.step || '', progress: data.progress || 0.02 })
+          completedRef.current = false
+          connectWs()
+        } else {
+          setActiveDetectionVideoId(null)
+        }
+      } catch {
+        if (!cancelled) setActiveDetectionVideoId(null)
+      }
+    })()
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Track how long each detection stage takes.
+  useEffect(() => {
+    if (view !== 'detecting') return
+    const st = progressState.stage
+    if (st >= 1 && stageStartRef.current[st] === undefined) {
+      stageStartRef.current[st] = Date.now()
+    }
+    setStageDurations(prev => {
+      let changed = false
+      const next = { ...prev }
+      stagesDone.forEach(n => {
+        if (next[n] === undefined && stageStartRef.current[n] !== undefined) {
+          const end = stageStartRef.current[n + 1] ?? Date.now()
+          next[n] = Math.max(0, Math.round((end - stageStartRef.current[n]) / 1000))
+          changed = true
+        }
+      })
+      return changed ? next : prev
+    })
+  }, [progressState.stage, stagesDone, view])
+
   const startTimer = () => {
     startTimeRef.current = Date.now()
     timerRef.current = setInterval(() => {
@@ -244,13 +306,16 @@ export default function MomentsPage() {
     
     // Update detection settings in store
     updateDetectionSettings({ minDuration, maxDuration, maxMoments })
-    
+
+    setActiveDetectionVideoId(currentVideo.id)
     setView('detecting')
     setProgressState({ stage: 1, step: 'transcription', progress: 0.02 })
     setStagesDone(new Set())
     setSubstepDetails({})
     setChunkInfo('')
     setElapsedSeconds(0)
+    setStageDurations({})
+    stageStartRef.current = { 1: Date.now() }
     completedRef.current = false
     reconnectAttemptsRef.current = 0
     startTimer()
@@ -306,6 +371,7 @@ export default function MomentsPage() {
       } else if (data.status === 'completed') {
         completedRef.current = true
         stopTimer()
+        setActiveDetectionVideoId(null)
         setMoments(data.moments || [])
         if ((data.moments || []).length > 0) {
           setView('results')
@@ -317,6 +383,7 @@ export default function MomentsPage() {
       } else if (data.status === 'error') {
         completedRef.current = true
         stopTimer()
+        setActiveDetectionVideoId(null)
         setErrorMessage(data.message || 'Detection failed')
         setView('error')
         ws.close()
@@ -359,6 +426,9 @@ export default function MomentsPage() {
     setSubstepDetails({})
     setChunkInfo('')
     setElapsedSeconds(0)
+    setStageDurations({})
+    stageStartRef.current = {}
+    setActiveDetectionVideoId(null)
     setErrorMessage('')
   }
 
@@ -397,31 +467,35 @@ export default function MomentsPage() {
             </div>
             <div className="space-y-4 pl-1">
               <div>
-                <div className="flex justify-between mb-1.5">
-                  <label className="text-xs text-slate-500">Clip duration</label>
-                  <span className="text-xs text-indigo-600 font-medium tabular-nums">{minDuration}–{maxDuration}s</span>
+                <div className="flex justify-between items-baseline mb-3">
+                  <label className="text-sm font-medium text-slate-700">Clip duration</label>
+                  <span className="text-xs text-indigo-600 font-semibold tabular-nums bg-indigo-50 px-2 py-0.5 rounded-full">{minDuration}–{maxDuration}s</span>
                 </div>
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3">
-                    <span className="text-[11px] text-slate-400 w-8 shrink-0">Min</span>
+                <div className="space-y-4">
+                  <div>
+                    <div className="flex justify-between mb-1.5">
+                      <span className="text-xs text-slate-500">Minimum length</span>
+                      <span className="text-xs text-slate-700 font-medium tabular-nums">{minDuration}s</span>
+                    </div>
                     <input type="range" min={10} max={120} value={minDuration}
                       onChange={e => setMinDuration(Number(e.target.value))}
-                      className="range flex-1" />
-                    <span className="text-xs text-slate-600 tabular-nums w-9 text-right shrink-0">{minDuration}s</span>
+                      className="range w-full" />
                   </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-[11px] text-slate-400 w-8 shrink-0">Max</span>
+                  <div>
+                    <div className="flex justify-between mb-1.5">
+                      <span className="text-xs text-slate-500">Maximum length</span>
+                      <span className="text-xs text-slate-700 font-medium tabular-nums">{maxDuration}s</span>
+                    </div>
                     <input type="range" min={30} max={300} value={maxDuration}
                       onChange={e => setMaxDuration(Number(e.target.value))}
-                      className="range flex-1" />
-                    <span className="text-xs text-slate-600 tabular-nums w-9 text-right shrink-0">{maxDuration}s</span>
+                      className="range w-full" />
                   </div>
                 </div>
               </div>
               <div>
-                <div className="flex justify-between mb-1.5">
-                  <label className="text-xs text-slate-500">Max moments</label>
-                  <span className="text-xs text-indigo-600 font-medium tabular-nums">{maxMoments}</span>
+                <div className="flex justify-between items-baseline mb-3">
+                  <label className="text-sm font-medium text-slate-700">Max moments</label>
+                  <span className="text-xs text-indigo-600 font-semibold tabular-nums bg-indigo-50 px-2 py-0.5 rounded-full">{maxMoments}</span>
                 </div>
                 <input type="range" min={3} max={30} value={maxMoments}
                   onChange={e => setMaxMoments(Number(e.target.value))}
@@ -484,35 +558,46 @@ export default function MomentsPage() {
               <h1 className="text-xl font-bold text-slate-900">Detecting Moments</h1>
               <p className="text-slate-500 text-sm mt-0.5 truncate">{currentVideo.title}</p>
             </div>
-            <div className="shrink-0">
+            <div className="shrink-0 flex items-center gap-3">
+              <div className="flex items-center gap-1.5 text-sm bg-surface border border-slate-200 rounded-lg px-2.5 py-1">
+                <Clock size={14} className="text-slate-400" />
+                <span className="tabular-nums font-medium text-slate-700">{formatTime(elapsedSeconds)}</span>
+              </div>
               <GPUStatusIndicator />
             </div>
           </div>
         </div>
 
         <div className="space-y-3">
-          {[1, 2, 3].map(stageNum => (
-            <StageCard
-              key={stageNum}
-              stageNum={stageNum}
-              activeStage={stage}
-              activeStep={step}
-              stagesDone={stagesDone}
-              progress={progressState}
-              substepDetail={substepDetails[step]}
-              chunkInfo={chunkInfo}
-            />
-          ))}
+          {[1, 2, 3].map(stageNum => {
+            const start = stageStartRef.current[stageNum]
+            let durationLabel: string | undefined
+            if (stageDurations[stageNum] !== undefined) {
+              durationLabel = formatTime(stageDurations[stageNum])
+            } else if (start !== undefined && stageNum <= stage && !stagesDone.has(stageNum)) {
+              durationLabel = formatTime(Math.max(0, Math.round((Date.now() - start) / 1000)))
+            }
+            return (
+              <StageCard
+                key={stageNum}
+                stageNum={stageNum}
+                activeStage={stage}
+                activeStep={step}
+                stagesDone={stagesDone}
+                progress={progressState}
+                substepDetail={substepDetails[step]}
+                chunkInfo={chunkInfo}
+                durationLabel={durationLabel}
+              />
+            )
+          })}
         </div>
 
         {/* Overall progress */}
         <div className="mt-6 card">
           <div className="flex justify-between items-end mb-2.5">
             <span className="text-sm font-semibold text-slate-800">Overall progress</span>
-            <div className="flex items-baseline gap-3">
-              <span className="text-xs text-slate-400 tabular-nums">{formatTime(elapsedSeconds)}</span>
-              <span className="text-lg font-bold text-indigo-600 tabular-nums leading-none">{overallPct}%</span>
-            </div>
+            <span className="text-lg font-bold text-indigo-600 tabular-nums leading-none">{overallPct}%</span>
           </div>
           <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden ring-1 ring-slate-300/60">
             <div

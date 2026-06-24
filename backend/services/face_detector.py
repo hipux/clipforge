@@ -1,6 +1,8 @@
-"""YOLOv8n-face detector with BYTETrack for face tracking.
+"""YOLOv8n-face detector with batched GPU inference + greedy-IoU tracking.
 
-GPU-first: runs on CUDA when available, CPU as fallback.
+GPU-first: runs on CUDA when available, CPU as fallback. Frames are sampled and
+run through YOLO in batches (high GPU throughput) instead of one-frame-at-a-time
+stateful tracking; identities are recovered with a cheap IoU tracker.
 """
 from __future__ import annotations
 import logging
@@ -17,9 +19,35 @@ MIN_TRACK_FRAMES = 15  # face must persist 7.5s at 2fps — eliminates backgroun
 MIN_FACE_HEIGHT_RATIO = 0.05  # face must be >=5% of frame height — eliminates tiny background faces
 MAX_UNIQUE_FACES = 150  # cap to prevent CGI over-detection in films like Avatar
 
+# ── Batched-inference tuning ────────────────────────────────────────────────
+# The detector previously called model.track() one frame at a time (batch=1),
+# which keeps the GPU mostly idle while CPU runs BYTETrack + per-call overhead.
+# We now run YOLO in BATCHED detect mode and recover identities with a cheap
+# greedy-IoU tracker, which is far more GPU-efficient.
+FACE_IMGSZ = 480        # < YOLO's 640 default; faces are large -> ~2x faster
+FACE_BATCH = 32         # frames per GPU inference call (throughput, not latency)
+FACE_IOU_MATCH = 0.3    # min IoU to treat two boxes as the same face across frames
+MAX_TRACK_GAP = 4       # drop a track unseen for >N sampled frames (scene cut)
+
+
+def _iou(a, b) -> float:
+    """Intersection-over-union of two (x1, y1, x2, y2) boxes."""
+    ax1, ay1, ax2, ay2 = a
+    bx1, by1, bx2, by2 = b
+    ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+    iw, ih = max(0.0, ix2 - ix1), max(0.0, iy2 - iy1)
+    inter = iw * ih
+    if inter <= 0:
+        return 0.0
+    area_a = max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
+    area_b = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
+    union = area_a + area_b - inter
+    return inter / union if union > 0 else 0.0
+
 
 class FaceDetector:
-    """YOLOv8n-face with BYTETrack.
+    """YOLOv8n-face with batched inference + greedy-IoU tracking.
     
     Samples video at specified FPS and tracks faces across frames.
     Automatically unloads model after detection completes.
@@ -74,75 +102,111 @@ class FaceDetector:
         
         detect_start = time.time()
         frames: List[FaceFrame] = []
-        frame_idx = 0
-        processed_count = 0
-        last_log_percent = 0
         all_track_ids = set()
-        
-        # Collect raw detections with tracks
-        raw_tracks: Dict[int, List[FaceDetection]] = {}  # track_id -> list of detections
-        
+        raw_tracks: Dict[int, List[FaceDetection]] = {}  # track_id -> detections
+
+        use_half = str(device).startswith("cuda")
+
+        # ── Cheap greedy-IoU tracker (replaces per-frame BYTETrack) ──────────
+        active_tracks: List[dict] = []  # {id, bbox, last_sample}
+        next_track_id = 1
+
+        def assign_tracks(boxes, sample_no):
+            nonlocal next_track_id
+            assigned = []
+            used = set()
+            for bbox in boxes:
+                best_iou, best_j = 0.0, -1
+                for j, tr in enumerate(active_tracks):
+                    if j in used:
+                        continue
+                    iou = _iou(bbox, tr["bbox"])
+                    if iou > best_iou:
+                        best_iou, best_j = iou, j
+                if best_j >= 0 and best_iou >= FACE_IOU_MATCH:
+                    tr = active_tracks[best_j]
+                    tr["bbox"] = bbox
+                    tr["last_sample"] = sample_no
+                    used.add(best_j)
+                    assigned.append(tr["id"])
+                else:
+                    tid = next_track_id
+                    next_track_id += 1
+                    active_tracks.append({"id": tid, "bbox": bbox, "last_sample": sample_no})
+                    used.add(len(active_tracks) - 1)
+                    assigned.append(tid)
+            # Drop stale tracks so IDs don't bleed across scene cuts.
+            active_tracks[:] = [t for t in active_tracks
+                                if sample_no - t["last_sample"] <= MAX_TRACK_GAP]
+            return assigned
+
+        batch_frames: list = []
+        batch_meta: list = []  # (timestamp, h, w)
+        sample_no = 0
+        last_log_percent = 0
+
+        def run_batch():
+            nonlocal sample_no, last_log_percent
+            if not batch_frames:
+                return
+            results = model.predict(
+                batch_frames,
+                conf=FACE_CONFIDENCE_THRESHOLD,
+                imgsz=FACE_IMGSZ,
+                half=use_half,
+                device=device,
+                verbose=False,
+            )
+            for res, (timestamp, h, w) in zip(results, batch_meta):
+                boxes_norm = []
+                if res.boxes is not None:
+                    for box in res.boxes:
+                        x1, y1, x2, y2 = box.xyxy[0].tolist()
+                        boxes_norm.append(
+                            (x1 / w, y1 / h, x2 / w, y2 / h, float(box.conf[0]))
+                        )
+                ids = assign_tracks([b[:4] for b in boxes_norm], sample_no)
+                face_detections: List[FaceDetection] = []
+                for bx, tid in zip(boxes_norm, ids):
+                    detection = FaceDetection(
+                        bbox=[bx[0], bx[1], bx[2], bx[3]],
+                        confidence=bx[4],
+                        track_id=tid,
+                    )
+                    face_detections.append(detection)
+                    all_track_ids.add(tid)
+                    raw_tracks.setdefault(tid, []).append(detection)
+                frames.append(FaceFrame(timestamp=timestamp, faces=face_detections))
+                sample_no += 1
+            batch_frames.clear()
+            batch_meta.clear()
+            progress_percent = int((sample_no / max(1, sampled_frames_count)) * 100)
+            if progress_percent >= last_log_percent + 25:
+                logger.info(
+                    f"👤 [YOLO] Прогресс: {progress_percent}% "
+                    f"({sample_no}/{sampled_frames_count} кадров)"
+                )
+                last_log_percent = progress_percent
+
+        frame_idx = 0
         while cap.isOpened():
-            # Only fully DECODE frames we actually sample. For skipped frames use
-            # grab(), which advances the decoder without the expensive colour
-            # conversion + numpy copy that retrieve()/read() perform. Previously
-            # every one of the ~54k source frames was decoded just to process
-            # every Nth — that made YOLO face detection take ~25 min on a 30-min
-            # clip. Skipping decode of non-sampled frames cuts that dramatically.
+            # grab() skipped frames (no decode); read() only sampled ones.
             if frame_idx % frame_interval != 0:
                 if not cap.grab():
                     break
                 frame_idx += 1
                 continue
-
             ret, frame = cap.read()
             if not ret:
                 break
-
-            if True:
-                timestamp = frame_idx / fps
-                results = model.track(
-                    frame,
-                    persist=True,
-                    conf=FACE_CONFIDENCE_THRESHOLD,
-                    device=device,
-                    tracker="bytetrack.yaml",
-                    verbose=False,
-                )
-                
-                face_detections: List[FaceDetection] = []
-                if results and results[0].boxes is not None:
-                    h, w = frame.shape[:2]
-                    for box in results[0].boxes:
-                        x1, y1, x2, y2 = box.xyxy[0].tolist()
-                        track_id = int(box.id[0]) if box.id is not None else None
-                        
-                        if track_id:
-                            all_track_ids.add(track_id)
-                            # Normalized bbox
-                            detection = FaceDetection(
-                                bbox=[x1/w, y1/h, x2/w, y2/h],
-                                confidence=float(box.conf[0]),
-                                track_id=track_id,
-                            )
-                            face_detections.append(detection)
-                            
-                            # Group by track_id for filtering
-                            if track_id not in raw_tracks:
-                                raw_tracks[track_id] = []
-                            raw_tracks[track_id].append(detection)
-                
-                frames.append(FaceFrame(timestamp=timestamp, faces=face_detections))
-                processed_count += 1
-                
-                # Log progress every 25%
-                progress_percent = int((processed_count / sampled_frames_count) * 100)
-                if progress_percent >= last_log_percent + 25:
-                    logger.info(f"👤 [YOLO] Прогресс: {progress_percent}% ({processed_count}/{sampled_frames_count} кадров)")
-                    last_log_percent = progress_percent
-            
+            h, w = frame.shape[:2]
+            batch_frames.append(frame)
+            batch_meta.append((frame_idx / fps, h, w))
+            if len(batch_frames) >= FACE_BATCH:
+                run_batch()
             frame_idx += 1
 
+        run_batch()  # flush remaining frames
         cap.release()
         detect_time = time.time() - detect_start
         
