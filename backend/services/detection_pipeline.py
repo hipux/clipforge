@@ -165,15 +165,15 @@ class DetectionPipeline:
         vram_manager.unload_all()  # Safety flush
         
         # Count words and segments for granular progress detail
-        total_words = sum(len(seg.get("text", "").split()) for seg in transcript) if transcript else 0
+        total_words = sum(len(seg.text.split()) for seg in transcript) if transcript else 0
         total_segments = len(transcript) if transcript else 0
 
         if progress_callback:
             await progress_callback({
                 "stage": 1,
-                "step": "whisper_done",
-                "progress": 0.27,
-                "detail": {"words": total_words, "segments": total_segments}
+                "step": "transcription_done",
+                "progress": 0.28,
+                "detail": f"{total_words} слов, {total_segments} сегментов"
             })
 
         if progress_callback:
