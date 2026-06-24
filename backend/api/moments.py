@@ -283,7 +283,8 @@ async def detect_moments_websocket(
     min_duration: int = 30,
     max_duration: int = 90,
     max_moments: int = 15,
-    user_instructions: str = ""
+    user_instructions: str = "",
+    start: bool = False,
 ):
     """WebSocket endpoint for real-time moment detection progress.
     
@@ -342,6 +343,17 @@ async def detect_moments_websocket(
         )
         session = active_detections.get(video_id)
         if session is None:
+            if not start:
+                # A reconnecting/returning client (after a backend restart or
+                # a tab refresh) must NOT spawn a fresh ~45-min pipeline. Only
+                # an explicit Start (start=true) launches one.
+                await websocket.send_json({
+                    "status": "idle",
+                    "progress": 0.0,
+                    "message": "Нет активной детекции",
+                })
+                await websocket.close()
+                return
             session = DetectionSession(video_id)
             active_detections[video_id] = session
             session.task = asyncio.create_task(
