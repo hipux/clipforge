@@ -133,7 +133,7 @@ export default function BannerUpload() {
     <div>
       <div className="flex items-center gap-2 mb-3">
         <ImageIcon size={16} className="text-accent" />
-        <span className="font-semibold text-slate-200 text-sm">Banner/Watermark</span>
+        <span className="font-semibold text-slate-800 text-sm">Banner/Watermark</span>
       </div>
 
       {/* Upload / Preview */}
@@ -150,7 +150,7 @@ export default function BannerUpload() {
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
-              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 border-dashed border-slate-700 hover:border-accent/40 hover:bg-accent/5 transition-colors text-sm text-slate-400 disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 border-dashed border-slate-200 hover:border-accent/40 hover:bg-accent/5 transition-colors text-sm text-slate-500 disabled:opacity-50"
             >
               <Upload size={16} />
               {uploading ? 'Uploading…' : 'Upload Banner Image'}
@@ -165,7 +165,7 @@ export default function BannerUpload() {
         ) : (
           <div className="space-y-3">
             {/* Live Preview */}
-            <div className="relative w-full aspect-[9/16] rounded-lg overflow-hidden border border-slate-700">
+            <div className="relative w-full aspect-[9/16] rounded-lg overflow-hidden border border-slate-200">
               {/* Background: moment thumbnail (9:16 with blur) if available, else video thumbnail or gradient */}
               {previewBg ? (
                 <img 
@@ -203,10 +203,10 @@ export default function BannerUpload() {
 
       {/* Banner controls (only when banner is active) */}
       {banner.enabled && banner.url && (
-        <div className="mt-4 space-y-3 pt-3 border-t border-slate-700">
+        <div className="mt-4 space-y-3 pt-3 border-t border-slate-200">
           {/* Position picker */}
           <div>
-            <label className="flex items-center gap-1.5 text-xs text-slate-400 mb-2">
+            <label className="flex items-center gap-1.5 text-xs text-slate-500 mb-2">
               <MapPin size={12} />
               Position
             </label>
@@ -218,7 +218,7 @@ export default function BannerUpload() {
                   className={`px-3 py-2 text-xs rounded-lg border transition-colors ${
                     banner.position === option.value
                       ? 'bg-accent/10 border-accent/40 text-accent'
-                      : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600'
+                      : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'
                   }`}
                 >
                   {option.label}
@@ -229,9 +229,9 @@ export default function BannerUpload() {
 
           {/* Size slider */}
           <div>
-            <label className="flex items-center justify-between text-xs text-slate-400 mb-2">
+            <label className="flex items-center justify-between text-xs text-slate-500 mb-2">
               <span>Size</span>
-              <span className="text-slate-300 font-medium">{banner.size}% of width</span>
+              <span className="text-slate-700 font-medium">{banner.size}% of width</span>
             </label>
             <input
               type="range"
@@ -239,18 +239,18 @@ export default function BannerUpload() {
               max="50"
               value={banner.size}
               onChange={(e) => handleSizeChange(Number(e.target.value))}
-              className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-accent"
+              className="w-full h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-accent"
             />
           </div>
 
           {/* Opacity slider */}
           <div>
-            <label className="flex items-center justify-between text-xs text-slate-400 mb-2">
+            <label className="flex items-center justify-between text-xs text-slate-500 mb-2">
               <div className="flex items-center gap-1.5">
                 <Palette size={12} />
                 Opacity
               </div>
-              <span className="text-slate-300 font-medium">{banner.opacity}%</span>
+              <span className="text-slate-700 font-medium">{banner.opacity}%</span>
             </label>
             <input
               type="range"
@@ -258,7 +258,7 @@ export default function BannerUpload() {
               max="100"
               value={banner.opacity}
               onChange={(e) => handleOpacityChange(Number(e.target.value))}
-              className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-accent"
+              className="w-full h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-accent"
             />
           </div>
         </div>

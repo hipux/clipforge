@@ -101,20 +101,16 @@ export default function ProcessPage() {
     : 0
 
   return (
-    <div className="max-w-xl mx-auto p-8">
+    <div className="max-w-2xl mx-auto p-8">
       {/* Header */}
       <div className="mb-8">
-        <div className="flex items-center gap-2 text-accent text-xs font-semibold uppercase tracking-widest mb-2">
-          <span className="w-4 h-px bg-accent" />
-          Step 4 of 5
-        </div>
-        <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-2">
+        <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
           <Cpu size={22} className="text-accent" />
           Process Clips
         </h1>
         <p className="text-slate-500 mt-1 text-sm">
           FFmpeg applies all selected effects to your{' '}
-          <span className="text-slate-300 font-medium">{selectedMomentIds.length} clip{selectedMomentIds.length !== 1 ? 's' : ''}</span>{' '}
+          <span className="text-slate-700 font-medium">{selectedMomentIds.length} clip{selectedMomentIds.length !== 1 ? 's' : ''}</span>{' '}
           — all locally, no cloud.
         </p>
       </div>
@@ -123,7 +119,7 @@ export default function ProcessPage() {
       {!processing && !completed && (
         <div className="card text-center py-10 mb-6 border-dashed">
           <Cpu size={42} className="text-slate-700 mx-auto mb-4" />
-          <h3 className="font-semibold text-slate-200 mb-1">Ready to process</h3>
+          <h3 className="font-semibold text-slate-800 mb-1">Ready to process</h3>
           <p className="text-slate-500 text-sm mb-6">
             {selectedMomentIds.length} clip{selectedMomentIds.length !== 1 ? 's' : ''} · ~30–60s each
           </p>
@@ -141,7 +137,7 @@ export default function ProcessPage() {
           <div className="card">
             <div className="flex items-center gap-2 mb-3">
               <div className="w-4 h-4 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
-              <span className="text-sm font-medium text-slate-300">{overallMessage || 'Processing…'}</span>
+              <span className="text-sm font-medium text-slate-700">{overallMessage || 'Processing…'}</span>
             </div>
             <ProgressBar
               progress={overallProgress}
@@ -154,7 +150,7 @@ export default function ProcessPage() {
             <div className="card bg-surface-2">
               <div className="flex items-center gap-2 mb-2">
                 <Clock size={13} className="text-slate-500" />
-                <span className="text-xs text-slate-400 font-medium">Current clip</span>
+                <span className="text-xs text-slate-500 font-medium">Current clip</span>
               </div>
               <ProgressBar progress={clipProgress} message={clipMessage} />
             </div>
@@ -187,7 +183,7 @@ export default function ProcessPage() {
               <CheckCircle2 size={24} className="text-success shrink-0" />
               <div>
                 <div className="font-semibold text-success">Processing complete!</div>
-                <div className="text-xs text-slate-400 mt-0.5">
+                <div className="text-xs text-slate-500 mt-0.5">
                   All clips are ready to preview and publish
                 </div>
               </div>

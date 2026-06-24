@@ -17,7 +17,7 @@ export default function ProgressBar({
     <div className={className}>
       {(message || showPercent) && (
         <div className="flex justify-between items-center mb-2">
-          <span className="text-sm text-slate-400 truncate">{message || 'Processing...'}</span>
+          <span className="text-sm text-slate-500 truncate">{message || 'Processing...'}</span>
           {showPercent && (
             <span className="text-sm font-semibold text-accent ml-2 tabular-nums shrink-0">
               {Math.round(pct)}%
@@ -25,7 +25,7 @@ export default function ProgressBar({
           )}
         </div>
       )}
-      <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+      <div className="w-full bg-white rounded-full h-2 overflow-hidden">
         <div
           className="h-full rounded-full transition-all duration-300 ease-out"
           style={{

@@ -180,6 +180,23 @@ class WhisperGPU:
 
         device = vram_manager.device
         compute_type = WHISPER_GPU_COMPUTE if device == "cuda" else "int8"
+
+        # Guard: torch may report CUDA while ctranslate2 (a SEPARATE runtime) was
+        # built without it -> WhisperModel(device="cuda") crashes or silently runs
+        # on CPU. Surface the real reason instead of failing quietly.
+        if device == "cuda":
+            try:
+                import ctranslate2
+                if ctranslate2.get_cuda_device_count() < 1:
+                    logger.warning(
+                        "[Whisper] ctranslate2 reports 0 CUDA devices (CPU-only build "
+                        "or sm_120/Blackwell unsupported) -> transcription on CPU. "
+                        "Fix: pip install --force-reinstall ctranslate2 (>=4.5, CUDA 12)."
+                    )
+                    device, compute_type = "cpu", "int8"
+            except Exception as e:
+                logger.warning(f"[Whisper] ctranslate2 CUDA probe failed: {e} -> CPU")
+                device, compute_type = "cpu", "int8"
         
         # Get video duration for logging
         cap = cv2.VideoCapture(audio_path)

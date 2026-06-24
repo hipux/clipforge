@@ -1,4 +1,4 @@
-import { CheckCircle2, Clock, TrendingUp, Film } from 'lucide-react'
+import { Check, Clock, TrendingUp, Film } from 'lucide-react'
 import { MomentCandidate } from '../store/useAppStore'
 
 interface MomentCardProps {
@@ -13,69 +13,66 @@ function formatTime(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, '0')}`
 }
 
-function scoreColor(score: number) {
-  if (score >= 75) return 'text-success bg-success/10 border-success/20'
-  if (score >= 50) return 'text-warning bg-warning/10 border-warning/20'
-  return 'text-slate-400 bg-slate-800 border-slate-700'
+function scoreColor(pct: number) {
+  if (pct >= 75) return 'text-green-700 bg-green-50 border-green-200'
+  if (pct >= 50) return 'text-amber-700 bg-amber-50 border-amber-200'
+  return 'text-slate-600 bg-slate-50 border-slate-200'
 }
 
 export default function MomentCard({ moment, isSelected, onToggle }: MomentCardProps) {
   const duration = moment.end - moment.start
+  const pct = moment.score <= 1 ? Math.round(moment.score * 100) : Math.round(moment.score)
 
   return (
     <div
-      className={`
-        flex gap-4 p-4 rounded-xl border cursor-pointer
-        transition-all duration-200 select-none
-        ${isSelected
-          ? 'bg-accent/6 border-accent/30 shadow-glow'
-          : 'bg-surface border-slate-800 hover:border-slate-700 hover:bg-white/[0.02]'
-        }
-      `}
       onClick={onToggle}
+      className={`group relative flex gap-4 p-3 cursor-pointer select-none rounded-2xl bg-white transition-all duration-200
+        ${isSelected
+          ? 'ring-2 ring-accent border border-transparent shadow-card-hover'
+          : 'border border-slate-200 hover:border-slate-300 hover:shadow-card-hover hover:-translate-y-0.5'
+        }`}
     >
-      {/* Thumbnail */}
-      {moment.thumbnail_url ? (
-        <img
-          src={moment.thumbnail_url}
-          alt="Moment thumbnail"
-          className="w-28 h-[63px] object-cover rounded-lg shrink-0 border border-slate-700"
-        />
-      ) : (
-        <div className="w-28 h-[63px] bg-surface-2 rounded-lg shrink-0 border border-slate-700/50 flex items-center justify-center">
-          <Film size={22} className="text-slate-600" />
+      {/* Vertical 9:16 preview */}
+      <div className="relative w-[120px] sm:w-[132px] shrink-0 aspect-[9/16] rounded-xl overflow-hidden bg-slate-900">
+        {moment.thumbnail_url ? (
+          <img src={moment.thumbnail_url} alt="Clip preview" className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center">
+            <Film size={24} className="text-slate-600" />
+          </div>
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-black/15" />
+
+        {/* Select check */}
+        <div className={`absolute top-2 left-2 w-6 h-6 rounded-full flex items-center justify-center border transition-all duration-150
+          ${isSelected
+            ? 'bg-accent border-accent text-white'
+            : 'bg-white/85 backdrop-blur border-white/70 text-transparent group-hover:border-accent group-hover:text-accent/40'
+          }`}>
+          <Check size={14} strokeWidth={3} />
         </div>
-      )}
+
+        {/* Time at bottom */}
+        <div className="absolute bottom-2 left-2 right-2 flex items-center gap-1 text-white text-[11px] font-medium">
+          <Clock size={11} />
+          <span className="truncate">{formatTime(moment.start)}–{formatTime(moment.end)}</span>
+        </div>
+      </div>
 
       {/* Info */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-start justify-between gap-2">
-          {/* Time range */}
-          <div>
-            <div className="font-semibold text-sm text-slate-100 flex items-center gap-1.5">
-              <Clock size={13} className="text-slate-500" />
-              {formatTime(moment.start)} – {formatTime(moment.end)}
-            </div>
-            <div className="text-xs text-slate-500 mt-0.5">{Math.round(duration)}s clip</div>
-          </div>
-
-          {/* Score + check */}
-          <div className="flex flex-col items-end gap-1.5 shrink-0">
-            <span className={`badge border text-xs font-semibold ${scoreColor(moment.score)}`}>
-              <TrendingUp size={10} />
-              {Math.round(moment.score)}%
-            </span>
-            {isSelected && (
-              <CheckCircle2 size={16} className="text-accent" />
-            )}
-          </div>
+      <div className="flex-1 min-w-0 flex flex-col py-0.5">
+        <div className="flex items-center justify-between gap-2">
+          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${scoreColor(pct)}`}>
+            <TrendingUp size={10} />
+            {pct}% match
+          </span>
+          <span className="text-xs text-slate-400 shrink-0">{Math.round(duration)}s</span>
         </div>
 
-        {/* Reason tag */}
-        <div className="mt-2">
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-surface-2 border border-slate-700/50 rounded text-[11px] text-slate-400">
-            {moment.reason}
-          </span>
+        <p className="text-sm text-slate-600 leading-snug mt-2 line-clamp-4 flex-1">{moment.reason}</p>
+
+        <div className={`mt-2 text-xs font-semibold transition-colors ${isSelected ? 'text-accent' : 'text-slate-400 group-hover:text-slate-600'}`}>
+          {isSelected ? '✓ Selected for export' : 'Tap to select'}
         </div>
       </div>
     </div>

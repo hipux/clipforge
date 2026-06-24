@@ -488,8 +488,17 @@ def generate_subtitles_file(video_path: str, output_path: str, style: str = "kar
 
 
 def format_srt_time(seconds: float) -> str:
-    """Convert seconds to SRT timestamp format."""
+    """Convert seconds to SRT timestamp format (HH:MM:SS,mmm)."""
+    if seconds < 0:
+        seconds = 0.0
     hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    millis = int(round((seconds - int(seconds)) * 1000))
+    if millis == 1000:  # rounding edge case
+        millis = 0
+        secs += 1
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
 
 
 def format_ass_time(seconds: float) -> str:

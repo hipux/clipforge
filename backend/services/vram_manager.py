@@ -17,6 +17,7 @@ class VRAMManager:
     _instance: Optional["VRAMManager"] = None
     _loaded_models: Dict[str, Any]
     _device: str
+    _device_error: Optional[str]
 
     def __new__(cls) -> "VRAMManager":
         if cls._instance is None:
@@ -26,18 +27,58 @@ class VRAMManager:
         return cls._instance
 
     def _detect_device(self) -> str:
-        """Detect GPU availability and log device info."""
+        """Detect GPU availability and log device info.
+
+        On failure the REAL reason is logged at WARNING level (previously it was
+        swallowed at debug), so CPU fallbacks are diagnosable. The reason is also
+        stored on self._device_error for the /api/gpu endpoint and diagnostics.
+        """
+        self._device_error = None
         try:
             import torch
-            if torch.cuda.is_available():
-                name = torch.cuda.get_device_name(0)
-                vram = torch.cuda.get_device_properties(0).total_memory / 1024**3
-                logger.info(f"GPU detected: {name} ({vram:.1f} GB VRAM) — GPU-first pipeline active")
-                return "cuda"
-        except (ImportError, Exception) as e:
-            logger.debug(f"CUDA detection failed: {e}")
-        logger.warning("CUDA not available — fallback to CPU legacy pipeline")
-        return "cpu"
+        except Exception as e:  # torch missing / broken install
+            self._device_error = f"PyTorch import failed: {type(e).__name__}: {e}"
+            logger.warning(f"CUDA unavailable - {self._device_error} -> CPU legacy pipeline")
+            return "cpu"
+
+        try:
+            if not torch.cuda.is_available():
+                build = getattr(torch, "__version__", "?")
+                if "+cpu" in build:
+                    reason = "PyTorch is a CPU-only build (reinstall with a CUDA wheel)"
+                else:
+                    reason = "torch.cuda.is_available() is False (NVIDIA driver / CUDA runtime missing or mismatched)"
+                self._device_error = f"{reason} (torch {build})"
+                logger.warning(f"CUDA unavailable - {self._device_error} -> CPU legacy pipeline")
+                return "cpu"
+
+            name = torch.cuda.get_device_name(0)
+            cap = torch.cuda.get_device_capability(0)
+            vram = torch.cuda.get_device_properties(0).total_memory / 1024**3
+            sm = f"sm_{cap[0]}{cap[1]}"
+
+            # CUDA can be available yet unusable if the installed torch was not
+            # built with kernels for this compute capability. Classic case:
+            # RTX 5060 (Blackwell, sm_120) on a torch built only up to sm_90 ->
+            # every kernel launch errors and the app silently runs on CPU.
+            try:
+                supported = list(torch.cuda.get_arch_list())
+            except Exception:
+                supported = []
+            if supported and sm not in supported:
+                self._device_error = (
+                    f"GPU {name} is {sm} but installed torch only supports {supported}. "
+                    f"Install a torch build with {sm} kernels (e.g. CUDA 12.8+ for Blackwell)."
+                )
+                logger.warning(f"CUDA present but unusable - {self._device_error} -> CPU legacy pipeline")
+                return "cpu"
+
+            logger.info(f"GPU detected: {name} (compute {sm}, {vram:.1f} GB VRAM) - GPU-first pipeline active")
+            return "cuda"
+        except Exception as e:
+            self._device_error = f"{type(e).__name__}: {e}"
+            logger.warning(f"CUDA detection raised - {self._device_error} -> CPU legacy pipeline", exc_info=True)
+            return "cpu"
 
     @property
     def device(self) -> str:
@@ -48,6 +89,11 @@ class VRAMManager:
     def is_gpu(self) -> bool:
         """True if GPU is available and active."""
         return self._device == "cuda"
+
+    @property
+    def device_error(self) -> Optional[str]:
+        """Human-readable reason the GPU was not used, or None if on GPU."""
+        return getattr(self, "_device_error", None)
 
     def load_model(self, name: str, loader: Callable[[], Any]) -> Any:
         """Load a model with given name using loader function.

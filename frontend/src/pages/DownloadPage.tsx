@@ -98,11 +98,7 @@ export default function DownloadPage() {
     <div className="p-8 max-w-2xl mx-auto">
       {/* Header */}
       <div className="mb-8">
-        <div className="flex items-center gap-2 text-accent text-xs font-semibold uppercase tracking-widest mb-2">
-          <span className="w-4 h-px bg-accent" />
-          Step 1 of 5
-        </div>
-        <h1 className="text-2xl font-bold text-slate-100">Download Video</h1>
+        <h1 className="text-2xl font-bold text-slate-900">Download Video</h1>
         <p className="text-slate-500 mt-1 text-sm">
           Paste a link from YouTube, Rutube or VK Video to get started.
         </p>
@@ -110,7 +106,7 @@ export default function DownloadPage() {
 
       {/* URL Input */}
       <div className="card mb-5">
-        <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
           Video URL
         </label>
         <div className="flex gap-3">
@@ -149,16 +145,16 @@ export default function DownloadPage() {
         <div className="flex items-center gap-4 mt-4 pt-4 border-t border-slate-800">
           <span className="text-[11px] text-slate-600 uppercase tracking-wider font-semibold">Supported</span>
           <div className="flex items-center gap-3">
-            <span className="flex items-center gap-1.5 text-xs text-slate-400 bg-surface-2 px-2.5 py-1 rounded-md border border-slate-700/50">
+            <span className="flex items-center gap-1.5 text-xs text-slate-500 bg-surface-2 px-2.5 py-1 rounded-md border border-slate-200/50">
               <Play size={11} className="text-red-400" /> YouTube
             </span>
-            <span className="flex items-center gap-1.5 text-xs text-slate-400 bg-surface-2 px-2.5 py-1 rounded-md border border-slate-700/50">
+            <span className="flex items-center gap-1.5 text-xs text-slate-500 bg-surface-2 px-2.5 py-1 rounded-md border border-slate-200/50">
               <Tv size={11} className="text-orange-400" /> Rutube
             </span>
-            <span className="flex items-center gap-1.5 text-xs text-slate-400 bg-surface-2 px-2.5 py-1 rounded-md border border-slate-700/50">
+            <span className="flex items-center gap-1.5 text-xs text-slate-500 bg-surface-2 px-2.5 py-1 rounded-md border border-slate-200/50">
               <Video size={11} className="text-blue-400" /> VK Video
             </span>
-            <span className="flex items-center gap-1.5 text-xs text-slate-400 bg-surface-2 px-2.5 py-1 rounded-md border border-slate-700/50">
+            <span className="flex items-center gap-1.5 text-xs text-slate-500 bg-surface-2 px-2.5 py-1 rounded-md border border-slate-200/50">
               <Tv size={11} className="text-purple-400" /> Twitch
             </span>
           </div>
@@ -189,12 +185,12 @@ export default function DownloadPage() {
               {/* ETA */}
               {eta && (
                 <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-slate-700/30 border border-slate-700/50 flex items-center justify-center shrink-0">
-                    <Clock size={14} className="text-slate-400" />
+                  <div className="w-8 h-8 rounded-lg bg-slate-100/30 border border-slate-200/50 flex items-center justify-center shrink-0">
+                    <Clock size={14} className="text-slate-500" />
                   </div>
                   <div>
                     <div className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">ETA</div>
-                    <div className="text-sm font-semibold text-slate-300 mt-0.5">{eta}</div>
+                    <div className="text-sm font-semibold text-slate-700 mt-0.5">{eta}</div>
                   </div>
                 </div>
               )}
@@ -202,12 +198,12 @@ export default function DownloadPage() {
               {/* Downloaded / Total */}
               {totalBytes > 0 && (
                 <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-slate-700/30 border border-slate-700/50 flex items-center justify-center shrink-0">
-                    <HardDrive size={14} className="text-slate-400" />
+                  <div className="w-8 h-8 rounded-lg bg-slate-100/30 border border-slate-200/50 flex items-center justify-center shrink-0">
+                    <HardDrive size={14} className="text-slate-500" />
                   </div>
                   <div>
                     <div className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Size</div>
-                    <div className="text-sm font-semibold text-slate-300 mt-0.5">
+                    <div className="text-sm font-semibold text-slate-700 mt-0.5">
                       {formatBytes(downloadedBytes)} / {formatBytes(totalBytes)}
                     </div>
                   </div>
