@@ -148,14 +148,20 @@ class VRAMManager:
         try:
             import torch
             if torch.cuda.is_available():
-                allocated = torch.cuda.memory_allocated(0) / 1024**3
+                # mem_get_info() = driver-level (free, total) for the WHOLE device.
+                # Whisper(ctranslate2) & LLM(llama-cpp) allocate outside torch's allocator,
+                # so memory_allocated() froze the UI at the pre-load value. This sees all.
+                free_b, total_b = torch.cuda.mem_get_info(0)
+                free = free_b / 1024**3
+                used = (total_b - free_b) / 1024**3
+                allocated = used
                 reserved = torch.cuda.memory_reserved(0) / 1024**3
                 total = torch.cuda.get_device_properties(0).total_memory / 1024**3
                 return {
                     "allocated_gb": round(allocated, 2),
                     "reserved_gb": round(reserved, 2),
                     "total_gb": round(total, 2),
-                    "free_gb": round(total - reserved, 2),
+                    "free_gb": round(free, 2),
                 }
         except (ImportError, Exception):
             pass

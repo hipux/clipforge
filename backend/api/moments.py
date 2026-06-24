@@ -17,6 +17,82 @@ router = APIRouter()
 detection_jobs = {}
 
 
+# ─── Reconnect-safe detection sessions ──────────────────────────────────────
+# A single detection per video runs as ONE background task. WebSocket clients
+# (including reconnects and multiple tabs) merely SUBSCRIBE to its progress
+# stream. This prevents a dropped/reconnecting socket from spawning a second
+# pipeline that would fight the first for the GPU's limited VRAM.
+active_detections: dict = {}  # video_id -> DetectionSession
+
+
+class DetectionSession:
+    def __init__(self, video_id: str):
+        self.video_id = video_id
+        self.subscribers: set = set()   # set[asyncio.Queue]
+        self.last_message: dict | None = None
+        self.finished: bool = False
+        self.task = None
+
+    async def broadcast(self, msg: dict):
+        self.last_message = msg
+        if msg.get('status') in ('completed', 'error'):
+            self.finished = True
+        for q in list(self.subscribers):
+            try:
+                q.put_nowait(msg)
+            except Exception:
+                pass
+
+
+async def _run_detection_session(session: "DetectionSession", video: dict, request: "DetectMomentsRequest"):
+    """Run the pipeline once and broadcast progress to all subscribers."""
+    try:
+        async def progress_callback(data: dict):
+            msg = {
+                'status': 'progress',
+                'stage': data.get('stage', 0),
+                'step': data.get('step', ''),
+                'progress': data.get('progress', 0.0),
+                'message': data.get('message', ''),
+            }
+            if data.get('detail'):
+                msg['detail'] = data['detail']
+            await session.broadcast(msg)
+
+        moments = await detection_pipeline.run(
+            video_path=video['file_path'],
+            user_instructions=request.user_instructions or "",
+            max_moments=request.max_moments,
+            min_duration=request.min_duration,
+            max_duration=request.max_duration,
+            progress_callback=progress_callback,
+        )
+        await save_moments(moments)
+        moments_response = [
+            {
+                'id': m.id, 'video_id': m.video_id, 'start': m.start, 'end': m.end,
+                'score': m.score, 'reason': m.reason,
+                'hook': getattr(m, 'hook', ''),
+                'virality_score': getattr(m, 'virality_score', 0.0),
+                'content_type': getattr(m, 'content_type', ''),
+                'thumbnail_url': m.thumbnail_url, 'approved': m.approved,
+            }
+            for m in moments
+        ]
+        await session.broadcast({
+            'status': 'completed', 'moments': moments_response,
+            'progress': 1.0, 'message': f'Найдено {len(moments)} моментов',
+        })
+    except Exception as e:
+        logger.exception(f"Detection session error: {e}")
+        await session.broadcast({'status': 'error', 'message': str(e), 'progress': 0.0})
+    finally:
+        # Keep the finished session briefly so reconnecting clients still get the
+        # final message, then drop it.
+        active_detections.pop(session.video_id, None)
+
+
+
 @router.post("/moments/detect")
 async def start_moment_detection(request: DetectMomentsRequest):
     """Start moment detection for a video."""
@@ -229,77 +305,44 @@ async def detect_moments_websocket(
             await websocket.close()
             return
         
-        # Progress callback
-        async def progress_callback(data: dict):
-            try:
-                stage = data.get('stage', 0)
-                step = data.get('step', '')
-                progress = data.get('progress', 0.0)
-                message = data.get('message', '')
-                detail = data.get('detail', None)
-                
-                msg = {
-                    'status': 'progress',
-                    'stage': stage,
-                    'step': step,
-                    'progress': progress,
-                    'message': message
-                }
-                if detail:
-                    msg['detail'] = detail
-                
-                await websocket.send_json(msg)
-            except Exception as e:
-                logger.warning(f"Failed to send progress update: {e}")
-        
-        # Create request
+        # Attach to (or start) the SINGLE detection session for this video. A
+        # reconnecting socket or a second tab subscribes to the same in-flight
+        # pipeline instead of launching a competing one.
         request = DetectMomentsRequest(
             video_id=video_id,
             min_duration=min_duration,
             max_duration=max_duration,
             max_moments=max_moments,
-            user_instructions=user_instructions
+            user_instructions=user_instructions,
         )
-        
-        # Run detection
-        moments = await detection_pipeline.run(
-            video_path=video['file_path'],
-            user_instructions=request.user_instructions or "",
-            max_moments=request.max_moments,
-            min_duration=request.min_duration,
-            max_duration=request.max_duration,
-            progress_callback=progress_callback
-        )
-        
-        # Save to DB
-        await save_moments(moments)
-        
-        # Convert to API format
-        moments_response = [
-            {
-                'id': m.id,
-                'video_id': m.video_id,
-                'start': m.start,
-                'end': m.end,
-                'score': m.score,
-                'reason': m.reason,
-                'hook': getattr(m, 'hook', ''),
-                'virality_score': getattr(m, 'virality_score', 0.0),
-                'content_type': getattr(m, 'content_type', ''),
-                'thumbnail_url': m.thumbnail_url,
-                'approved': m.approved
-            }
-            for m in moments
-        ]
-        
-        # Send completion
-        await websocket.send_json({
-            'status': 'completed',
-            'moments': moments_response,
-            'progress': 1.0,
-            'message': f'Найдено {len(moments)} моментов'
-        })
-        
+        session = active_detections.get(video_id)
+        if session is None:
+            session = DetectionSession(video_id)
+            active_detections[video_id] = session
+            session.task = asyncio.create_task(
+                _run_detection_session(session, video, request)
+            )
+
+        queue: asyncio.Queue = asyncio.Queue()
+        session.subscribers.add(queue)
+        try:
+            # Bring a (re)connecting client straight up to the latest progress.
+            if session.last_message is not None:
+                await websocket.send_json(session.last_message)
+                if session.last_message.get('status') in ('completed', 'error'):
+                    return
+            while True:
+                msg = await queue.get()
+                await websocket.send_json(msg)
+                if msg.get('status') in ('completed', 'error'):
+                    break
+        except WebSocketDisconnect:
+            pass
+        finally:
+            session.subscribers.discard(queue)
+
+    except WebSocketDisconnect:
+        pass
     except Exception as e:
         logger.exception(f"WebSocket detection error: {e}")
         try:
@@ -308,12 +351,12 @@ async def detect_moments_websocket(
                 'message': str(e),
                 'progress': 0.0
             })
-        except:
+        except Exception:
             pass
     finally:
         try:
             await websocket.close()
-        except:
+        except Exception:
             pass
 
 

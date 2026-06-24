@@ -106,12 +106,7 @@ export default function Layout() {
           <span className="hidden md:block">Analytics</span>
         </button>
 
-        {/* Status */}
-        <div className="hidden xl:flex items-center gap-1.5 text-xs text-slate-400 shrink-0">
-          <Zap size={12} className="text-indigo-400" />
-          <span>100% Free · No API Costs</span>
-        </div>
-        <div className="xl:hidden w-9 shrink-0" />
+        <div className="w-9 shrink-0" />
       </header>
 
       {/* Main Content */}

@@ -48,7 +48,7 @@ export function GPUStatusIndicator() {
       {status.is_gpu && total > 0 && (
         <>
           <div className="flex items-center gap-1.5">
-            <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+            <div className="w-20 h-1.5 bg-slate-200 rounded-full overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all duration-500 ${
                   pct > 80 ? 'bg-red-500' : pct > 60 ? 'bg-amber-400' : 'bg-violet-500'

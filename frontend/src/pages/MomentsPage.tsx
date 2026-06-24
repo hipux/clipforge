@@ -202,6 +202,7 @@ export default function MomentsPage() {
     stage: 1, step: '', progress: 0
   })
   const [stagesDone, setStagesDone] = useState<Set<number>>(new Set())
+  const progressStateRef = useRef<ProgressState>({ stage: 1, step: '', progress: 0 })
   const [substepDetails, setSubstepDetails] = useState<Record<string, string>>({})
   const [chunkInfo, setChunkInfo] = useState<string>('')
   const [errorMessage, setErrorMessage] = useState('')
@@ -211,6 +212,9 @@ export default function MomentsPage() {
   const [maxMoments, setMaxMoments] = useState(detectionSettings.maxMoments)
 
   const wsRef = useRef<WebSocket | null>(null)
+  const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const reconnectAttemptsRef = useRef<number>(0)
+  const completedRef = useRef<boolean>(false)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const startTimeRef = useRef<number>(0)
 
@@ -247,14 +251,29 @@ export default function MomentsPage() {
     setSubstepDetails({})
     setChunkInfo('')
     setElapsedSeconds(0)
+    completedRef.current = false
+    reconnectAttemptsRef.current = 0
     startTimer()
+    connectWs()
+  }
 
+  // Detection keeps running on the backend even if the socket blips (e.g. the
+  // event loop was briefly busy, or the network hiccuped). Rather than failing
+  // immediately, transparently reconnect a few times before giving up. The
+  // backend re-attaches the WebSocket to the in-flight job and resumes streaming
+  // progress, so the user sees a brief pause instead of "Detection Failed".
+  const connectWs = () => {
+    if (!currentVideo) return
     const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
     const wsHost = window.location.hostname
     const ws = new WebSocket(
       `${wsProtocol}://${wsHost}:8000/api/moments/detect_ws?video_id=${currentVideo.id}&min_duration=${minDuration}&max_duration=${maxDuration}&max_moments=${maxMoments}&user_instructions=${encodeURIComponent(llmInstructions || '')}`
     )
     wsRef.current = ws
+
+    ws.onopen = () => {
+      reconnectAttemptsRef.current = 0
+    }
 
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data)
@@ -266,6 +285,7 @@ export default function MomentsPage() {
           detail: data.detail,
         }
         setProgressState(newProgress)
+        progressStateRef.current = newProgress
 
         // Track substep details
         if (data.step && data.detail) {
@@ -284,6 +304,7 @@ export default function MomentsPage() {
           setStagesDone(prev => new Set([...prev, 1, 2]))
         }
       } else if (data.status === 'completed') {
+        completedRef.current = true
         stopTimer()
         setMoments(data.moments || [])
         if ((data.moments || []).length > 0) {
@@ -294,6 +315,7 @@ export default function MomentsPage() {
         }
         ws.close()
       } else if (data.status === 'error') {
+        completedRef.current = true
         stopTimer()
         setErrorMessage(data.message || 'Detection failed')
         setView('error')
@@ -301,14 +323,33 @@ export default function MomentsPage() {
       }
     }
 
-    ws.onerror = () => {
-      stopTimer()
-      setErrorMessage('WebSocket connection failed. Is the backend running?')
-      setView('error')
+    // Don't surface errors here — onclose decides whether to reconnect or fail.
+    ws.onerror = () => {}
+
+    ws.onclose = () => {
+      // Clean finish (completed/error already handled) — nothing to do.
+      if (completedRef.current) return
+      const MAX_RECONNECTS = 5
+      if (reconnectAttemptsRef.current < MAX_RECONNECTS) {
+        reconnectAttemptsRef.current += 1
+        const delay = Math.min(2000 * reconnectAttemptsRef.current, 8000)
+        setSubstepDetails(prev => ({
+          ...prev,
+          [progressStateRef.current.step]:
+            `Reconnecting… (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECTS})`,
+        }))
+        reconnectRef.current = setTimeout(connectWs, delay)
+      } else {
+        stopTimer()
+        setErrorMessage('Lost connection to the backend after several retries. The detection may still be running — click Try Again to reconnect.')
+        setView('error')
+      }
     }
   }
 
   const resetDetection = () => {
+    completedRef.current = true
+    if (reconnectRef.current) clearTimeout(reconnectRef.current)
     if (wsRef.current) wsRef.current.close()
     stopTimer()
     setView('setup')
@@ -360,14 +401,21 @@ export default function MomentsPage() {
                   <label className="text-xs text-slate-500">Clip duration</label>
                   <span className="text-xs text-indigo-600 font-medium tabular-nums">{minDuration}–{maxDuration}s</span>
                 </div>
-                <div className="flex items-center gap-3">
-                  <input type="range" min={10} max={120} value={minDuration}
-                    onChange={e => setMinDuration(Number(e.target.value))}
-                    className="flex-1 accent-indigo-600 h-1.5" />
-                  <span className="text-slate-600 text-xs">to</span>
-                  <input type="range" min={30} max={300} value={maxDuration}
-                    onChange={e => setMaxDuration(Number(e.target.value))}
-                    className="flex-1 accent-indigo-600 h-1.5" />
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-[11px] text-slate-400 w-8 shrink-0">Min</span>
+                    <input type="range" min={10} max={120} value={minDuration}
+                      onChange={e => setMinDuration(Number(e.target.value))}
+                      className="range flex-1" />
+                    <span className="text-xs text-slate-600 tabular-nums w-9 text-right shrink-0">{minDuration}s</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-[11px] text-slate-400 w-8 shrink-0">Max</span>
+                    <input type="range" min={30} max={300} value={maxDuration}
+                      onChange={e => setMaxDuration(Number(e.target.value))}
+                      className="range flex-1" />
+                    <span className="text-xs text-slate-600 tabular-nums w-9 text-right shrink-0">{maxDuration}s</span>
+                  </div>
                 </div>
               </div>
               <div>
@@ -377,7 +425,7 @@ export default function MomentsPage() {
                 </div>
                 <input type="range" min={3} max={30} value={maxMoments}
                   onChange={e => setMaxMoments(Number(e.target.value))}
-                  className="w-full accent-indigo-600 h-1.5" />
+                  className="range w-full" />
               </div>
             </div>
           </div>
@@ -430,12 +478,16 @@ export default function MomentsPage() {
 
     return (
       <div className="p-6 max-w-2xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-xl font-bold text-slate-900">Detecting Moments</h1>
-            <p className="text-slate-500 text-sm mt-0.5">{currentVideo.title}</p>
+        <div className="mb-6">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <h1 className="text-xl font-bold text-slate-900">Detecting Moments</h1>
+              <p className="text-slate-500 text-sm mt-0.5 truncate">{currentVideo.title}</p>
+            </div>
+            <div className="shrink-0">
+              <GPUStatusIndicator />
+            </div>
           </div>
-          <GPUStatusIndicator />
         </div>
 
         <div className="space-y-3">
@@ -455,14 +507,14 @@ export default function MomentsPage() {
 
         {/* Overall progress */}
         <div className="mt-6 card">
-          <div className="flex justify-between items-center mb-2">
-            <span className="text-xs text-slate-500">Overall progress</span>
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-slate-500 tabular-nums">{formatTime(elapsedSeconds)}</span>
-              <span className="text-xs text-indigo-600 font-semibold tabular-nums">{overallPct}%</span>
+          <div className="flex justify-between items-end mb-2.5">
+            <span className="text-sm font-semibold text-slate-800">Overall progress</span>
+            <div className="flex items-baseline gap-3">
+              <span className="text-xs text-slate-400 tabular-nums">{formatTime(elapsedSeconds)}</span>
+              <span className="text-lg font-bold text-indigo-600 tabular-nums leading-none">{overallPct}%</span>
             </div>
           </div>
-          <div className="w-full h-2 bg-white rounded-full overflow-hidden">
+          <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden ring-1 ring-slate-300/60">
             <div
               className="h-full bg-gradient-to-r from-indigo-500 to-indigo-600 rounded-full transition-all duration-1000"
               style={{ width: `${overallPct}%` }}

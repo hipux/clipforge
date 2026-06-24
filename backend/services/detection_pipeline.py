@@ -133,19 +133,21 @@ class DetectionPipeline:
         
         video_duration_min = video_duration / 60.0
         
-        # Time estimates for RTX 5060
+        # Time estimates for RTX 5060 (8GB). Stage 1 is dominated by YOLO face
+        # tracking (roughly real-time-ish per sampled frame); Stage 2 by the LLM.
+        # These are rough upper bounds — actual time varies with scene complexity.
         if video_duration_min <= 30:
-            est_stage1 = "2-3мин"
-            est_stage2 = "1-2мин"
-            est_total = "3-5 минут"
+            est_stage1 = "5-10мин"
+            est_stage2 = "2-4мин"
+            est_total = "7-14 минут"
         elif video_duration_min <= 60:
-            est_stage1 = "4-6мин"
-            est_stage2 = "2-3мин"
-            est_total = "6-9 минут"
+            est_stage1 = "10-20мин"
+            est_stage2 = "4-7мин"
+            est_total = "15-27 минут"
         else:
-            est_stage1 = "8-12мин"
-            est_stage2 = "3-4мин"
-            est_total = "11-16 минут"
+            est_stage1 = "20-35мин"
+            est_stage2 = "7-12мин"
+            est_total = "27-47 минут"
         
         gpu_mode = "GPU (CUDA)" if vram_manager.is_gpu else "CPU (резервный)"
         logger.info(f"🚀 [Детекция] Запуск GPU-пайплайна для видео: {video_name} ({video_duration_min:.1f} мин)")
@@ -161,7 +163,7 @@ class DetectionPipeline:
         if progress_callback:
             await progress_callback({"stage": 1, "step": "transcription", "progress": 0.05})
 
-        transcript = whisper_gpu.transcribe(video_path)
+        transcript = await asyncio.to_thread(whisper_gpu.transcribe, video_path)
         vram_manager.unload_all()  # Safety flush
         
         # Count words and segments for granular progress detail
@@ -179,7 +181,7 @@ class DetectionPipeline:
         if progress_callback:
             await progress_callback({"stage": 1, "step": "face_detection", "progress": 0.30})
 
-        face_timeline = face_detector.detect_faces_timeline(video_path)
+        face_timeline = await asyncio.to_thread(face_detector.detect_faces_timeline, video_path)
         vram_manager.unload_all()  # Safety flush
         
         face_count = len(face_timeline) if face_timeline else 0
@@ -195,7 +197,7 @@ class DetectionPipeline:
         if progress_callback:
             await progress_callback({"stage": 1, "step": "audio_analysis", "progress": 0.50})
 
-        audio_analysis = audio_analyzer.analyze(video_path)
+        audio_analysis = await asyncio.to_thread(audio_analyzer.analyze, video_path)
         
         # Extract peak count from audio analysis
         peak_count = len(audio_analysis.peaks) if hasattr(audio_analysis, 'peaks') and audio_analysis.peaks else 0
@@ -233,10 +235,10 @@ class DetectionPipeline:
             await progress_callback({"stage": 2, "step": "context_building", "progress": 0.65})
 
         # Build context chunks (dynamic based on video duration)
-        context_chunks = context_builder.build_chunks(ctx, user_instructions)
+        context_chunks = await asyncio.to_thread(context_builder.build_chunks, ctx, user_instructions)
         
         # Estimate total LLM time based on number of chunks
-        chunk_analyze_time = 30  # ~30s per chunk estimate for RTX 5060
+        chunk_analyze_time = 90  # ~60-120s per chunk on RTX 5060 (Qwen3-8B Q4, reasoning)
         est_llm_time = len(context_chunks) * chunk_analyze_time
         if len(context_chunks) > 1:
             est_llm_time += 20  # +20s for consolidation pass
@@ -259,7 +261,9 @@ class DetectionPipeline:
             })
             asyncio.run_coroutine_threadsafe(coro, _loop)
 
-        director_output = llm_director.analyze(context_chunks, user_instructions, on_progress=_llm_progress)
+        director_output = await asyncio.to_thread(
+            llm_director.analyze, context_chunks, user_instructions, _llm_progress
+        )
         vram_manager.unload_all()  # Safety flush
         
         stage2_time = time.time() - stage2_start

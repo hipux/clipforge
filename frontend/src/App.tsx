@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Layout from './components/Layout'
 import SessionResume from './components/SessionResume'
+import SessionGuard from './components/SessionGuard'
 import DownloadPage from './pages/DownloadPage'
 import MomentsPage from './pages/MomentsPage'
 import EffectsPage from './pages/EffectsPage'
@@ -10,6 +11,7 @@ import PublishPage from './pages/PublishPage'
 function App() {
   return (
     <BrowserRouter>
+      <SessionGuard />
       <SessionResume />
       <Routes>
         <Route path="/" element={<Layout />}>
