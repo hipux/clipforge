@@ -182,7 +182,7 @@ class DetectionPipeline:
         face_timeline = face_detector.detect_faces_timeline(video_path)
         vram_manager.unload_all()  # Safety flush
         
-        face_count = len(face_timeline) if face_timeline else 0
+        face_count = len(face_timeline.unique_face_ids) if face_timeline else 0
 
         if progress_callback:
             await progress_callback({
