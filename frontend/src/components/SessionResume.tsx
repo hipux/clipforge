@@ -45,11 +45,11 @@ export default function SessionResume() {
           <RotateCcw size={20} className="text-accent" />
         </div>
         <div className="flex-1">
-          <div className="font-semibold text-slate-100 text-sm mb-0.5">
+          <div className="font-semibold text-slate-900 text-sm mb-0.5">
             Resume previous session?
           </div>
-          <div className="text-slate-400 text-xs">
-            Continue from <span className="text-slate-300 font-medium">{stepName}</span> step
+          <div className="text-slate-500 text-xs">
+            Continue from <span className="text-slate-700 font-medium">{stepName}</span> step
           </div>
         </div>
         <div className="flex gap-2 flex-shrink-0">
@@ -61,10 +61,10 @@ export default function SessionResume() {
           </button>
           <button
             onClick={handleDismiss}
-            className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors"
+            className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-100 flex items-center justify-center transition-colors"
             aria-label="Dismiss"
           >
-            <X size={16} className="text-slate-400" />
+            <X size={16} className="text-slate-500" />
           </button>
         </div>
       </div>

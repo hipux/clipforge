@@ -163,10 +163,10 @@ export default function PublishPage() {
 
   if (processedClips.length === 0) {
     return (
-      <div className="max-w-xl mx-auto p-8">
+      <div className="max-w-4xl mx-auto p-8">
         <div className="card text-center py-14 border-dashed">
           <Upload size={40} className="text-slate-700 mx-auto mb-4" />
-          <h3 className="font-semibold text-slate-300 mb-1">No clips to publish</h3>
+          <h3 className="font-semibold text-slate-700 mb-1">No clips to publish</h3>
           <p className="text-slate-500 text-sm">Process some clips first to publish them.</p>
         </div>
       </div>
@@ -174,14 +174,10 @@ export default function PublishPage() {
   }
 
   return (
-    <div className="max-w-xl mx-auto p-8">
+    <div className="max-w-4xl mx-auto p-8">
       {/* Header */}
       <div className="mb-8">
-        <div className="flex items-center gap-2 text-accent text-xs font-semibold uppercase tracking-widest mb-2">
-          <span className="w-4 h-px bg-accent" />
-          Step 5 of 5
-        </div>
-        <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-2">
+        <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
           <Upload size={22} className="text-accent" />
           Publish Clips
         </h1>
@@ -200,7 +196,7 @@ export default function PublishPage() {
 
       {/* YouTube Auth */}
       {!checkingAuth && (
-        <div className={`card mb-6 ${authenticated ? 'border-success/30 bg-success/5' : 'border-slate-700'}`}>
+        <div className={`card mb-6 ${authenticated ? 'border-success/30 bg-success/5' : 'border-slate-200'}`}>
           {authenticated ? (
             <div className="flex items-center gap-2 text-success text-sm font-medium">
               <CheckCircle2 size={16} />
@@ -210,7 +206,7 @@ export default function PublishPage() {
             <div>
               <div className="flex items-center gap-2 mb-3">
                 <Play size={16} className="text-red-400" />
-                <span className="font-medium text-slate-200 text-sm">Connect YouTube Account</span>
+                <span className="font-medium text-slate-800 text-sm">Connect YouTube Account</span>
               </div>
 
               {authUrl && (
@@ -249,7 +245,7 @@ export default function PublishPage() {
       )}
 
       {/* Clips */}
-      <div className="space-y-4 mb-6">
+      <div className="grid sm:grid-cols-2 gap-5 mb-6 items-start">
         {processedClips.map((clip) => {
           const state = publishStates[clip.id]
           if (!state) return null
@@ -257,13 +253,14 @@ export default function PublishPage() {
           return (
             <div key={clip.id} className="card">
               {/* Video preview */}
-              <video
-                src={`/files/${clip.file_path}`}
-                className="w-full rounded-lg mb-4 bg-black"
-                style={{ maxHeight: 200 }}
-                controls
-                preload="metadata"
-              />
+              <div className="flex justify-center mb-4">
+                <video
+                  src={`/files/${clip.file_path}`}
+                  className="h-64 aspect-[9/16] rounded-xl bg-black object-cover shadow-sm"
+                  controls
+                  preload="metadata"
+                />
+              </div>
 
               {/* Form */}
               <div className="space-y-2.5">
@@ -373,9 +370,9 @@ export default function PublishPage() {
       <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-accent/6 border border-accent/20 text-sm">
         <Info size={15} className="text-accent shrink-0 mt-0.5" />
         <div>
-          <div className="font-medium text-slate-200 mb-1">Manual Export</div>
-          <p className="text-xs text-slate-400 leading-relaxed">
-            Use <span className="text-slate-300">"Copy Path"</span> to get the local file path,
+          <div className="font-medium text-slate-800 mb-1">Manual Export</div>
+          <p className="text-xs text-slate-500 leading-relaxed">
+            Use <span className="text-slate-700">"Copy Path"</span> to get the local file path,
             then drag-and-drop to TikTok, Instagram Reels, VK Clips, etc.
             All clips are 9:16 vertical MP4, ready to upload anywhere.
           </p>

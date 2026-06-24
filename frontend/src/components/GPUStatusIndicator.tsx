@@ -38,17 +38,17 @@ export function GPUStatusIndicator() {
   const pct = total > 0 ? (used / total) * 100 : 0
 
   return (
-    <div className="flex items-center gap-3 px-3 py-1.5 rounded-lg bg-slate-800/50 border border-slate-700/50 text-sm">
+    <div className="flex items-center gap-3 px-3 py-1.5 rounded-lg bg-white/50 border border-slate-200/50 text-sm">
       <div className={`w-2 h-2 rounded-full shrink-0 ${
         status.is_gpu ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
       }`} />
-      <span className="text-slate-300 font-medium text-xs">
+      <span className="text-slate-700 font-medium text-xs">
         {status.is_gpu ? 'GPU' : 'CPU'}
       </span>
       {status.is_gpu && total > 0 && (
         <>
           <div className="flex items-center gap-1.5">
-            <div className="w-20 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+            <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all duration-500 ${
                   pct > 80 ? 'bg-red-500' : pct > 60 ? 'bg-amber-400' : 'bg-violet-500'

@@ -90,22 +90,22 @@ function SubstepRow({
   return (
     <div className="flex items-start gap-2.5 py-1.5">
       <div className="mt-0.5 shrink-0">
-        {status === 'done' && <CheckCircle2 size={15} className="text-emerald-400" />}
-        {status === 'active' && <Loader2 size={15} className="text-violet-400 animate-spin" />}
-        {status === 'pending' && <Circle size={15} className="text-slate-700" />}
+        {status === 'done' && <CheckCircle2 size={15} className="text-green-600" />}
+        {status === 'active' && <Loader2 size={15} className="text-indigo-600 animate-spin" />}
+        {status === 'pending' && <Circle size={15} className="text-slate-300" />}
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className={`text-sm ${
-            status === 'done' ? 'text-slate-400' :
-            status === 'active' ? 'text-slate-200 font-medium' :
+            status === 'done' ? 'text-slate-500' :
+            status === 'active' ? 'text-slate-800 font-medium' :
             'text-slate-600'
           }`}>
             {substep.label}
           </span>
           {status !== 'pending' && (
             <span className={`${
-              status === 'done' ? 'text-slate-600' : 'text-violet-400/60'
+              status === 'done' ? 'text-slate-600' : 'text-indigo-400'
             }`}>
               {substep.icon}
             </span>
@@ -149,28 +149,28 @@ function StageCard({
   return (
     <div className={`rounded-xl border p-4 transition-all duration-300 ${
       isActive
-        ? 'bg-slate-800/50 border-violet-500/30'
+        ? 'bg-indigo-50/60 border-indigo-200'
         : isDone
-          ? 'bg-surface border-slate-800 opacity-70'
-          : 'bg-surface border-slate-800/50 opacity-40'
+          ? 'bg-surface border-slate-200 opacity-70'
+          : 'bg-surface border-slate-200 opacity-40'
     }`}>
       <div className="flex items-center gap-2 mb-3">
         <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold ${
-          isDone ? 'bg-emerald-500/20 text-emerald-400' :
-          isActive ? 'bg-violet-500/20 text-violet-400' :
-          'bg-slate-800 text-slate-600'
+          isDone ? 'bg-green-100 text-green-600' :
+          isActive ? 'bg-violet-500/20 text-indigo-600' :
+          'bg-white text-slate-600'
         }`}>
           {isDone ? <CheckCircle2 size={12} /> : stageNum}
         </div>
         <span className={`text-sm font-semibold ${
-          isDone ? 'text-emerald-400' :
+          isDone ? 'text-green-600' :
           isActive ? 'text-accent' :
           'text-slate-600'
         }`}>
           {STAGE_NAMES[stageNum]}
         </span>
-        {isActive && <Loader2 size={13} className="text-violet-400 animate-spin ml-auto" />}
-        {isDone && <CheckCircle2 size={13} className="text-emerald-400 ml-auto" />}
+        {isActive && <Loader2 size={13} className="text-indigo-600 animate-spin ml-auto" />}
+        {isDone && <CheckCircle2 size={13} className="text-green-600 ml-auto" />}
       </div>
       <div className="space-y-0.5 pl-1">
         {substeps.map(sub => (
@@ -195,7 +195,7 @@ function formatTime(seconds: number): string {
 
 export default function MomentsPage() {
   const navigate = useNavigate()
-  const { currentVideo, moments, setMoments, selectedMomentIds, toggleMoment, llmInstructions, setLlmInstructions, detectionSettings, updateDetectionSettings } = useAppStore()
+  const { currentVideo, moments, setMoments, selectedMomentIds, toggleMoment, setSelectedMoments, llmInstructions, setLlmInstructions, detectionSettings, updateDetectionSettings } = useAppStore()
 
   const [view, setView] = useState<'setup' | 'detecting' | 'results' | 'error'>('setup')
   const [progressState, setProgressState] = useState<ProgressState>({
@@ -333,7 +333,7 @@ export default function MomentsPage() {
         {/* Page header */}
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-xl font-bold text-slate-100">Moment Detection</h1>
+            <h1 className="text-xl font-bold text-slate-900">Moment Detection</h1>
             <p className="text-slate-500 text-sm mt-0.5">Find the best clips with AI</p>
           </div>
           <GPUStatusIndicator />
@@ -349,48 +349,48 @@ export default function MomentsPage() {
           {/* Section 1: Detection settings */}
           <div>
             <div className="flex items-center gap-2 mb-4">
-              <div className="w-7 h-7 rounded-lg bg-violet-500/10 flex items-center justify-center border border-violet-500/20">
+              <div className="w-7 h-7 rounded-lg bg-indigo-50 flex items-center justify-center border border-indigo-100">
                 <SlidersHorizontal size={14} className="text-accent" />
               </div>
-              <span className="text-sm font-semibold text-slate-200">Detection Settings</span>
+              <span className="text-sm font-semibold text-slate-800">Detection Settings</span>
             </div>
             <div className="space-y-4 pl-1">
               <div>
                 <div className="flex justify-between mb-1.5">
-                  <label className="text-xs text-slate-400">Clip duration</label>
-                  <span className="text-xs text-violet-400 font-medium tabular-nums">{minDuration}–{maxDuration}s</span>
+                  <label className="text-xs text-slate-500">Clip duration</label>
+                  <span className="text-xs text-indigo-600 font-medium tabular-nums">{minDuration}–{maxDuration}s</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <input type="range" min={10} max={120} value={minDuration}
                     onChange={e => setMinDuration(Number(e.target.value))}
-                    className="flex-1 accent-violet-500 h-1.5" />
+                    className="flex-1 accent-indigo-600 h-1.5" />
                   <span className="text-slate-600 text-xs">to</span>
                   <input type="range" min={30} max={300} value={maxDuration}
                     onChange={e => setMaxDuration(Number(e.target.value))}
-                    className="flex-1 accent-violet-500 h-1.5" />
+                    className="flex-1 accent-indigo-600 h-1.5" />
                 </div>
               </div>
               <div>
                 <div className="flex justify-between mb-1.5">
-                  <label className="text-xs text-slate-400">Max moments</label>
-                  <span className="text-xs text-violet-400 font-medium tabular-nums">{maxMoments}</span>
+                  <label className="text-xs text-slate-500">Max moments</label>
+                  <span className="text-xs text-indigo-600 font-medium tabular-nums">{maxMoments}</span>
                 </div>
                 <input type="range" min={3} max={30} value={maxMoments}
                   onChange={e => setMaxMoments(Number(e.target.value))}
-                  className="w-full accent-violet-500 h-1.5" />
+                  className="w-full accent-indigo-600 h-1.5" />
               </div>
             </div>
           </div>
 
-          <div className="border-t border-slate-800" />
+          <div className="border-t border-slate-200" />
 
           {/* Section 2: AI instructions */}
           <div>
             <div className="flex items-center gap-2 mb-4">
-              <div className="w-7 h-7 rounded-lg bg-violet-500/10 flex items-center justify-center border border-violet-500/20">
+              <div className="w-7 h-7 rounded-lg bg-indigo-50 flex items-center justify-center border border-indigo-100">
                 <Sparkles size={14} className="text-accent" />
               </div>
-              <span className="text-sm font-semibold text-slate-200">AI Instructions</span>
+              <span className="text-sm font-semibold text-slate-800">AI Instructions</span>
               <span className="text-xs text-slate-600">optional</span>
             </div>
             <textarea
@@ -402,15 +402,15 @@ export default function MomentsPage() {
             />
           </div>
 
-          <div className="border-t border-slate-800" />
+          <div className="border-t border-slate-200" />
 
           {/* Section 3: Launch */}
           <div>
             <div className="flex items-center gap-2 mb-4">
-              <div className="w-7 h-7 rounded-lg bg-violet-500/10 flex items-center justify-center border border-violet-500/20">
+              <div className="w-7 h-7 rounded-lg bg-indigo-50 flex items-center justify-center border border-indigo-100">
                 <Play size={14} className="text-accent" />
               </div>
-              <span className="text-sm font-semibold text-slate-200">Launch</span>
+              <span className="text-sm font-semibold text-slate-800">Launch</span>
               <span className="text-xs text-slate-500 ml-auto">~{estimatedMin}–{estimatedMin + 3} min</span>
             </div>
             <button onClick={startDetection} className="btn btn-primary w-full justify-center py-2.5">
@@ -432,7 +432,7 @@ export default function MomentsPage() {
       <div className="p-6 max-w-2xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-xl font-bold text-slate-100">Detecting Moments</h1>
+            <h1 className="text-xl font-bold text-slate-900">Detecting Moments</h1>
             <p className="text-slate-500 text-sm mt-0.5">{currentVideo.title}</p>
           </div>
           <GPUStatusIndicator />
@@ -459,12 +459,12 @@ export default function MomentsPage() {
             <span className="text-xs text-slate-500">Overall progress</span>
             <div className="flex items-center gap-3">
               <span className="text-xs text-slate-500 tabular-nums">{formatTime(elapsedSeconds)}</span>
-              <span className="text-xs text-violet-400 font-semibold tabular-nums">{overallPct}%</span>
+              <span className="text-xs text-indigo-600 font-semibold tabular-nums">{overallPct}%</span>
             </div>
           </div>
-          <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+          <div className="w-full h-2 bg-white rounded-full overflow-hidden">
             <div
-              className="h-full bg-gradient-to-r from-violet-500 to-purple-500 rounded-full transition-all duration-1000"
+              className="h-full bg-gradient-to-r from-indigo-500 to-indigo-600 rounded-full transition-all duration-1000"
               style={{ width: `${overallPct}%` }}
             />
           </div>
@@ -479,8 +479,8 @@ export default function MomentsPage() {
       <div className="p-6 max-w-2xl mx-auto">
         <div className="card text-center py-8">
           <AlertTriangle size={32} className="text-danger mx-auto mb-3" />
-          <h2 className="text-lg font-bold text-slate-200 mb-2">Detection Failed</h2>
-          <p className="text-slate-400 text-sm mb-6 max-w-sm mx-auto">{errorMessage}</p>
+          <h2 className="text-lg font-bold text-slate-800 mb-2">Detection Failed</h2>
+          <p className="text-slate-500 text-sm mb-6 max-w-sm mx-auto">{errorMessage}</p>
           <button onClick={resetDetection} className="btn btn-secondary mx-auto">
             <RotateCcw size={14} />
             Try Again
@@ -491,51 +491,75 @@ export default function MomentsPage() {
   }
 
   // ── RESULTS VIEW ─────────────────────────────────────────────────────────
+  const allSelected = moments.length > 0 && selectedMomentIds.length === moments.length
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-xl font-bold text-slate-100">Detected Moments</h1>
-          <p className="text-slate-500 text-sm mt-0.5">
-            {moments.length} moments · {selectedMomentIds.length} selected
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button onClick={resetDetection} className="btn btn-secondary text-sm">
-            <RotateCcw size={13} />
-            Re-detect
-          </button>
-          <button
-            onClick={() => navigate('/effects')}
-            disabled={selectedMomentIds.length === 0}
-            className="btn btn-primary text-sm"
-          >
-            Continue
-            <ArrowRight size={14} />
-          </button>
+    <div className="flex flex-col min-h-full max-w-5xl mx-auto w-full">
+      <div className="px-6 pt-6 pb-4">
+        <div className="flex items-end justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Detected Moments</h1>
+            <p className="text-slate-500 text-sm mt-1">
+              We found <span className="font-semibold text-slate-700">{moments.length}</span> moments worth clipping. Pick the ones you like.
+            </p>
+          </div>
+          <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-full px-1.5 py-1 shadow-soft">
+            <span className="px-3 text-sm text-slate-500">
+              <span className="font-semibold text-accent">{selectedMomentIds.length}</span> selected
+            </span>
+            <button
+              onClick={() => setSelectedMoments(allSelected ? [] : moments.map(m => m.id))}
+              className="px-3 py-1.5 text-sm font-medium rounded-full text-slate-700 hover:bg-slate-100 transition-colors"
+            >
+              {allSelected ? 'Clear all' : 'Select all'}
+            </button>
+          </div>
         </div>
       </div>
 
-      {moments.length === 0 ? (
-        <div className="card text-center py-12">
-          <Scissors size={32} className="text-slate-600 mx-auto mb-3" />
-          <p className="text-slate-400">No moments detected yet.</p>
-          <button onClick={() => setView('setup')} className="btn btn-secondary mx-auto mt-4">
-            Configure Detection
+      <div className="flex-1 px-6 pb-28">
+        {moments.length === 0 ? (
+          <div className="card text-center py-12 mt-4">
+            <Scissors size={32} className="text-slate-300 mx-auto mb-3" />
+            <p className="text-slate-500">No moments detected yet.</p>
+            <button onClick={() => setView('setup')} className="btn btn-secondary mx-auto mt-4">
+              Configure Detection
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {moments.map(moment => (
+              <MomentCard
+                key={moment.id}
+                moment={moment}
+                isSelected={selectedMomentIds.includes(moment.id)}
+                onToggle={() => toggleMoment(moment.id)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="sticky bottom-0 left-0 right-0 border-t border-slate-200 bg-white/85 backdrop-blur-md">
+        <div className="px-6 py-3.5 flex items-center justify-between">
+          <button onClick={resetDetection} className="btn btn-secondary text-sm">
+            <RotateCcw size={14} />
+            Re-detect
           </button>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-slate-400 hidden sm:block">
+              {selectedMomentIds.length} clip{selectedMomentIds.length === 1 ? '' : 's'} ready
+            </span>
+            <button
+              onClick={() => navigate('/effects')}
+              disabled={selectedMomentIds.length === 0}
+              className="btn btn-primary"
+            >
+              Continue to Effects
+              <ArrowRight size={15} />
+            </button>
+          </div>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-3">
-          {moments.map(moment => (
-            <MomentCard
-              key={moment.id}
-              moment={moment}
-              isSelected={selectedMomentIds.includes(moment.id)}
-              onToggle={() => toggleMoment(moment.id)}
-            />
-          ))}
-        </div>
-      )}
+      </div>
     </div>
   )
 }

@@ -10,6 +10,7 @@ import {
   Check,
   Clapperboard,
   Zap,
+  BarChart3,
 } from 'lucide-react'
 
 const steps = [
@@ -45,78 +46,73 @@ export default function Layout() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      {/* Sidebar */}
-      <aside
-        className="w-60 flex flex-col border-r border-slate-800/80 shrink-0"
-        style={{ background: 'linear-gradient(180deg, #0d0d14 0%, #10101a 100%)' }}
-      >
+    <div className="flex flex-col h-screen overflow-hidden">
+      {/* Top bar */}
+      <header className="h-16 shrink-0 border-b border-slate-200 bg-white/90 backdrop-blur-md px-5 sm:px-8 flex items-center justify-between gap-6 z-20">
         {/* Logo */}
-        <div className="px-5 py-5 border-b border-slate-800/80">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-violet-500/10 border border-violet-500/20 flex items-center justify-center">
-              <Clapperboard size={16} className="text-violet-400" />
-            </div>
-            <div>
-              <h1
-                className="text-base font-bold leading-tight"
-                style={{ background: 'linear-gradient(90deg, #7c3aed, #a78bfa)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}
-              >
-                ClipForge
-              </h1>
-              <p className="text-[10px] text-slate-500 leading-tight">Video Clip Tool</p>
-            </div>
+        <div className="flex items-center gap-2.5 shrink-0">
+          <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center shadow-btn">
+            <Clapperboard size={18} className="text-white" />
           </div>
+          <span className="text-lg font-bold tracking-tight hidden sm:block" style={{ color: '#4f46e5' }}>ClipForge</span>
         </div>
 
-        {/* Steps nav */}
-        <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-          <p className="text-[10px] font-semibold text-slate-600 uppercase tracking-widest px-3 mb-2">Workflow</p>
-          {steps.map((step) => {
+        {/* Stepper */}
+        <nav className="flex items-center">
+          {steps.map((step, i) => {
             const isCurrent = location.pathname === step.path
             const isComplete = isStepComplete(step.id)
             const isAccessible = canAccessStep(step.id)
             const Icon = step.icon
 
-            let cls = 'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 text-sm '
-            if (isCurrent) {
-              cls += 'step-active font-medium'
-            } else if (!isAccessible) {
-              cls += 'step-locked opacity-40'
-            } else if (isComplete) {
-              cls += 'step-complete'
-            } else {
-              cls += 'step-available'
-            }
+            let btn = 'group flex items-center gap-2 pl-1.5 pr-2.5 py-1.5 rounded-full transition-all duration-150 '
+            if (isCurrent) btn += 'bg-indigo-50 text-indigo-700'
+            else if (isComplete) btn += 'text-green-700 hover:bg-slate-50'
+            else if (isAccessible) btn += 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+            else btn += 'text-slate-300 cursor-not-allowed'
+
+            let dot = 'w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold border transition-all duration-150 '
+            if (isCurrent) dot += 'bg-indigo-600 text-white border-indigo-600 shadow-btn'
+            else if (isComplete) dot += 'bg-green-500 text-white border-green-500'
+            else if (isAccessible) dot += 'bg-white text-slate-400 border-slate-300 group-hover:border-indigo-400'
+            else dot += 'bg-slate-50 text-slate-300 border-slate-200'
 
             return (
-              <button
-                key={step.id}
-                onClick={() => isAccessible && navigate(step.path)}
-                disabled={!isAccessible}
-                className={cls}
-              >
-                <Icon size={16} className={isCurrent ? 'text-violet-400' : ''} />
-                <span className="flex-1 text-left">{step.name}</span>
-                {isComplete && !isCurrent && (
-                  <Check size={13} className="text-success shrink-0" />
+              <div key={step.id} className="flex items-center">
+                <button
+                  onClick={() => isAccessible && navigate(step.path)}
+                  disabled={!isAccessible}
+                  className={btn}
+                >
+                  <span className={dot}>
+                    {isComplete && !isCurrent ? <Check size={14} strokeWidth={3} /> : <Icon size={14} />}
+                  </span>
+                  <span className="text-sm font-medium hidden lg:block">{step.name}</span>
+                </button>
+                {i < steps.length - 1 && (
+                  <div className={`w-4 sm:w-7 h-px mx-0.5 ${isComplete ? 'bg-green-300' : 'bg-slate-200'}`} />
                 )}
-                {isCurrent && (
-                  <div className="w-1.5 h-1.5 rounded-full bg-violet-500 shrink-0" />
-                )}
-              </button>
+              </div>
             )
           })}
         </nav>
 
-        {/* Footer */}
-        <div className="px-5 py-4 border-t border-slate-800/80">
-          <div className="flex items-center gap-1.5 text-[11px] text-slate-600">
-            <Zap size={11} className="text-violet-400/60" />
-            <span>100% Free · No API Costs</span>
-          </div>
+        {/* Analytics tab */}
+        <button
+          onClick={() => navigate('/analytics')}
+          className={'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all shrink-0 ' + (location.pathname === '/analytics' ? 'bg-indigo-600 text-white shadow-btn' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800 border border-slate-200')}
+        >
+          <BarChart3 size={15} />
+          <span className="hidden md:block">Analytics</span>
+        </button>
+
+        {/* Status */}
+        <div className="hidden xl:flex items-center gap-1.5 text-xs text-slate-400 shrink-0">
+          <Zap size={12} className="text-indigo-400" />
+          <span>100% Free · No API Costs</span>
         </div>
-      </aside>
+        <div className="xl:hidden w-9 shrink-0" />
+      </header>
 
       {/* Main Content */}
       <main className="flex-1 overflow-auto bg-background">

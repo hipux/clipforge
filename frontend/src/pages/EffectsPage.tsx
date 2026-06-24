@@ -46,20 +46,16 @@ export default function EffectsPage() {
   const enabledCount = Object.values(globalEffects).filter(Boolean).length
 
   return (
-    <div className="max-w-xl mx-auto p-8">
+    <div className="max-w-2xl mx-auto p-8">
       {/* Header */}
       <div className="mb-8">
-        <div className="flex items-center gap-2 text-accent text-xs font-semibold uppercase tracking-widest mb-2">
-          <span className="w-4 h-px bg-accent" />
-          Step 3 of 5
-        </div>
-        <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-2">
+        <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
           <Sliders size={22} className="text-accent" />
           Configure Effects
         </h1>
         <p className="text-slate-500 mt-1 text-sm">
           Choose which effects to apply to your{' '}
-          <span className="text-slate-300 font-medium">{selectedMomentIds.length} clip{selectedMomentIds.length !== 1 ? 's' : ''}</span>.
+          <span className="text-slate-700 font-medium">{selectedMomentIds.length} clip{selectedMomentIds.length !== 1 ? 's' : ''}</span>.
         </p>
       </div>
 
@@ -71,7 +67,7 @@ export default function EffectsPage() {
       {/* Effects list */}
       <div className="card mb-5">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="font-semibold text-slate-200">Video Effects</h2>
+          <h2 className="font-semibold text-slate-800">Video Effects</h2>
           <span className="badge-accent text-xs">
             {enabledCount} active
           </span>
@@ -99,8 +95,8 @@ export default function EffectsPage() {
       <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-accent/6 border border-accent/20 mb-6 text-sm mt-5">
         <Info size={15} className="text-accent shrink-0 mt-0.5" />
         <div>
-          <div className="font-medium text-slate-200 mb-1">Processing Info</div>
-          <ul className="space-y-0.5 text-slate-400 text-xs leading-relaxed">
+          <div className="font-medium text-slate-800 mb-1">Processing Info</div>
+          <ul className="space-y-0.5 text-slate-500 text-xs leading-relaxed">
             <li>All effects are applied in a single FFmpeg pass — 100% local</li>
             <li>Subtitles use faster-whisper AI (runs on your machine, no cloud)</li>
             <li>~30–60 seconds per clip depending on effects enabled</li>

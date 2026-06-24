@@ -158,6 +158,22 @@ class LLMDirector:
         
         # Determine device/layers
         n_gpu_layers = QWEN_N_GPU_LAYERS if vram_manager.device == "cuda" else 0
+
+        # Guard: llama-cpp-python is a SEPARATE runtime from torch. A CPU-only
+        # wheel silently IGNORES n_gpu_layers and runs the LLM on CPU with NO
+        # error -> the slowest stage quietly runs on CPU. Surface it loudly.
+        if vram_manager.device == "cuda":
+            try:
+                from llama_cpp import llama_supports_gpu_offload
+                if not llama_supports_gpu_offload():
+                    logger.warning(
+                        "[Qwen3] llama-cpp-python was built WITHOUT CUDA -> "
+                        "n_gpu_layers ignored, LLM runs on CPU (very slow). Reinstall: "
+                        "set CMAKE_ARGS=-DGGML_CUDA=on && pip install --force-reinstall "
+                        "--no-cache-dir llama-cpp-python"
+                    )
+            except Exception:
+                logger.debug("[Qwen3] could not probe llama-cpp GPU support")
         device_str = "GPU (все слои)" if n_gpu_layers == -1 else f"GPU ({n_gpu_layers} слоёв)" if n_gpu_layers > 0 else "CPU"
         
         load_start = time.time()

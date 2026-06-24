@@ -50,17 +50,17 @@ export default function VideoCard({ video }: VideoCardProps) {
         <img
           src={video.thumbnail_url}
           alt={video.title}
-          className="w-32 h-[72px] object-cover rounded-lg shrink-0 border border-slate-700"
+          className="w-32 h-[72px] object-cover rounded-lg shrink-0 border border-slate-200"
         />
       ) : (
-        <div className="w-32 h-[72px] bg-surface-2 rounded-lg shrink-0 border border-slate-700 flex items-center justify-center">
+        <div className="w-32 h-[72px] bg-surface-2 rounded-lg shrink-0 border border-slate-200 flex items-center justify-center">
           <Film size={24} className="text-slate-600" />
         </div>
       )}
 
       {/* Info */}
       <div className="flex-1 min-w-0">
-        <h3 className="font-semibold text-slate-100 leading-snug line-clamp-2 text-sm">
+        <h3 className="font-semibold text-slate-900 leading-snug line-clamp-2 text-sm">
           {video.title}
         </h3>
         <div className="flex items-center gap-3 mt-2">
