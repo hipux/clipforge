@@ -319,7 +319,7 @@ export default function MomentsPage() {
     completedRef.current = false
     reconnectAttemptsRef.current = 0
     startTimer()
-    connectWs()
+    connectWs(true)
   }
 
   // Detection keeps running on the backend even if the socket blips (e.g. the
@@ -327,12 +327,12 @@ export default function MomentsPage() {
   // immediately, transparently reconnect a few times before giving up. The
   // backend re-attaches the WebSocket to the in-flight job and resumes streaming
   // progress, so the user sees a brief pause instead of "Detection Failed".
-  const connectWs = () => {
+  const connectWs = (start = false) => {
     if (!currentVideo) return
     const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
     const wsHost = window.location.hostname
     const ws = new WebSocket(
-      `${wsProtocol}://${wsHost}:8000/api/moments/detect_ws?video_id=${currentVideo.id}&min_duration=${minDuration}&max_duration=${maxDuration}&max_moments=${maxMoments}&user_instructions=${encodeURIComponent(llmInstructions || '')}`
+      `${wsProtocol}://${wsHost}:8000/api/moments/detect_ws?video_id=${currentVideo.id}&min_duration=${minDuration}&max_duration=${maxDuration}&max_moments=${maxMoments}&user_instructions=${encodeURIComponent(llmInstructions || '')}&start=${start ? 'true' : 'false'}`
     )
     wsRef.current = ws
 
@@ -379,6 +379,14 @@ export default function MomentsPage() {
           setErrorMessage('No moments detected. Try adjusting duration settings or AI instructions.')
           setView('error')
         }
+        ws.close()
+      } else if (data.status === 'idle') {
+        // Backend has no active detection for this video (e.g. it was
+        // restarted). Don't keep a phantom "detecting" view — reset cleanly.
+        completedRef.current = true
+        stopTimer()
+        setActiveDetectionVideoId(null)
+        setView('setup')
         ws.close()
       } else if (data.status === 'error') {
         completedRef.current = true
