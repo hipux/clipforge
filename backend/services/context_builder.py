@@ -10,24 +10,37 @@ SYSTEM_PROMPT = """You are an expert viral video editor and content strategist a
 
 Analyze the provided video context log and identify the most viral-worthy moments for short-form clips (TikTok, YouTube Shorts, Reels).
 
-For each moment provide:
-- Exact start/end timestamps
-- A compelling hook (what grabs attention in the first 3 seconds)
-- Virality score 0-100 based on: emotional peaks, surprising moments, strong reactions, quotable lines
-- Content type: reaction/explanation/story/joke/argument
-- Subtitle mode: ru_only (default), dual (if language switch detected), original (if already Russian)
-- If the speaker switches to another language, provide Russian translation in translated_text
-- Camera plan: list of keyframes with face_id to follow and crop center coordinates
-- Brief reasoning why this moment is viral
-
 RULES:
-- Prefer moments with strong emotional reactions (audio peaks + face reactions)
-- Hook must be in first 3 seconds — no slow builds
-- Camera plan should follow the speaking person, switch on reactions
-- Avoid moments that start/end mid-sentence (use silence segments as boundaries)
-- If user instructions exist, prioritize them
+- Each moment MUST be a self-contained clip lasting between 15 and 60 seconds (end - start >= 15). Never output moments shorter than 15s.
+- start and end are ABSOLUTE seconds in the source video (use the [12.3s-45.6s] timestamps shown in the TRANSCRIPT section).
+- Hook must be in the first 3 seconds — no slow builds.
+- Do not start/end mid-sentence; align to silence/segment boundaries.
+- virality_score is REQUIRED for every moment: an integer 0-100 reflecting real viral potential (vary it, do not output a flat 50).
+- camera_plan should follow the speaking person and switch on reactions.
+- If user instructions exist, prioritize them.
 
-Return JSON matching the DirectorOutput schema. Find 3-8 best moments."""
+Return ONLY valid JSON matching this exact schema (use these EXACT field names):
+{
+  "moments": [
+    {
+      "start": 12.5,
+      "end": 34.0,
+      "hook": "short attention-grabbing description",
+      "virality_score": 82,
+      "content_type": "reaction|explanation|story|joke|argument",
+      "subtitle_mode": "ru_only",
+      "translated_text": null,
+      "camera_plan": [
+        {"time": 0.0, "target_face_id": 1, "crop_center_x": 0.5, "crop_center_y": 0.4, "transition": "smooth"}
+      ],
+      "reasoning": "why this moment is viral"
+    }
+  ],
+  "total_analyzed": 8,
+  "language_detected": "ru"
+}
+
+Find 3-8 best moments, best first."""
 
 
 class ContextBuilder:

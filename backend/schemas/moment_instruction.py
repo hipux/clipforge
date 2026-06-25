@@ -15,7 +15,7 @@ class SubtitleMode(str, Enum):
 
 class CameraKeyframe(BaseModel):
     """Camera movement keyframe for dynamic crop tracking."""
-    time: float = Field(description="seconds relative to moment start")
+    time: float = Field(0.0, description="seconds relative to moment start")
     target_face_id: Optional[int] = Field(None, description="face track_id, None = center frame")
     crop_center_x: float = Field(0.5, ge=0.0, le=1.0, description="horizontal crop center (0.0-1.0)")
     crop_center_y: float = Field(0.5, ge=0.0, le=1.0, description="vertical crop center (0.0-1.0)")
