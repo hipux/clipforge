@@ -230,14 +230,7 @@ export default function ProcessPage() {
             </div>
           </div>
 
-          <div className="flex justify-between items-center">
-            <button
-              onClick={() => { setCompleted(false); startProcessing() }}
-              className="btn btn-secondary px-5"
-            >
-              <RefreshCw size={15} />
-              Process Again
-            </button>
+          <div className="flex justify-end">
             <button
               onClick={() => navigate('/publish')}
               className="btn btn-primary px-6"

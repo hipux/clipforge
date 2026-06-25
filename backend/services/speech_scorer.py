@@ -362,8 +362,10 @@ def get_subtitle_style_definition(style_name: str) -> str:
     BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
     """
     styles = {
-        # Karaoke: Bold 72pt, white primary, yellow secondary (for \kf tags), black 2px outline
-        "karaoke": "Style: Default,Arial,72,&H00FFFFFF,&H0000D7FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,2,1,2,60,60,320,1",
+        # Karaoke: Bold 80pt. PrimaryColour=YELLOW (sung/current word), SecondaryColour=WHITE
+        # (unsung), so \kf sweeps each word white->yellow as spoken (TikTok highlight look).
+        # Thick 3px black outline + drop shadow for punchy readability.
+        "karaoke": "Style: Default,Arial,80,&H0000D7FF,&H00FFFFFF,&H00000000,&H90000000,1,0,0,0,100,100,0,0,1,3,2,2,60,60,320,1",
         
         # Bold White: Bold 80pt, white, thick 4px black outline, large font
         "bold": "Style: Default,Arial,80,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,4,2,2,60,60,320,1",
