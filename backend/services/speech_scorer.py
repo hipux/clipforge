@@ -364,8 +364,8 @@ def get_subtitle_style_definition(style_name: str) -> str:
     styles = {
         # Karaoke: Bold 80pt. PrimaryColour=YELLOW (sung/current word), SecondaryColour=WHITE
         # (unsung), so \kf sweeps each word white->yellow as spoken (TikTok highlight look).
-        # Thick 3px black outline + drop shadow for punchy readability.
-        "karaoke": "Style: Default,Arial,80,&H0000D7FF,&H00FFFFFF,&H00000000,&H90000000,1,0,0,0,100,100,0,0,1,3,2,2,60,60,320,1",
+        # No outline (per design) + subtle drop shadow for readability.
+        "karaoke": "Style: Default,Arial,80,&H0000D7FF,&H00FFFFFF,&H00000000,&H90000000,1,0,0,0,100,100,0,0,1,0,1,2,60,60,320,1",
         
         # Bold White: Bold 80pt, white, thick 4px black outline, large font
         "bold": "Style: Default,Arial,80,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,4,2,2,60,60,320,1",
@@ -492,7 +492,7 @@ def generate_subtitles_file(video_path: str, output_path: str, style: str = "kar
                             # one Dialogue line per word-active interval. The old \\kf
                             # approach swept the fill across letters, producing the ugly
                             # half-yellow word seen in the rendered clip.
-                            YELLOW = "&H0000D7FF&"
+                            YELLOW = "&H0000FFFF&"  # pure vivid yellow (more visible than gold)
                             WHITE = "&H00FFFFFF&"
                             n_cw = len(chunk_words)
                             for active_i, _aw in enumerate(chunk_words):
@@ -502,8 +502,12 @@ def generate_subtitles_file(video_path: str, output_path: str, style: str = "kar
                                     seg_end = seg_start + 0.05
                                 parts = []
                                 for wi, w in enumerate(chunk_words):
-                                    color = YELLOW if wi == active_i else WHITE
-                                    parts.append(f"{{\\c{color}}}{w.word.strip().upper()}")
+                                    wtext = w.word.strip().upper()
+                                    if wi == active_i:
+                                        # active word: vivid yellow + slight zoom for a clear pop
+                                        parts.append(f"{{\\c{YELLOW}\\fscx112\\fscy112}}{wtext}")
+                                    else:
+                                        parts.append(f"{{\\c{WHITE}\\fscx100\\fscy100}}{wtext}")
                                 line_text = ' '.join(parts)
                                 f.write(f"Dialogue: 0,{format_ass_time(seg_start)},{format_ass_time(seg_end)},Default,,0,0,0,,{line_text}\n")
                         else:
