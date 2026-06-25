@@ -12,20 +12,23 @@ from backend.schemas.moment_instruction import AudioPeak, AudioAnalysis
 
 logger = logging.getLogger(__name__)
 
+# Max time (seconds) we allow ffmpeg audio extraction to run before giving up.
+FFMPEG_TIMEOUT = 600
+
 
 class AudioAnalyzer:
     """CPU-based audio analysis using librosa.
-    
+
     Extracts RMS energy, onset strength, and detects emotional peaks.
     Runs entirely on CPU, no GPU usage.
     """
 
     def analyze(self, video_path: str) -> AudioAnalysis:
         """Analyze audio energy and detect emotional peaks.
-        
+
         Args:
             video_path: Path to video file
-            
+
         Returns:
             AudioAnalysis with peaks, RMS timeline, and statistics
         """
@@ -34,7 +37,7 @@ class AudioAnalyzer:
         from scipy.signal import find_peaks
         import time
         import cv2
-        
+
         # Get video duration for logging
         cap = cv2.VideoCapture(video_path)
         fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
@@ -42,17 +45,41 @@ class AudioAnalyzer:
         video_duration_min = (total_frames / fps) / 60.0
         cap.release()
 
-        # Extract audio to temporary WAV file
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            tmp_path = tmp.name
+        # Create a temp WAV path, but close the handle immediately.
+        # On Windows an open handle locks the file, and ffmpeg with -y cannot
+        # overwrite it -> deadlock. mkstemp + os.close avoids that conflict.
+        fd, tmp_path = tempfile.mkstemp(suffix=".wav")
+        os.close(fd)
 
         try:
             start_time = time.time()
             logger.info(f"🔊 [Аудио] Загрузка аудиодорожки...")
-            subprocess.run([
-                "ffmpeg", "-y", "-i", video_path,
-                "-vn", "-ar", "16000", "-ac", "1", tmp_path
-            ], check=True, capture_output=True)
+            try:
+                subprocess.run(
+                    [
+                        "ffmpeg", "-nostdin", "-y", "-i", video_path,
+                        "-vn", "-ar", "16000", "-ac", "1", tmp_path,
+                    ],
+                    check=True,
+                    capture_output=True,
+                    stdin=subprocess.DEVNULL,
+                    timeout=FFMPEG_TIMEOUT,
+                )
+            except subprocess.TimeoutExpired as exc:
+                logger.error(
+                    f"🔊 [Аудио] ffmpeg превысил таймаут ({FFMPEG_TIMEOUT}s) "
+                    f"при извлечении аудио из {video_path}"
+                )
+                raise RuntimeError(
+                    f"ffmpeg audio extraction timed out after {FFMPEG_TIMEOUT}s "
+                    f"for {video_path}"
+                ) from exc
+            except subprocess.CalledProcessError as exc:
+                stderr = (exc.stderr or b"").decode("utf-8", errors="replace")
+                logger.error(f"🔊 [Аудио] ffmpeg завершился с ошибкой: {stderr}")
+                raise RuntimeError(
+                    f"ffmpeg audio extraction failed for {video_path}: {stderr}"
+                ) from exc
 
             logger.info(f"🔊 [Аудио] Анализирую пики громкости ({video_duration_min:.1f} мин)...")
             y, sr = librosa.load(tmp_path, sr=16000)
@@ -70,14 +97,14 @@ class AudioAnalyzer:
 
             # Find peaks with minimum distance of 0.5s between peaks
             min_dist_frames = int(0.5 / frame_duration)
-            
+
             # Spike peaks (sudden bursts)
             spike_indices, _ = find_peaks(
                 onset_env,
                 height=np.mean(onset_env) * 2.0,
                 distance=min_dist_frames
             )
-            
+
             # Sustained peaks (prolonged energy)
             sustained_indices, _ = find_peaks(
                 rms,
@@ -86,7 +113,7 @@ class AudioAnalyzer:
             )
 
             peaks: List[AudioPeak] = []
-            
+
             # Add spike peaks
             for idx in spike_indices:
                 if idx < len(times):
@@ -95,7 +122,7 @@ class AudioAnalyzer:
                         magnitude=float(onset_env[idx]),
                         peak_type="spike"
                     ))
-            
+
             # Add sustained peaks
             for idx in sustained_indices:
                 if idx < len(times):
@@ -123,7 +150,7 @@ class AudioAnalyzer:
                 avg_rms=avg_rms,
                 max_rms=max_rms
             )
-        
+
         finally:
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
