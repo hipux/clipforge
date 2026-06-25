@@ -51,6 +51,61 @@ def _signal_for_window(ctx, start, end):
     return (avg_rms, peak_energy, float(chars))
 
 
+# Russian intro/context cues that typically OPEN a new dish/restaurant segment in
+# a food-review video. If one appears just before the chosen start, we begin the
+# clip there so the viewer gets the setup ('what is this dish') and gets hooked.
+_INTRO_CUES = (
+    "следующ", "это блюдо", "вот ", "здесь", "передо мной", "закаж", "заказал",
+    "попробу", "перейд", "дальше", "теперь", "у нас", "ресторан", "меню", "заведени",
+    "сегодня", "перв", "втор", "трет", "номер", "называется", "это ",
+)
+
+
+def _sentences(ctx):
+    """Flat, time-sorted list of transcript sentences: {start, end, text}."""
+    out = []
+    for seg in (getattr(ctx, "transcript", None) or []):
+        s = seg.get("start") if isinstance(seg, dict) else getattr(seg, "start", None)
+        e = seg.get("end") if isinstance(seg, dict) else getattr(seg, "end", None)
+        t = seg.get("text") if isinstance(seg, dict) else getattr(seg, "text", "")
+        if s is None or e is None:
+            continue
+        out.append({"start": float(s), "end": float(e), "text": (t or "").lower()})
+    out.sort(key=lambda x: x["start"])
+    return out
+
+
+def _refine_start(sentences, start, lookback=6.0):
+    """Move the clip start to a clean, context-giving boundary.
+
+    1) never start mid-sentence: snap back to the start of the sentence the chosen
+       start falls into;
+    2) if a short intro/setup sentence sits within `lookback` seconds before that,
+       start from it instead so the clip opens with context (the hook).
+    """
+    if not sentences:
+        return max(0.0, start)
+    # sentence containing (or just before) the chosen start
+    containing = None
+    idx = 0
+    for i, sen in enumerate(sentences):
+        if sen["start"] <= start + 0.5:
+            containing = sen
+            idx = i
+        else:
+            break
+    snapped = containing["start"] if containing else max(0.0, start)
+    # look back for an intro-cue sentence to use as the opener
+    best = snapped
+    j = idx
+    while j >= 0 and sentences[j]["start"] >= snapped - lookback:
+        text = sentences[j]["text"]
+        if any(cue in text for cue in _INTRO_CUES):
+            best = sentences[j]["start"]
+        j -= 1
+    return max(0.0, best)
+
+
 def _enforce_constraints(moments, min_duration, max_duration, max_moments, video_duration, ctx=None):
     """Deterministically enforce the user's Detection Settings on LLM output.
 
@@ -83,6 +138,8 @@ def _enforce_constraints(moments, min_duration, max_duration, max_moments, video
         return lambda v: ((v - lo) / rng) if rng > 1e-9 else 0.5
     n_rms, n_peak, n_chars = _normalizer(0), _normalizer(1), _normalizer(2)
 
+    sentences = _sentences(ctx)
+
     model_scores = [float(getattr(m, "virality_score", 0) or 0) for m in moments]
     model_has_variance = (max(model_scores) - min(model_scores) > 1.0) if model_scores else False
 
@@ -92,17 +149,19 @@ def _enforce_constraints(moments, min_duration, max_duration, max_moments, video
         if r is None:
             continue
         start = max(0.0, float(mo.start))
-        end = float(mo.end)
         # Composite signal strength 0..1 (peaks weigh most, then loudness, then speech).
         comp = 0.45 * n_peak(r[1]) + 0.35 * n_rms(r[0]) + 0.20 * n_chars(r[2])
         # Target length scales with signal: strong moments get longer clips.
         target = min_duration + (max_duration - min_duration) * comp
-        if end - start < target:
-            end = min(start + target, video_duration)
-            if end - start < min_duration:
-                start = max(0.0, end - min_duration)
+        # Anchor on a clean, context-giving START (the hook); the END is secondary
+        # for this style, so we snap the start to a sentence/intro boundary and run
+        # forward from there.
+        start = _refine_start(sentences, start, lookback=6.0)
+        end = min(start + target, video_duration)
         if end - start > max_duration:
             end = start + max_duration
+        if end - start < min_duration:
+            start = max(0.0, end - min_duration)
         if end - start < min(floor, 15.0) - 0.01:
             continue
         mo.start = round(start, 2)
