@@ -66,48 +66,56 @@ class ContextBuilder:
         user_instructions: str = "",
         max_tokens_per_chunk: int = 4000
     ) -> list[str]:
-        """Build dynamic time-based chunks for long videos.
-        
-        Divides video into time windows, each generating a chunk ≤ max_tokens_per_chunk.
-        No fixed chunk limit - adapts to video duration.
-        
+        """Build content-aware chunks for long videos.
+
+        Chunks are sized by ACTUAL transcript density, not by a fixed time
+        estimate. We greedily pack transcript segments until the next one would
+        exceed the per-chunk token budget, then start a new chunk at a segment
+        boundary. Dense speech simply produces MORE chunks instead of having its
+        transcript truncated (which silently dropped content and moments).
+
         Args:
             ctx: Stage1Context with all assembled data
             user_instructions: Optional user-provided analysis instructions
             max_tokens_per_chunk: Maximum tokens per chunk (default 4000)
-            
+
         Returns:
-            List of context log strings, one per time chunk
+            List of context log strings, one per chunk
         """
-        import math
-        
-        # Cyrillic/Russian BPE is ~2 chars/token (measured: 19.8k chars -> 10.5k tokens).
-        # Use a conservative ratio so chunks never overflow n_ctx (8192).
-        TOKEN_CHARS = 2  # Approximate characters per token (Cyrillic-safe)
-        TOKENS_PER_MIN = 800  # Estimate: 800 tokens per minute of speech
-        
+        TOKEN_CHARS = 2  # Cyrillic-safe (see notes below)
+        MAX_CHARS = max_tokens_per_chunk * TOKEN_CHARS
+        # Reserve room for the non-transcript sections (header, audio peaks,
+        # face timeline, user instructions) so the transcript itself never
+        # overflows the budget and triggers truncation.
+        RESERVE_CHARS = 1800 + (len(user_instructions) if user_instructions else 0)
+        transcript_budget = max(1000, MAX_CHARS - RESERVE_CHARS)
+
+        segs = sorted(ctx.transcript, key=lambda s: s.start)
+
+        # Compute time boundaries by packing transcript lines up to the budget.
+        boundaries: list[tuple[float, float]] = []
+        if not segs:
+            boundaries = [(0.0, ctx.video_duration)]
+        else:
+            cur_start = 0.0
+            cur_chars = 0
+            for seg in segs:
+                text = seg.text if len(seg.text) <= 300 else seg.text[:297] + "..."
+                line_len = len(f"[{seg.start:.1f}s-{seg.end:.1f}s][{seg.language}] {text}") + 1
+                if cur_chars + line_len > transcript_budget and cur_chars > 0:
+                    boundaries.append((cur_start, seg.start))
+                    cur_start = seg.start
+                    cur_chars = 0
+                cur_chars += line_len
+            boundaries.append((cur_start, ctx.video_duration))
+
+        num_chunks = len(boundaries)
         video_duration_min = ctx.video_duration / 60.0
-        
-        # Calculate chunk duration: 6000 tokens / 400 tokens/min = 15 min per chunk
-        chunk_duration_min = max_tokens_per_chunk / TOKENS_PER_MIN
-        
-        # Number of chunks: ceil(video_duration / chunk_duration)
-        # For 30-min video: ceil(30/15) = 2 chunks
-        # For 2.5hr video: ceil(150/15) = 10 chunks
-        # For 10-min video: ceil(10/15) = 1 chunk
-        num_chunks = max(1, math.ceil(video_duration_min / chunk_duration_min))
-        
-        # Recalculate exact chunk duration to evenly divide video
-        chunk_duration_sec = ctx.video_duration / num_chunks
-        
-        logger.info(f"📝 [Контекст] Видео {video_duration_min:.1f} мин → {num_chunks} чанков по {chunk_duration_sec/60:.1f} мин")
-        logger.info(f"📝 [Контекст] Целевой размер чанка: ~{TOKENS_PER_MIN * (chunk_duration_sec/60):.0f} токенов, макс {max_tokens_per_chunk}")
-        
+        logger.info(f"📝 [Контекст] Видео {video_duration_min:.1f} мин → {num_chunks} чанков (по плотности речи)")
+        logger.info(f"📝 [Контекст] Бюджет транскрипта: ~{transcript_budget // TOKEN_CHARS} токенов/чанк (макс {max_tokens_per_chunk})")
+
         chunks = []
-        for i in range(num_chunks):
-            chunk_start = i * chunk_duration_sec
-            chunk_end = min((i + 1) * chunk_duration_sec, ctx.video_duration)
-            
+        for i, (chunk_start, chunk_end) in enumerate(boundaries):
             chunk_log = self._build_chunk_log(
                 ctx,
                 chunk_start,
@@ -118,12 +126,11 @@ class ContextBuilder:
                 max_tokens_per_chunk
             )
             chunks.append(chunk_log)
-            
+
             token_count = len(chunk_log) // TOKEN_CHARS
             logger.info(f"📝 [Контекст] Чанк {i+1}/{num_chunks} ({chunk_start/60:.1f}-{chunk_end/60:.1f} мин): {len(chunk_log)} символов, ~{token_count} токенов")
-        
-        return chunks
 
+        return chunks
     def _build_chunk_log(
         self,
         ctx: Stage1Context,
