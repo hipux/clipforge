@@ -66,7 +66,8 @@ class ContextBuilder:
         self,
         ctx: Stage1Context,
         user_instructions: str = "",
-        max_tokens_per_chunk: int = 4000
+        max_tokens_per_chunk: int = 4000,
+        overlap_sec: float = 25.0
     ) -> list[str]:
         """Build content-aware chunks for long videos.
 
@@ -116,11 +117,19 @@ class ContextBuilder:
         logger.info(f"📝 [Контекст] Видео {video_duration_min:.1f} мин → {num_chunks} чанков (по плотности речи)")
         logger.info(f"📝 [Контекст] Бюджет транскрипта: ~{transcript_budget // TOKEN_CHARS} токенов/чанк (макс {max_tokens_per_chunk})")
 
+        if overlap_sec > 0 and num_chunks > 1:
+            logger.info(f"📝 [Контекст] Перекрытие чанков: {overlap_sec:.0f}с (моменты на стыках не теряются)")
+
         chunks = []
         for i, (chunk_start, chunk_end) in enumerate(boundaries):
+            # Overlap: start each chunk (except the first) a little earlier so a
+            # moment that straddles a boundary is fully visible to at least one
+            # chunk. Duplicates from the overlap are removed later by the
+            # time-overlap dedup in _enforce_constraints.
+            eff_start = chunk_start if i == 0 else max(0.0, chunk_start - overlap_sec)
             chunk_log = self._build_chunk_log(
                 ctx,
-                chunk_start,
+                eff_start,
                 chunk_end,
                 i + 1,
                 num_chunks,
@@ -130,7 +139,7 @@ class ContextBuilder:
             chunks.append(chunk_log)
 
             token_count = len(chunk_log) // TOKEN_CHARS
-            logger.info(f"📝 [Контекст] Чанк {i+1}/{num_chunks} ({chunk_start/60:.1f}-{chunk_end/60:.1f} мин): {len(chunk_log)} символов, ~{token_count} токенов")
+            logger.info(f"📝 [Контекст] Чанк {i+1}/{num_chunks} ({eff_start/60:.1f}-{chunk_end/60:.1f} мин): {len(chunk_log)} символов, ~{token_count} токенов")
 
         return chunks
     def _build_chunk_log(
