@@ -95,11 +95,11 @@ async def process_clip(
             progress_callback(0.1, "Applying blur background...")
         
         # Create dynamic blurred background:
-        # - bg layer: scale up to fill 1080x1920, apply very strong blur (sigma=60), darken noticeably
+        # - bg layer: scale up to fill 1080x1920, apply very strong blur (sigma=60), darken via output white point (romax) so the bg is actually darker
         # - fg layer: scale original to fit within 1080 width, maintaining aspect ratio
         # - overlay fg centered on bg
         filters.append(
-            "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=60,colorlevels=rimax=0.45:gimax=0.45:bimax=0.45[bg];"
+            "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=60,colorlevels=romax=0.5:gomax=0.5:bomax=0.5[bg];"
             "[0:v]scale=1080:-2:force_original_aspect_ratio=decrease[fg];"
             "[bg][fg]overlay=(W-w)/2:(H-h)/2[v1]"
         )
