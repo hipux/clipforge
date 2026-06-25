@@ -87,7 +87,7 @@ class ContextBuilder:
         # Reserve room for the non-transcript sections (header, audio peaks,
         # face timeline, user instructions) so the transcript itself never
         # overflows the budget and triggers truncation.
-        RESERVE_CHARS = 1800 + (len(user_instructions) if user_instructions else 0)
+        RESERVE_CHARS = 2600 + (len(user_instructions) if user_instructions else 0)
         transcript_budget = max(1000, MAX_CHARS - RESERVE_CHARS)
 
         segs = sorted(ctx.transcript, key=lambda s: s.start)
@@ -188,7 +188,7 @@ class ContextBuilder:
         ]
         
         if chunk_peaks:
-            for peak in chunk_peaks[:50]:  # Max 50 peaks per chunk
+            for peak in chunk_peaks[:25]:  # Max 25 peaks per chunk (keep token budget for transcript)
                 peaks_lines.append(f"[{peak.timestamp:.1f}s] {peak.peak_type} magnitude={peak.magnitude:.3f}")
         else:
             peaks_lines.append("(No significant audio activity)")
@@ -203,7 +203,7 @@ class ContextBuilder:
         
         if chunk_frames:
             # Sample to keep token count down
-            sample_rate = max(1, len(chunk_frames) // 50)  # Max 50 frames per chunk
+            sample_rate = max(1, len(chunk_frames) // 25)  # Max 25 frames per chunk
             for frame in chunk_frames[::sample_rate]:
                 if frame.faces:
                     face_info = ", ".join([
@@ -224,21 +224,24 @@ class ContextBuilder:
         all_lines = lines + transcript_lines + peaks_lines + face_lines + instructions_lines
         log = "\n".join(all_lines)
         
-        # Hard limit: if chunk still exceeds max_chars, trim transcript
+        # Hard limit: TRANSCRIPT is the most important signal and must never be
+        # cut. If the chunk is still too large, trim the less-critical peaks and
+        # face sections instead.
         if len(log) > MAX_CHARS:
-            logger.warning(f"📝 [Контекст] Чанк {chunk_num} слишком большой ({len(log)} символов), обрезаю транскрипт...")
+            logger.warning(f"📝 [Контекст] Чанк {chunk_num} великоват ({len(log)} символов), сжимаю пики/лица (транскрипт сохраняю)...")
             header = "\n".join(lines)
+            transcript_text = "\n".join(transcript_lines)
+            instructions_text = "\n".join(instructions_lines)
             peaks_text = "\n".join(peaks_lines)
             faces_text = "\n".join(face_lines)
-            instructions_text = "\n".join(instructions_lines)
-            
-            reserved = len(header) + len(peaks_text) + len(faces_text) + len(instructions_text) + 100
-            transcript_budget = MAX_CHARS - reserved
-            
-            transcript_text = "\n".join(transcript_lines)
-            if len(transcript_text) > transcript_budget:
-                transcript_text = transcript_text[:transcript_budget] + "\n... (transcript truncated to fit token limit)\n"
-            
+            budget_left = MAX_CHARS - len(header) - len(transcript_text) - len(instructions_text) - 100
+            if budget_left < 0:
+                budget_left = 0
+            half = budget_left // 2
+            if len(peaks_text) > half:
+                peaks_text = peaks_text[:half] + "\n... (пики обрезаны)\n"
+            if len(faces_text) > half:
+                faces_text = faces_text[:half] + "\n... (лица обрезаны)\n"
             log = f"{header}\n{transcript_text}\n{peaks_text}\n{faces_text}\n{instructions_text}"
         
         return log
