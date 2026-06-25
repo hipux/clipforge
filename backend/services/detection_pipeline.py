@@ -51,37 +51,29 @@ def _signal_for_window(ctx, start, end):
     return (avg_rms, peak_energy, float(chars))
 
 
-# Russian intro/context cues that typically OPEN a new dish/restaurant segment in
-# a food-review video. If one appears just before the chosen start, we begin the
-# clip there so the viewer gets the setup ('what is this dish') and gets hooked.
-_INTRO_CUES = (
-    "следующ", "это блюдо", "вот ", "здесь", "передо мной", "закаж", "заказал",
-    "попробу", "перейд", "дальше", "теперь", "у нас", "ресторан", "меню", "заведени",
-    "сегодня", "перв", "втор", "трет", "номер", "называется", "это ",
-)
-
-
 def _sentences(ctx):
-    """Flat, time-sorted list of transcript sentences: {start, end, text}."""
+    """Flat, time-sorted list of transcript sentences: {start, end}."""
     out = []
     for seg in (getattr(ctx, "transcript", None) or []):
         s = seg.get("start") if isinstance(seg, dict) else getattr(seg, "start", None)
         e = seg.get("end") if isinstance(seg, dict) else getattr(seg, "end", None)
-        t = seg.get("text") if isinstance(seg, dict) else getattr(seg, "text", "")
         if s is None or e is None:
             continue
-        out.append({"start": float(s), "end": float(e), "text": (t or "").lower()})
+        out.append({"start": float(s), "end": float(e)})
     out.sort(key=lambda x: x["start"])
     return out
 
 
-def _refine_start(sentences, start, lookback=6.0):
-    """Move the clip start to a clean, context-giving boundary.
+def _refine_start(sentences, start, lookback=6.0, pause_threshold=0.45):
+    """Move the clip start to a clean, context-giving boundary. Content-agnostic.
 
-    1) never start mid-sentence: snap back to the start of the sentence the chosen
-       start falls into;
-    2) if a short intro/setup sentence sits within `lookback` seconds before that,
-       start from it instead so the clip opens with context (the hook).
+    Works for ANY video (no domain keywords). Two universal rules:
+      1) never start mid-sentence -> snap back to the start of the sentence the
+         chosen start falls into;
+      2) prefer the natural start of the current spoken segment: within `lookback`
+         seconds, pick the earliest sentence that begins right after a noticeable
+         pause (silence gap >= pause_threshold). A pause almost always marks the
+         beginning of a new thought, so the clip opens with context/the hook.
     """
     if not sentences:
         return max(0.0, start)
@@ -95,12 +87,14 @@ def _refine_start(sentences, start, lookback=6.0):
         else:
             break
     snapped = containing["start"] if containing else max(0.0, start)
-    # look back for an intro-cue sentence to use as the opener
+    # walk back through the lookback window; remember the earliest sentence that
+    # follows a real pause -> that's where the current segment naturally began.
     best = snapped
     j = idx
     while j >= 0 and sentences[j]["start"] >= snapped - lookback:
-        text = sentences[j]["text"]
-        if any(cue in text for cue in _INTRO_CUES):
+        prev_end = sentences[j - 1]["end"] if j > 0 else 0.0
+        gap = sentences[j]["start"] - prev_end
+        if gap >= pause_threshold:
             best = sentences[j]["start"]
         j -= 1
     return max(0.0, best)
