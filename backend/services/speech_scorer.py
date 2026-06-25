@@ -401,8 +401,22 @@ def generate_subtitles_file(video_path: str, output_path: str, style: str = "kar
     Returns:
         True if successful, False otherwise
     """
-    segments = transcribe_video(video_path)
-    
+    # Use the SAME high-quality GPU model (large-v3) the detection pipeline uses,
+    # instead of the tiny legacy 'base' model which produced wrong Russian words.
+    # Re-transcribe the clip to get clip-relative word timestamps for karaoke.
+    segments = None
+    try:
+        from backend.services.whisper_gpu import whisper_gpu
+        gpu_segments = whisper_gpu.transcribe(video_path)
+        segments = [
+            {'start': s.start, 'end': s.end, 'text': s.text, 'words': s.words}
+            for s in gpu_segments
+        ]
+        logger.info(f"[Subtitles] GPU transcript: {len(segments)} segments (large-v3)")
+    except Exception as e:
+        logger.warning(f"[Subtitles] GPU transcription failed ({e}); falling back to legacy base model")
+        segments = transcribe_video(video_path)
+
     if segments is None or len(segments) == 0:
         return False
     
@@ -472,21 +486,30 @@ def generate_subtitles_file(video_path: str, output_path: str, style: str = "kar
                         chunk_start = chunk_words[0].start
                         chunk_end = chunk_words[-1].end
                         
-                        # Build karaoke text with \kf tags only if using karaoke style
                         if style == "karaoke":
-                            karaoke_parts = []
-                            for word in chunk_words:
-                                word_text = word.word.strip().upper()
-                                # Calculate duration in centiseconds (10ms units)
-                                word_duration_cs = int((word.end - word.start) * 100)
-                                karaoke_parts.append(f"{{\\kf{word_duration_cs}}}{word_text}")
-                            karaoke_text = ' '.join(karaoke_parts)
+                            # Whole-word highlight so it matches the UI preview:
+                            # the active word is fully yellow, the rest white. We emit
+                            # one Dialogue line per word-active interval. The old \\kf
+                            # approach swept the fill across letters, producing the ugly
+                            # half-yellow word seen in the rendered clip.
+                            YELLOW = "&H0000D7FF&"
+                            WHITE = "&H00FFFFFF&"
+                            n_cw = len(chunk_words)
+                            for active_i, _aw in enumerate(chunk_words):
+                                seg_start = chunk_words[active_i].start
+                                seg_end = chunk_words[active_i + 1].start if active_i + 1 < n_cw else chunk_end
+                                if seg_end <= seg_start:
+                                    seg_end = seg_start + 0.05
+                                parts = []
+                                for wi, w in enumerate(chunk_words):
+                                    color = YELLOW if wi == active_i else WHITE
+                                    parts.append(f"{{\\c{color}}}{w.word.strip().upper()}")
+                                line_text = ' '.join(parts)
+                                f.write(f"Dialogue: 0,{format_ass_time(seg_start)},{format_ass_time(seg_end)},Default,,0,0,0,,{line_text}\n")
                         else:
-                            # For other styles, just uppercase text without karaoke tags
-                            karaoke_text = ' '.join([word.word.strip().upper() for word in chunk_words])
-                        
-                        # Write dialogue line
-                        f.write(f"Dialogue: 0,{format_ass_time(chunk_start)},{format_ass_time(chunk_end)},Default,,0,0,0,,{karaoke_text}\n")
+                            # For other styles, just uppercase text (styling via style block)
+                            text = ' '.join([word.word.strip().upper() for word in chunk_words])
+                            f.write(f"Dialogue: 0,{format_ass_time(chunk_start)},{format_ass_time(chunk_end)},Default,,0,0,0,,{text}\n")
         
         return True
     
