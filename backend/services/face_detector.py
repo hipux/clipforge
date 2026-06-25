@@ -66,6 +66,8 @@ class FaceDetector:
         from ultralytics import YOLO
         import cv2
         import time
+        import subprocess as _sp
+        import numpy as _np
 
         device = vram_manager.device
         
@@ -88,15 +90,17 @@ class FaceDetector:
         load_time = time.time() - load_start
         logger.info(f"👤 [YOLO] Модель загружена за {load_time:.1f}с")
 
+        # ── Probe metadata with OpenCV (cheap), then decode via ffmpeg/NVDEC ──
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             raise RuntimeError(f"Cannot open video: {video_path}")
-
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        fps = cap.get(cv2.CAP_PROP_FPS)
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        cap.release()  # frames are decoded by ffmpeg (NVDEC), not OpenCV
         duration = total_frames / fps if fps > 0 else 0
-        frame_interval = max(1, int(fps / FACE_SAMPLE_FPS))
-        sampled_frames_count = total_frames // frame_interval
+        sampled_frames_count = max(1, int(duration * FACE_SAMPLE_FPS))
 
         logger.info(f"👤 [YOLO] Анализирую кадры ({sampled_frames_count} кадров, каждые {1/FACE_SAMPLE_FPS:.1f}с)...")
         
@@ -146,9 +150,10 @@ class FaceDetector:
         last_log_percent = 0
 
         def run_batch():
-            nonlocal sample_no, last_log_percent
+            nonlocal sample_no, last_log_percent, _t_infer
             if not batch_frames:
                 return
+            _t0 = time.perf_counter()
             results = model.predict(
                 batch_frames,
                 conf=FACE_CONFIDENCE_THRESHOLD,
@@ -157,6 +162,7 @@ class FaceDetector:
                 device=device,
                 verbose=False,
             )
+            _t_infer += time.perf_counter() - _t0
             for res, (timestamp, h, w) in zip(results, batch_meta):
                 boxes_norm = []
                 if res.boxes is not None:
@@ -188,27 +194,70 @@ class FaceDetector:
                 )
                 last_log_percent = progress_percent
 
-        frame_idx = 0
-        while cap.isOpened():
-            # grab() skipped frames (no decode); read() only sampled ones.
-            if frame_idx % frame_interval != 0:
-                if not cap.grab():
-                    break
-                frame_idx += 1
-                continue
-            ret, frame = cap.read()
-            if not ret:
-                break
-            h, w = frame.shape[:2]
+        _t_decode = 0.0
+        _t_infer = 0.0
+        frame_bytes = width * height * 3
+
+        def _build_ffmpeg_cmd(use_gpu):
+            cmd = ["ffmpeg", "-nostdin", "-loglevel", "error"]
+            if use_gpu:
+                cmd += ["-hwaccel", "cuda"]
+            cmd += [
+                "-i", video_path,
+                "-vf", f"fps={FACE_SAMPLE_FPS}",
+                "-pix_fmt", "bgr24",
+                "-f", "rawvideo",
+                "pipe:1",
+            ]
+            return cmd
+
+        def _iter_frames():
+            # GPU(NVDEC) decode first; fall back to CPU ffmpeg if it yields nothing.
+            nonlocal _t_decode
+            use_gpu_first = str(device).startswith("cuda")
+            for attempt, use_gpu in enumerate((use_gpu_first, False)):
+                if attempt == 1 and not use_gpu_first:
+                    pass  # CPU already tried as first attempt; skip duplicate
+                proc = _sp.Popen(
+                    _build_ffmpeg_cmd(use_gpu),
+                    stdout=_sp.PIPE, stderr=_sp.PIPE,
+                    stdin=_sp.DEVNULL, bufsize=frame_bytes * 4,
+                )
+                got_any = False
+                try:
+                    while True:
+                        _t0 = time.perf_counter()
+                        buf = proc.stdout.read(frame_bytes)
+                        _t_decode += time.perf_counter() - _t0
+                        if not buf or len(buf) < frame_bytes:
+                            break
+                        got_any = True
+                        # writable copy so YOLO preprocessing won't complain
+                        yield _np.frombuffer(buf, _np.uint8).reshape(
+                            (height, width, 3)
+                        ).copy()
+                finally:
+                    if proc.poll() is None:
+                        proc.kill()
+                    proc.wait()
+                if got_any:
+                    return
+                if use_gpu:
+                    logger.warning("👤 [YOLO] NVDEC-декод не дал кадров, фолбэк на CPU ffmpeg")
+            raise RuntimeError(f"ffmpeg failed to decode frames from {video_path}")
+
+        sample_index = 0
+        for frame in _iter_frames():
+            timestamp = sample_index / FACE_SAMPLE_FPS
             batch_frames.append(frame)
-            batch_meta.append((frame_idx / fps, h, w))
+            batch_meta.append((timestamp, height, width))
             if len(batch_frames) >= FACE_BATCH:
                 run_batch()
-            frame_idx += 1
+            sample_index += 1
 
         run_batch()  # flush remaining frames
-        cap.release()
         detect_time = time.time() - detect_start
+        logger.info(f"⏱️ [YOLO] Декод видео: {_t_decode:.1f}с | Инференс YOLO: {_t_infer:.1f}с | Общее: {detect_time:.1f}с")
         
         logger.info(f"👤 [YOLO] Найдено {len(all_track_ids)} сырых треков за {detect_time:.1f}с")
         

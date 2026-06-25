@@ -33,8 +33,14 @@ _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 
 def _strip_think(text: str) -> str:
-    """Remove <think>...</think> blocks from Qwen3 responses."""
-    return _THINK_RE.sub("", text).strip()
+    """Remove <think>...</think> blocks and ```json fences from Qwen3 responses."""
+    text = _THINK_RE.sub("", text).strip()
+    # Qwen often wraps JSON in a markdown code fence; extract the fenced body.
+    if "```" in text:
+        m = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL | re.IGNORECASE)
+        if m:
+            text = m.group(1)
+    return text.strip()
 
 
 
@@ -112,6 +118,7 @@ class LLMDirector:
         then validate the clean JSON with pydantic manually.
         """
         response_model = kwargs.pop("response_model")
+        kwargs.pop("max_retries", None)  # raw call: no instructor retry
 
         # Get raw completion (no structured parsing yet)
         raw = create_fn(response_model=None, **kwargs)
@@ -220,11 +227,12 @@ class LLMDirector:
         system_prompt_filled = SYSTEM_PROMPT.format(user_instructions=user_instructions or "Нет")
         
         try:
-            result = create_fn(
+            result = self._call_with_thinking(create_fn,
+                
                 model="qwen3",
                 response_model=DirectorOutput,
                 messages=[
-                    {"role": "system", "content": system_prompt_filled},
+                    {"role": "system", "content": system_prompt_filled + "\n\n/no_think"},
                     {"role": "user", "content": context_log},
                 ],
                 temperature=QWEN_TEMPERATURE,
@@ -269,11 +277,12 @@ class LLMDirector:
             system_prompt = SYSTEM_PROMPT.format(user_instructions=user_instructions or "Нет")
             
             try:
-                chunk_result = create_fn(
+                chunk_result = self._call_with_thinking(create_fn,
+                
                     model="qwen3",
                     response_model=DirectorOutput,
                     messages=[
-                        {"role": "system", "content": system_prompt},
+                        {"role": "system", "content": system_prompt + "\n\n/no_think"},
                         {"role": "user", "content": chunk},
                     ],
                     temperature=QWEN_TEMPERATURE,
@@ -301,11 +310,20 @@ class LLMDirector:
         # Consolidate all candidates
         logger.info(f"🧠 [Qwen3] Консолидирую {len(all_candidates)} кандидатов...")
         
-        # Report consolidation start
-        if on_progress:
-            on_progress(len(chunks), len(chunks), "consolidate")
-        
-        final_result = self._consolidate_moments(create_fn, all_candidates)
+        # Single chunk: its moments are already final. LLM consolidation only
+        # risks dropping required fields, so skip it and return directly.
+        if len(chunks) <= 1:
+            logger.info("🧠 [Qwen3] Один чанк — консолидация пропущена")
+            final_result = DirectorOutput(
+                moments=all_candidates,
+                total_analyzed=len(all_candidates),
+                language_detected="unknown",
+            )
+        else:
+            # Report consolidation start
+            if on_progress:
+                on_progress(len(chunks), len(chunks), "consolidate")
+            final_result = self._consolidate_moments(create_fn, all_candidates)
         
         vram_manager.unload_model("llm")
         logger.info("🧠 [Qwen3] Модель выгружена из VRAM")
@@ -349,11 +367,12 @@ RULES:
         
         consolidate_start = time.time()
         
-        result = create_fn(
+        result = self._call_with_thinking(create_fn,
+                
             model="qwen3",
             response_model=DirectorOutput,
             messages=[
-                {"role": "system", "content": "You are a viral video editor consolidating moment candidates."},
+                {"role": "system", "content": "You are a viral video editor consolidating moment candidates.\n\n/no_think"},
                 {"role": "user", "content": consolidation_prompt},
             ],
             temperature=0.3,

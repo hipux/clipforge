@@ -59,7 +59,7 @@ async def _run_detection_session(session: "DetectionSession", video: dict, reque
                 msg['detail'] = data['detail']
             await session.broadcast(msg)
 
-        moments = await detection_pipeline.run(
+        director_output = await detection_pipeline.run(
             video_path=video['file_path'],
             user_instructions=request.user_instructions or "",
             max_moments=request.max_moments,
@@ -67,7 +67,29 @@ async def _run_detection_session(session: "DetectionSession", video: dict, reque
             max_duration=request.max_duration,
             progress_callback=progress_callback,
         )
-        await save_moments(moments)
+
+        # Convert DirectorOutput to MomentCandidateGPU rows for the database.
+        moments = []
+        for instr in director_output.moments:
+            moments.append(MomentCandidateGPU(
+                id=str(uuid.uuid4()),
+                video_id=video['id'],
+                start=instr.start,
+                end=instr.end,
+                score=instr.virality_score / 100.0,
+                reason=instr.reasoning or instr.hook,
+                thumbnail_url="",
+                approved=False,
+                hook=instr.hook,
+                virality_score=instr.virality_score,
+                content_type=instr.content_type,
+                subtitle_mode=instr.subtitle_mode.value,
+                translated_text=None,
+                camera_plan=json.dumps([kf.model_dump() for kf in instr.camera_plan]),
+                reasoning=instr.reasoning,
+                pipeline_mode="gpu",
+            ))
+        await save_moments([m.model_dump() for m in moments])
         moments_response = [
             {
                 'id': m.id, 'video_id': m.video_id, 'start': m.start, 'end': m.end,

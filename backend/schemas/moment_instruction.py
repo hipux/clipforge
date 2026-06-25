@@ -27,19 +27,19 @@ class MomentInstruction(BaseModel):
     start: float = Field(description="absolute second in video")
     end: float = Field(description="absolute second in video")
     hook: str = Field(description="what grabs attention in first 3 seconds")
-    virality_score: float = Field(ge=0, le=100, description="viral potential score")
-    content_type: str = Field(description="reaction|explanation|story|joke|argument")
+    virality_score: float = Field(default=50, ge=0, le=100, description="viral potential score")
+    content_type: str = Field(default="explanation", description="reaction|explanation|story|joke|argument")
     subtitle_mode: SubtitleMode = SubtitleMode.ru_only
     translated_text: Optional[str] = Field(None, description="Russian translation if original is not Russian")
     camera_plan: List[CameraKeyframe] = Field(default_factory=list, description="camera movement keyframes")
-    reasoning: str = Field(description="why this moment is viral")
+    reasoning: str = Field(default="", description="why this moment is viral")
 
 
 class DirectorOutput(BaseModel):
     """LLM director output with ranked moments."""
     moments: List[MomentInstruction] = Field(description="top viral moments, best first")
-    total_analyzed: int = Field(description="total candidate moments analyzed")
-    language_detected: str = Field(description="primary language detected")
+    total_analyzed: int = Field(default=0, description="total candidate moments analyzed")
+    language_detected: str = Field(default="unknown", description="primary language detected")
 
 
 # ─── Stage 1: Data Collection Schemas ──────────────────────────────────────

@@ -191,7 +191,7 @@ class DetectionPipeline:
                 "stage": 1,
                 "step": "yolo_done",
                 "progress": 0.48,
-                "detail": {"faces": face_count}
+                "detail": f"{face_count} лиц"
             })
 
         if progress_callback:
@@ -207,7 +207,7 @@ class DetectionPipeline:
                 "stage": 1,
                 "step": "audio_done",
                 "progress": 0.57,
-                "detail": {"peaks": peak_count}
+                "detail": f"{peak_count} пиков"
             })
         
         stage1_time = time.time() - stage1_start
@@ -257,7 +257,7 @@ class DetectionPipeline:
                 "stage": 2,
                 "step": step_name,
                 "progress": prog,
-                "detail": {"chunk": chunk_i, "total": total}
+                "detail": f"Чанк {chunk_i}/{total}"
             })
             asyncio.run_coroutine_threadsafe(coro, _loop)
 

@@ -30,7 +30,7 @@ FACE_CONFIDENCE_THRESHOLD = float(os.getenv("CLIPFORGE_FACE_CONF", "0.72"))
 QWEN_MODEL_REPO = "Qwen/Qwen3-8B-GGUF"
 QWEN_MODEL_FILE = "Qwen3-8B-Q4_K_M.gguf"  # Note: case-sensitive filename on HuggingFace!
 QWEN_MODEL_PATH = MODELS_DIR / QWEN_MODEL_FILE
-QWEN_N_CTX = int(os.getenv("CLIPFORGE_QWEN_N_CTX", "16384"))  # was 32768: a 32k KV-cache (~3-4GB) plus the ~5GB Q4 model exceeds 8GB VRAM and spills to system RAM, making generation very slow. Each chunk is only ~4-5k tokens, so 16k is ample and keeps everything on-GPU.
+QWEN_N_CTX = int(os.getenv("CLIPFORGE_QWEN_N_CTX", "8192"))  # was 32768: a 32k KV-cache (~3-4GB) plus the ~5GB Q4 model exceeds 8GB VRAM and spills to system RAM, making generation very slow. Each chunk is only ~4-5k tokens, so 16k is ample and keeps everything on-GPU.
 QWEN_N_GPU_LAYERS = int(os.getenv("CLIPFORGE_QWEN_N_GPU_LAYERS", "-1"))  # -1 = all layers on GPU
 QWEN_TEMPERATURE = float(os.getenv("CLIPFORGE_QWEN_TEMP", "0.3"))
 QWEN_PRESENCE_PENALTY = float(os.getenv("CLIPFORGE_QWEN_PRESENCE", "1.5"))
