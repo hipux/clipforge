@@ -14,7 +14,7 @@ import {
 
 export default function ProcessPage() {
   const navigate = useNavigate()
-  const { selectedMomentIds, globalEffects, setClips, setCurrentStep, activeProcessingJobId, setActiveProcessingJobId } = useAppStore()
+  const { selectedMomentIds, globalEffects, setClips, setCurrentStep, activeProcessingJobId, setActiveProcessingJobId, processedClips } = useAppStore()
 
   const [processing, setProcessing] = useState(false)
   const [currentClip, setCurrentClip] = useState(0)
@@ -23,7 +23,7 @@ export default function ProcessPage() {
   const [clipMessage, setClipMessage] = useState('')
   const [overallMessage, setOverallMessage] = useState('')
   const [error, setError] = useState('')
-  const [completed, setCompleted] = useState(false)
+  const [completed, setCompleted] = useState(processedClips.length > 0)
   const [previousClip, setPreviousClip] = useState(0)
 
   useEffect(() => {
@@ -230,7 +230,14 @@ export default function ProcessPage() {
             </div>
           </div>
 
-          <div className="flex justify-end">
+          <div className="flex justify-between items-center">
+            <button
+              onClick={() => { setCompleted(false); startProcessing() }}
+              className="btn btn-secondary px-5"
+            >
+              <RefreshCw size={15} />
+              Process Again
+            </button>
             <button
               onClick={() => navigate('/publish')}
               className="btn btn-primary px-6"

@@ -27,6 +27,8 @@ export default function Layout() {
   const currentVideo = useAppStore(state => state.currentVideo)
   const moments = useAppStore(state => state.moments)
   const processedClips = useAppStore(state => state.processedClips)
+  const currentStep = useAppStore(state => state.currentStep)
+  const selectedMomentIds = useAppStore(state => state.selectedMomentIds)
 
   const canAccessStep = (stepId: number) => {
     if (stepId === 1) return true
@@ -37,12 +39,22 @@ export default function Layout() {
     return false
   }
 
+  // Index of the step matching the current route (0-based). Used as a
+  // high-water mark so any step we've moved *past* is shown as complete,
+  // regardless of transient data state.
+  const currentIndex = steps.findIndex(s => s.path === location.pathname)
+
   const isStepComplete = (stepId: number) => {
-    if (stepId === 1) return currentVideo !== null
-    if (stepId === 2) return moments.length > 0
-    if (stepId === 3) return moments.some(m => m.approved)
-    if (stepId === 4) return processedClips.length > 0
-    return false
+    // Data-based completion for each step.
+    let dataComplete = false
+    if (stepId === 1) dataComplete = currentVideo !== null
+    else if (stepId === 2) dataComplete = moments.length > 0
+    else if (stepId === 3) dataComplete = selectedMomentIds.length > 0
+    else if (stepId === 4) dataComplete = processedClips.length > 0
+    // Also complete if the user has navigated to a later step, or the persisted
+    // high-water step is beyond this one.
+    const movedPast = (currentIndex !== -1 && currentIndex + 1 > stepId) || currentStep > stepId
+    return dataComplete || movedPast
   }
 
   return (

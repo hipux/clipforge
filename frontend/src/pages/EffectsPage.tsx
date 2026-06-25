@@ -43,7 +43,13 @@ export default function EffectsPage() {
     return null
   }
 
-  const enabledCount = Object.values(globalEffects).filter(Boolean).length
+  // Count only the real, applied effects (3 video effects + subtitles = max 4).
+  const enabledCount = [
+    globalEffects.blur_background,
+    globalEffects.mirror,
+    globalEffects.color_correction,
+    globalEffects.subtitles,
+  ].filter(Boolean).length
 
   return (
     <div className="max-w-2xl mx-auto p-8">

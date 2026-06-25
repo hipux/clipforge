@@ -370,6 +370,12 @@ def get_subtitle_style_definition(style_name: str) -> str:
         
         # Neon: Bold 72pt, cyan text (&H00FFD700 = cyan), cyan outline for glow, semi-transparent dark box
         "neon": "Style: Default,Arial,72,&H00FFD706,&H00FFD706,&H00FFD706,&HB0000000,1,0,0,0,100,100,0,0,4,3,0,2,60,60,320,1",
+
+        # Hormozi: Arial Black 84pt, bold white caps, very thick 6px black outline, punchy
+        "hormozi": "Style: Default,Arial Black,84,&H00FFFFFF,&H0022C55E,&H00000000,&H00000000,1,0,0,0,105,105,0,0,1,6,2,2,60,60,300,1",
+
+        # Highlight: marker-style — BorderStyle 3 (opaque box), yellow box, black bold text
+        "highlight": "Style: Default,Arial,76,&H00000000,&H00000000,&H0000D7FF,&H0000D7FF,1,0,0,0,100,100,0,0,3,8,0,2,60,60,320,1",
         
         # Minimal: Normal 60pt, white, very thin 1px outline, clean
         "minimal": "Style: Default,Arial,60,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,1,0,2,60,60,360,1",
@@ -427,6 +433,8 @@ def generate_subtitles_file(video_path: str, output_path: str, style: str = "kar
                 'neon': 2,       # 1-2 words, neon glow
                 'minimal': 3,    # 3-4 words, clean minimal
                 'cinematic': 2,  # 2-3 words, letter-spaced
+                'hormozi': 3,    # 2-3 words, bold caps
+                'highlight': 3,  # 3 words, marker background
             }
             chunk_size = chunk_size_map.get(style, 2)  # Default to 2 words
             

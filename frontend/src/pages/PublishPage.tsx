@@ -13,6 +13,8 @@ import {
   Info,
   Link,
   LogIn,
+  Maximize2,
+  X,
 } from 'lucide-react'
 
 interface ClipPublishState {
@@ -34,6 +36,7 @@ export default function PublishPage() {
   const [checkingAuth, setCheckingAuth] = useState(true)
   const [publishStates, setPublishStates] = useState<Record<string, ClipPublishState>>({})
   const [folderNotification, setFolderNotification] = useState<string | null>(null)
+  const [expandedClip, setExpandedClip] = useState<ProcessedClip | null>(null)
 
   useEffect(() => {
     setCurrentStep(5)
@@ -254,12 +257,21 @@ export default function PublishPage() {
             <div key={clip.id} className="card">
               {/* Video preview */}
               <div className="flex justify-center mb-4">
-                <video
-                  src={`/files/${clip.file_path}`}
-                  className="h-64 aspect-[9/16] rounded-xl bg-black object-cover shadow-sm"
-                  controls
-                  preload="metadata"
-                />
+                <div className="relative group">
+                  <video
+                    src={`/files/${clip.file_path}`}
+                    className="h-64 aspect-[9/16] rounded-xl bg-black object-cover shadow-sm"
+                    controls
+                    preload="metadata"
+                  />
+                  <button
+                    onClick={() => setExpandedClip(clip)}
+                    title="Open large preview"
+                    className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/55 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/75"
+                  >
+                    <Maximize2 size={15} />
+                  </button>
+                </div>
               </div>
 
               {/* Form */}
@@ -365,6 +377,28 @@ export default function PublishPage() {
           )
         })}
       </div>
+
+      {/* Large preview modal */}
+      {expandedClip && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-6"
+          onClick={() => setExpandedClip(null)}
+        >
+          <button
+            onClick={() => setExpandedClip(null)}
+            className="absolute top-5 right-5 p-2 rounded-lg bg-white/10 text-white hover:bg-white/20"
+          >
+            <X size={22} />
+          </button>
+          <video
+            src={`/files/${expandedClip.file_path}`}
+            className="max-h-[90vh] aspect-[9/16] rounded-2xl bg-black shadow-2xl"
+            controls
+            autoPlay
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
 
       {/* Local export info */}
       <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-accent/6 border border-accent/20 text-sm">
