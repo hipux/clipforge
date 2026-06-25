@@ -11,17 +11,19 @@ Local video clip processing & publishing tool that lets you download long-form v
 ### ✨ Features
 
 - **Video Download** from YouTube, Rutube, VK Video (using yt-dlp)
-- **AI Moment Detection** using local analysis:
-  - Audio energy peaks (librosa)
-  - Scene change detection (OpenCV)
-  - Speech content scoring (faster-whisper + keyword heuristics)
+- **AI Viral Moment Detection** — fully local GPU pipeline (100% free), see [How the pipeline works](#-how-the-clip-pipeline-works):
+  - Speech transcription with **Whisper large-v3** (word-level timestamps)
+  - Face detection with **YOLOv8-face** + GPU video decode (NVDEC)
+  - Audio peak analysis (laughter, shouts, emotion) via **librosa**
+  - LLM director **Qwen3-8B** evaluates context and picks the moments
+  - Deterministic control: duration bounds, signal-based scoring, clean clip start
 - **Video Effects** (FFmpeg):
-  - Auto-generated subtitles (faster-whisper AI) — 5 styles to choose from:
-    - **Karaoke**: 1-2 words, yellow highlight on current word (TikTok style)
-    - **Bold White**: 2-3 words, bold white text with thick outline
-    - **Neon**: 1-2 words, cyan glow with dark semi-transparent box
-    - **Minimal**: 3-4 words, small clean white text, thin outline
-    - **Cinematic**: 2-3 words, letter-spacing, semi-transparent black bar
+  - Auto-generated subtitles (Whisper large-v3, local) — 5 styles:
+    - **Karaoke**: word-by-word yellow highlight (TikTok style)
+    - **Hormozi**: bold caps with green keyword pop
+    - **Highlight**: marker-style background behind the word
+    - **Neon**: cyan glow
+    - **Cinematic**: letter-spaced, filmic look
   - Dynamic blurred background (9:16 vertical format)
   - Mirror effect
   - Subtle color enhancement
@@ -37,15 +39,38 @@ Local video clip processing & publishing tool that lets you download long-form v
 |-----------|------|------|
 | Video Download | yt-dlp | Free, open-source |
 | Video Processing | FFmpeg | Free, open-source |
-| Speech Recognition | faster-whisper | Free, runs locally (no cloud!) |
-| Scene Detection | OpenCV + librosa + PySceneDetect | Free, runs locally |
-| Moment Scoring | Local engine (heuristics) | Free, no external APIs |
+| Speech Recognition | faster-whisper (Whisper large-v3) | Free, runs locally (no cloud!) |
+| Face Detection | YOLOv8-face + NVDEC | Free, runs locally |
+| Audio Analysis | librosa | Free, runs locally |
+| AI Moment Director | Qwen3-8B (local GGUF LLM) | Free, no external APIs |
 | YouTube Publishing | YouTube Data API v3 | **Free tier (10,000 units/day)** |
 | Backend | Python 3.11+ + FastAPI | Free, open-source |
 | Frontend | React + Vite + Tailwind CSS | Free, open-source |
 | Database | SQLite | Free, open-source |
 
 **YouTube API Quota:** 10,000 units/day for free. One video upload ≈ 1,600 units → **~6 videos/day free**. Perfect for personal use!
+
+
+### 🛠️ How the clip pipeline works
+
+ClipForge turns a long video into short vertical clips (9:16) in **three stages**, orchestrated by `detection_pipeline.py` (`vram_manager` loads models one at a time to fit VRAM).
+
+**Stage 0 — Download/Import** — via **yt-dlp** (YouTube, Rutube, VK Video) or local upload.
+
+**Stage 1 — Data Collection** (time-aligned signals):
+- 🎙️ **Transcript** — `whisper_gpu.py`, **Whisper large-v3**, word-level (needed for word-by-word subtitle highlight).
+- 🙂 **Faces** — `face_detector.py`, **YOLOv8-face**; video decoded on GPU (**NVDEC**, `fps=2`), ~3× faster than CPU OpenCV.
+- 🔊 **Audio peaks** — `audio_analyzer.py`, **librosa** finds energy spikes (laughter, shouts) marking lively moments.
+
+**Stage 2 — AI Director**:
+- 📝 `context_builder.py` assembles transcript + peaks + faces and **chunks by speech density** (not fixed time) so nothing gets truncated; transcript has priority over peaks/faces.
+- 🧠 `llm_director.py` — local LLM **Qwen3-8B (GGUF)** analyzes each chunk and proposes viral moments (title, hook, score).
+- 🎯 `_enforce_constraints()` deterministically applies user settings: clamps duration to min/max, derives **virality_score** from signal when the LLM is flat, **snaps clip start to a clean boundary** (sentence start + start of the spoken block after a pause — content-agnostic), removes overlaps, sorts, caps count.
+
+**Stage 3 — Rendering** — `video_processor.py` via **FFmpeg**: 9:16 crop with a **darkened blurred background**, subtitles (Karaoke/Hormozi/Highlight/Neon/Cinematic) rendered on the same large-v3 transcript, effects/banners, and **h264_nvenc** GPU encoding.
+
+Finished clips can be published to YouTube (`youtube_publisher.py`, YouTube Data API v3).
+
 
 ### 🖥️ System Requirements
 
@@ -81,7 +106,7 @@ Local video clip processing & publishing tool that lets you download long-form v
 
 #### GPU Acceleration (Optional)
 
-> Without GPU, everything runs on CPU — just slower. Whisper Base processes ~1 min of video in ~30 sec on a modern CPU.
+> ClipForge is built for NVIDIA GPUs. Without a GPU it falls back to CPU (slower). See [GPU_SETUP.md](GPU_SETUP.md) for details.
 
 To enable NVIDIA GPU acceleration:
 1. Install [CUDA Toolkit 11.8+](https://developer.nvidia.com/cuda-downloads)
@@ -179,10 +204,10 @@ To publish clips directly to YouTube Shorts, you need YouTube Data API v3 creden
 #### 3. Configure Effects
    - **Subtitles**: Auto-generated from speech (5 styles available)
      - **Karaoke**: TikTok-style word-by-word yellow highlight
-     - **Bold White**: Classic bold white text with black outline
-     - **Neon**: Cyan glow with dark semi-transparent background
-     - **Minimal**: Small, clean, unobtrusive white text
-     - **Cinematic**: Spaced letters on semi-transparent black bar
+     - **Hormozi**: Bold caps with green keyword pop
+     - **Highlight**: Marker-style background behind the word
+     - **Neon**: Cyan glow
+     - **Cinematic**: Letter-spaced, filmic look
    - **Blurred Background**: Vertical 9:16 format with strong blur (Shorts-ready)
    - **Banner/Watermark**: Upload your logo/brand image (PNG/JPG), adjust position and size
    - **Mirror Effect**: Horizontal flip for creative look
@@ -238,11 +263,8 @@ kill -9 <PID>
 3. Ensure the OAuth client type is "Desktop app" (not "Web application")
 4. Delete `backend/token.json` and re-authorize
 
-#### Whisper model download
-If this is your first time using faster-whisper, the model will be downloaded automatically on first use. To manually download:
-```bash
-python -c "from huggingface_hub import snapshot_download; snapshot_download('Systran/faster-whisper-base', local_dir='workspace/models/whisper-base')"
-```
+#### Model download
+On first run, ClipForge automatically downloads the AI models (Whisper large-v3, YOLOv8-face, Qwen3-8B — ~6 GB total) into `models/`. Just make sure you have free disk space and an internet connection on first launch.
 
 #### Multi-language videos / Wrong language detection
 If you're working with multi-language videos (e.g., Russian voiceover with English songs), Whisper may incorrectly detect the language, leading to wrong subtitles.
@@ -263,9 +285,15 @@ export WHISPER_LANGUAGE=ru  # or 'en' for English
 
 ### 📊 Performance
 
-- **Moment Detection**: 1-3 minutes for a 30-minute video (depends on CPU)
-- **Video Processing**: 30-60 seconds per clip (with all effects)
-- **YouTube Upload**: 10-30 seconds per clip (depends on internet speed)
+The pipeline targets **NVIDIA GPUs** (models are loaded/unloaded sequentially by `vram_manager` to fit VRAM). CPU fallback works but is much slower.
+
+- **VRAM**: ~7–8 GB peak (models loaded one at a time)
+- **Models**: Whisper large-v3 (~1.5 GB), Qwen3-8B Q4 (~4.7 GB), YOLOv8-face (~6 MB)
+- **Speed (on GPU, ~20-min video)**:
+  - Stage 1 (transcript + faces + audio): ~3–4 min
+  - Stage 2 (LLM director): ~30 s per chunk (chunk count scales with speech density)
+  - Stage 3 (clip render): ~30–60 s per clip
+- NVDEC GPU video decode speeds up face detection ~3× vs CPU OpenCV.
 
 ### 📜 License
 
@@ -276,7 +304,10 @@ MIT License — free to use, modify, and distribute.
 Built with these amazing free open-source tools:
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) — Video download
 - [FFmpeg](https://ffmpeg.org/) — Video processing
-- [faster-whisper](https://github.com/guillaumekln/faster-whisper) — Speech recognition
+- [faster-whisper](https://github.com/guillaumekln/faster-whisper) — Speech recognition (Whisper large-v3)
+- [Qwen3](https://github.com/QwenLM/Qwen) — LLM moment director
+- [Ultralytics YOLOv8](https://github.com/ultralytics/ultralytics) — Face detection
+- [llama.cpp](https://github.com/ggerganov/llama.cpp) — Local GGUF inference
 - [librosa](https://librosa.org/) — Audio analysis
 - [OpenCV](https://opencv.org/) — Computer vision
 - [FastAPI](https://fastapi.tiangolo.com/) — Web framework
