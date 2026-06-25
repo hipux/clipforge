@@ -20,6 +20,63 @@ from backend.schemas.moment_instruction import Stage1Context, DirectorOutput
 logger = logging.getLogger(__name__)
 
 
+def _enforce_constraints(moments, min_duration, max_duration, max_moments, video_duration):
+    """Deterministically enforce the user's Detection Settings on LLM output.
+
+    The LLM frequently ignores the duration/count rules in the prompt, returning
+    clips that are far too short (e.g. 4-24s) or padding the list. We fix that here:
+      * extend clips shorter than min_duration (bounded by the video length),
+      * trim clips longer than max_duration,
+      * drop clips that still cannot reach a sane length,
+      * drop heavy overlaps (keep the higher-scored one),
+      * ensure every moment has a virality_score,
+      * sort by virality and cap to max_moments, then restore chronological order.
+    """
+    floor = min(min_duration, video_duration)
+    cleaned = []
+    for mo in moments:
+        start = max(0.0, float(mo.start))
+        end = float(mo.end)
+        if end <= start:
+            continue
+        dur = end - start
+        # Extend short clips up to min_duration, bounded by the video end.
+        if dur < min_duration:
+            end = min(start + min_duration, video_duration)
+            if end - start < min_duration:
+                start = max(0.0, end - min_duration)
+            dur = end - start
+        # Trim overly long clips.
+        if dur > max_duration:
+            end = start + max_duration
+            dur = end - start
+        # Drop anything still too short to stand alone as a clip.
+        if dur < min(floor, 15.0) - 0.01:
+            continue
+        mo.start = round(start, 2)
+        mo.end = round(end, 2)
+        if not getattr(mo, "virality_score", None):
+            mo.virality_score = 50
+        cleaned.append(mo)
+
+    # Highest virality first so overlap resolution keeps the best clip.
+    cleaned.sort(key=lambda x: x.virality_score or 0, reverse=True)
+    kept = []
+    for mo in cleaned:
+        overlapped = False
+        for k in kept:
+            inter = min(mo.end, k.end) - max(mo.start, k.start)
+            if inter > 0 and inter > 0.5 * min(mo.end - mo.start, k.end - k.start):
+                overlapped = True
+                break
+        if not overlapped:
+            kept.append(mo)
+
+    kept = kept[:max_moments]
+    kept.sort(key=lambda x: x.start)  # chronological for display
+    return kept
+
+
 class DetectionPipeline:
     """Orchestrates 3-stage GPU pipeline for moment detection.
     
@@ -285,6 +342,11 @@ class DetectionPipeline:
         total_time = time.time() - start_time
         logger.info(f"✅  [Этап 3/3] Завершён за 0.5с")
         logger.info("")
+        # Enforce Detection Settings deterministically (LLM often ignores them).
+        director_output.moments = _enforce_constraints(
+            director_output.moments, min_duration, max_duration, max_moments, video_duration,
+        )
+
         logger.info("="*60)
         logger.info(f"🎉 [Детекция] Готово! Найдено {len(director_output.moments)} моментов за {total_time:.1f}с")
         

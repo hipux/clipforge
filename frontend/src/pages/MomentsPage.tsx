@@ -220,7 +220,7 @@ export default function MomentsPage() {
   const stageStartRef = useRef<Record<number, number>>({})
   const [minDuration, setMinDuration] = useState(detectionSettings.minDuration)
   const [maxDuration, setMaxDuration] = useState(detectionSettings.maxDuration)
-  const [maxMoments, setMaxMoments] = useState(detectionSettings.maxMoments)
+  const [maxMoments, setMaxMoments] = useState(Math.min(20, detectionSettings.maxMoments))
 
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -497,7 +497,7 @@ export default function MomentsPage() {
                   <label className="text-sm font-medium text-slate-700">Max moments</label>
                   <span className="text-xs text-indigo-600 font-semibold tabular-nums bg-indigo-50 px-2 py-0.5 rounded-full">{maxMoments}</span>
                 </div>
-                <input type="range" min={3} max={30} value={maxMoments}
+                <input type="range" min={3} max={20} value={maxMoments}
                   onChange={e => setMaxMoments(Number(e.target.value))}
                   className="range w-full" />
               </div>

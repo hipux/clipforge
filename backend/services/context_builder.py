@@ -46,7 +46,10 @@ def build_system_prompt(min_duration: int, max_duration: int, max_moments: int, 
         '  "total_analyzed": 8,\n'
         '  "language_detected": "ru"\n'
         '}\n'
-        f"\nFind the {max_moments} best moments (fewer is fine if there are not enough), best first."
+        f"\nFind UP TO {max_moments} genuinely viral moments, best first. "
+        "QUALITY OVER QUANTITY: do NOT pad the list to reach the maximum. "
+        "It is far better to return 3 excellent moments than many mediocre ones. "
+        "Only include a moment if it can stand alone as a compelling short clip."
     )
 
 
