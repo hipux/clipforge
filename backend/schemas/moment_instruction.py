@@ -101,12 +101,25 @@ class AudioPeak(BaseModel):
     peak_type: str = Field(description="spike or sustained")
 
 
+class AudioEvent(BaseModel):
+    """Semantic audio event from YamNet (laughter, applause, cheering, music...).
+
+    Unlike AudioPeak (raw energy), this says WHAT happened, which is a much
+    stronger virality signal and is fed both to the LLM context and the
+    deterministic scorer.
+    """
+    timestamp: float = Field(description="event center time (seconds)")
+    label: str = Field(description="AudioSet class name, e.g. 'Laughter'")
+    score: float = Field(description="classifier confidence 0..1")
+
+
 class AudioAnalysis(BaseModel):
     """Audio analysis result."""
     peaks: List[AudioPeak]
     rms_timeline: List[dict] = Field(description="[{time, rms}]")
     avg_rms: float
     max_rms: float
+    events: List[AudioEvent] = Field(default_factory=list, description="YamNet audio events")
 
 
 class Stage1Context(BaseModel):

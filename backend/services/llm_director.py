@@ -316,28 +316,95 @@ class LLMDirector:
                 logger.error(f"🧠 [Qwen3] Ошибка в chunk {i+1}: {e}")
                 continue
         
-        # Consolidate all candidates
-        logger.info(f"🧠 [Qwen3] Консолидирую {len(all_candidates)} кандидатов...")
-        
-        # Single chunk: its moments are already final. LLM consolidation only
-        # risks dropping required fields, so skip it and return directly.
-        if len(chunks) <= 1:
-            logger.info("🧠 [Qwen3] Один чанк — консолидация пропущена")
-            final_result = DirectorOutput(
-                moments=all_candidates,
-                total_analyzed=len(all_candidates),
-                language_detected="unknown",
-            )
-        else:
-            # Report consolidation start
-            if on_progress:
-                on_progress(len(chunks), len(chunks), "consolidate")
-            final_result = self._consolidate_moments(create_fn, all_candidates)
+        # Merge all chunk candidates. Chunks are analyzed independently, so no
+        # single pass sees the whole video. We do a lightweight GLOBAL RE-RANK:
+        # the LLM picks the best moments ACROSS the entire video by INDEX (it does
+        # not regenerate them), so real start/end/virality_score are preserved.
+        logger.info(f"🧠 [Qwen3] Объединяю {len(all_candidates)} кандидатов...")
+        if on_progress:
+            on_progress(len(chunks), len(chunks), "consolidate")
+
+        ranked = all_candidates
+        if len(all_candidates) > max_moments:
+            try:
+                ranked = self._global_rerank(create_fn, all_candidates, max_moments)
+                logger.info(f"🧠 [Qwen3] Глобальный ре-ранкинг: {len(all_candidates)} → {len(ranked)} (выбор по всему видео)")
+            except Exception as e:
+                logger.warning(f"🧠 [Qwen3] Ре-ранкинг не удался ({e}); беру всех кандидатов как есть")
+                ranked = all_candidates
+
+        final_result = DirectorOutput(
+            moments=ranked,
+            total_analyzed=len(all_candidates),
+            language_detected="unknown",
+        )
         
         vram_manager.unload_model("llm")
         logger.info("🧠 [Qwen3] Модель выгружена из VRAM")
         
         return final_result
+
+    def _global_rerank(self, create_fn, candidates: list, max_moments: int) -> list:
+        """Pick the best moments across the WHOLE video by index.
+
+        Chunks are scored in isolation, so a 9/10 in a weak chunk can outrank a
+        7/10 in a strong one, and near-duplicates from overlapping chunks survive.
+        Here the LLM sees ALL candidates at once and returns the indices of the
+        ones to keep, ranked best-first. Crucially it returns INDICES, not new
+        moments, so the original objects (real timings + scores) are preserved.
+        Returns the reordered/selected subset of `candidates`.
+        """
+        import json
+
+        lines = ["You are selecting the BEST short-clip moments from an ENTIRE video.",
+                 f"There are {len(candidates)} candidates below (from different parts of the video).",
+                 "",
+                 "Pick the strongest ones, ranked best-first. Rules:",
+                 f"- Return AT MOST {max_moments} indices (fewer is better than padding with weak ones).",
+                 "- Drop near-duplicates and moments covering the same idea (keep the best one).",
+                 "- Prefer moments with a strong self-contained hook that make sense without prior context.",
+                 "- Favor variety of content_type.",
+                 "",
+                 "Respond with ONLY a JSON object: {\"keep\": [list of integer indices, best first]}.",
+                 "",
+                 "=== CANDIDATES ==="]
+        for i, m in enumerate(candidates):
+            reason = (getattr(m, "reasoning", "") or "")[:160]
+            lines.append(
+                f"[{i}] {m.start:.0f}-{m.end:.0f}s | score={getattr(m, 'virality_score', 0):.0f} "
+                f"| type={getattr(m, 'content_type', '?')} | hook=\"{getattr(m, 'hook', '')}\" | why={reason}"
+            )
+        prompt = "\n".join(lines)
+
+        raw = create_fn(
+            response_model=None,
+            model="qwen3",
+            messages=[
+                {"role": "system", "content": "You are a viral video editor ranking clip candidates. Respond with JSON only.\n\n/no_think"},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+            max_tokens=512,
+        )
+        content = raw.choices[0].message.content if (hasattr(raw, "choices") and raw.choices) else str(raw)
+        content = _strip_think(content)
+        data = json.loads(content)
+        keep = data.get("keep", []) if isinstance(data, dict) else data
+
+        seen = set()
+        out = []
+        for idx in keep:
+            try:
+                idx = int(idx)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= idx < len(candidates) and idx not in seen:
+                seen.add(idx)
+                out.append(candidates[idx])
+            if len(out) >= max_moments:
+                break
+        # Safety: if the model returned nothing usable, fall back to all candidates.
+        return out if out else candidates
 
     def _consolidate_moments(self, create_fn, candidates: list) -> DirectorOutput:
         """Consolidate and rank moment candidates from all chunks.

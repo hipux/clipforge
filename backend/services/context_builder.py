@@ -205,6 +205,21 @@ class ContextBuilder:
             peaks_lines.append("(No significant audio activity)")
         peaks_lines.append("")
 
+        # Semantic audio events from YamNet (laughter, applause, cheering...).
+        # These are STRONG virality signals: a moment with crowd laughter or
+        # applause is far more likely to perform than one that is merely loud.
+        events_lines = ["=== AUDIO EVENTS (laughter/applause/cheering) ==="]
+        chunk_events = [
+            ev for ev in getattr(ctx.audio_analysis, "events", [])
+            if start_sec <= ev.timestamp < end_sec
+        ]
+        if chunk_events:
+            for ev in chunk_events[:20]:
+                events_lines.append(f"[{ev.timestamp:.1f}s] {ev.label} ({ev.score:.2f})")
+        else:
+            events_lines.append("(No notable audio events)")
+        events_lines.append("")
+
         # Filter face timeline in time window
         face_lines = ["=== FACE TIMELINE ==="]
         chunk_frames = [
@@ -232,7 +247,7 @@ class ContextBuilder:
             instructions_lines = ["=== USER INSTRUCTIONS ===", user_instructions, ""]
 
         # Combine sections
-        all_lines = lines + transcript_lines + peaks_lines + face_lines + instructions_lines
+        all_lines = lines + transcript_lines + peaks_lines + events_lines + face_lines + instructions_lines
         log = "\n".join(all_lines)
         
         # Hard limit: TRANSCRIPT is the most important signal and must never be

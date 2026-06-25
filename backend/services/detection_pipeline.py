@@ -24,7 +24,7 @@ def _signal_for_window(ctx, start, end):
     """Return (avg_rms, peak_energy, speech_chars) for a time window from Stage 1 data.
     Defensive against both object- and dict-shaped entries."""
     if ctx is None:
-        return (0.0, 0.0, 0.0)
+        return (0.0, 0.0, 0.0, 0.0)
     aa = getattr(ctx, "audio_analysis", None)
     avg_rms = peak_energy = 0.0
     if aa is not None:
@@ -41,6 +41,15 @@ def _signal_for_window(ctx, start, end):
             mag = p.get("magnitude") if isinstance(p, dict) else getattr(p, "magnitude", 0.0)
             if t is not None and start <= float(t) <= end:
                 peak_energy += float(mag or 0.0)
+    # YamNet semantic events (laughter/applause/cheering) inside the window —
+    # a strong, content-aware virality signal beyond raw energy.
+    event_energy = 0.0
+    if aa is not None:
+        for ev in (getattr(aa, "events", None) or []):
+            t = ev.get("timestamp") if isinstance(ev, dict) else getattr(ev, "timestamp", None)
+            sc = ev.get("score") if isinstance(ev, dict) else getattr(ev, "score", 0.0)
+            if t is not None and start <= float(t) <= end:
+                event_energy += float(sc or 0.0)
     chars = 0
     for seg in (getattr(ctx, "transcript", None) or []):
         s = seg.get("start") if isinstance(seg, dict) else getattr(seg, "start", None)
@@ -48,7 +57,7 @@ def _signal_for_window(ctx, start, end):
         txt = seg.get("text") if isinstance(seg, dict) else getattr(seg, "text", "")
         if s is not None and e is not None and float(e) >= start and float(s) <= end:
             chars += len(txt or "")
-    return (avg_rms, peak_energy, float(chars))
+    return (avg_rms, peak_energy, float(chars), event_energy)
 
 
 def _sentences(ctx):
@@ -130,7 +139,7 @@ def _enforce_constraints(moments, min_duration, max_duration, max_moments, video
         lo, hi = (min(vals), max(vals)) if vals else (0.0, 0.0)
         rng = hi - lo
         return lambda v: ((v - lo) / rng) if rng > 1e-9 else 0.5
-    n_rms, n_peak, n_chars = _normalizer(0), _normalizer(1), _normalizer(2)
+    n_rms, n_peak, n_chars, n_event = _normalizer(0), _normalizer(1), _normalizer(2), _normalizer(3)
 
     sentences = _sentences(ctx)
 
@@ -143,8 +152,14 @@ def _enforce_constraints(moments, min_duration, max_duration, max_moments, video
         if r is None:
             continue
         start = max(0.0, float(mo.start))
-        # Composite signal strength 0..1 (peaks weigh most, then loudness, then speech).
-        comp = 0.45 * n_peak(r[1]) + 0.35 * n_rms(r[0]) + 0.20 * n_chars(r[2])
+        # Composite signal strength 0..1. Semantic audio events (laughter,
+        # applause, cheering from YamNet) are the strongest single signal, then
+        # energy peaks, loudness and speech density.
+        has_event = len(r) > 3 and r[3] > 1e-9
+        if has_event:
+            comp = 0.35 * n_event(r[3]) + 0.30 * n_peak(r[1]) + 0.20 * n_rms(r[0]) + 0.15 * n_chars(r[2])
+        else:
+            comp = 0.45 * n_peak(r[1]) + 0.35 * n_rms(r[0]) + 0.20 * n_chars(r[2])
         # Target length scales with signal: strong moments get longer clips.
         target = min_duration + (max_duration - min_duration) * comp
         # Anchor on a clean, context-giving START (the hook); the END is secondary

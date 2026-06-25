@@ -26,6 +26,13 @@ FACE_MODEL_PATH = MODELS_DIR / "yolov8n-face.pt"
 FACE_SAMPLE_FPS = float(os.getenv("CLIPFORGE_FACE_SAMPLE_FPS", "2.0"))
 FACE_CONFIDENCE_THRESHOLD = float(os.getenv("CLIPFORGE_FACE_CONF", "0.72"))
 
+# ─── YamNet Audio-Event Classifier (ONNX) ─────────────────────────────────
+# Semantic audio events (laughter, applause, cheering...) — stronger virality
+# signal than raw RMS energy. ONNX port so no TensorFlow dependency. Optional:
+# if these files are absent, the classifier degrades to a no-op (events=[]).
+YAMNET_ONNX_PATH = os.getenv("CLIPFORGE_YAMNET_ONNX", str(MODELS_DIR / "yamnet" / "yamnet.onnx"))
+YAMNET_CLASSMAP_PATH = os.getenv("CLIPFORGE_YAMNET_CLASSMAP", str(MODELS_DIR / "yamnet" / "yamnet_class_map.csv"))
+
 # ─── LLM Configuration (Qwen3-8B GGUF) ─────────────────────────────────────
 QWEN_MODEL_REPO = "Qwen/Qwen3-8B-GGUF"
 QWEN_MODEL_FILE = "Qwen3-8B-Q4_K_M.gguf"  # Note: case-sensitive filename on HuggingFace!

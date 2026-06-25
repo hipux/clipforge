@@ -9,6 +9,7 @@ import tempfile
 import os
 from typing import List
 from backend.schemas.moment_instruction import AudioPeak, AudioAnalysis
+from backend.services.yamnet_classifier import yamnet_classifier
 
 logger = logging.getLogger(__name__)
 
@@ -141,14 +142,20 @@ class AudioAnalyzer:
                 for t, r in zip(times[::10], rms[::10])
             ]
 
+            # Semantic audio events (YamNet ONNX): laughter, applause, cheering...
+            # Reuses the already-loaded 16 kHz mono waveform — no extra I/O.
+            # Degrades to [] if onnxruntime/model are unavailable.
+            events = yamnet_classifier.classify(y, sr)
+
             analysis_time = time.time() - start_time
-            logger.info(f"🔊 [Аудио] Найдено {len(peaks)} пиков активности (смех, крики, эмоции)")
+            logger.info(f"🔊 [Аудио] Найдено {len(peaks)} пиков активности, {len(events)} аудио-событий")
             logger.info(f"🔊 [Аудио] Анализ завершён за {analysis_time:.1f}с")
             return AudioAnalysis(
                 peaks=peaks,
                 rms_timeline=rms_timeline,
                 avg_rms=avg_rms,
-                max_rms=max_rms
+                max_rms=max_rms,
+                events=events
             )
 
         finally:
