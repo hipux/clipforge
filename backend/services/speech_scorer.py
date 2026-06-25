@@ -365,7 +365,7 @@ def get_subtitle_style_definition(style_name: str) -> str:
         # Karaoke: Bold 80pt. PrimaryColour=YELLOW (sung/current word), SecondaryColour=WHITE
         # (unsung), so \kf sweeps each word white->yellow as spoken (TikTok highlight look).
         # No outline (per design) + subtle drop shadow for readability.
-        "karaoke": "Style: Default,Arial,80,&H0000D7FF,&H00FFFFFF,&H00000000,&H90000000,1,0,0,0,100,100,0,0,1,0,1,2,60,60,320,1",
+        "karaoke": "Style: Default,Arial,64,&H0000D7FF,&H00FFFFFF,&H00000000,&H90000000,1,0,0,0,100,100,0,0,1,0,1,2,60,60,480,1",
         
         # Bold White: Bold 80pt, white, thick 4px black outline, large font
         "bold": "Style: Default,Arial,80,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,4,2,2,60,60,320,1",
