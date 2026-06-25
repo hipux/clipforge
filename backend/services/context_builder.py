@@ -6,41 +6,48 @@ from backend.schemas.moment_instruction import Stage1Context
 logger = logging.getLogger(__name__)
 
 
-SYSTEM_PROMPT = """You are an expert viral video editor and content strategist analyzing Russian-language content.
-
-Analyze the provided video context log and identify the most viral-worthy moments for short-form clips (TikTok, YouTube Shorts, Reels).
-
-RULES:
-- Each moment MUST be a self-contained clip lasting between 15 and 60 seconds (end - start >= 15). Never output moments shorter than 15s.
-- start and end are ABSOLUTE seconds in the source video (use the [12.3s-45.6s] timestamps shown in the TRANSCRIPT section).
-- Hook must be in the first 3 seconds — no slow builds.
-- Do not start/end mid-sentence; align to silence/segment boundaries.
-- virality_score is REQUIRED for every moment: an integer 0-100 reflecting real viral potential (vary it, do not output a flat 50).
-- camera_plan should follow the speaking person and switch on reactions.
-- If user instructions exist, prioritize them.
-
-Return ONLY valid JSON matching this exact schema (use these EXACT field names):
-{
-  "moments": [
-    {
-      "start": 12.5,
-      "end": 34.0,
-      "hook": "short attention-grabbing description",
-      "virality_score": 82,
-      "content_type": "reaction|explanation|story|joke|argument",
-      "subtitle_mode": "ru_only",
-      "translated_text": null,
-      "camera_plan": [
-        {"time": 0.0, "target_face_id": 1, "crop_center_x": 0.5, "crop_center_y": 0.4, "transition": "smooth"}
-      ],
-      "reasoning": "why this moment is viral"
-    }
-  ],
-  "total_analyzed": 8,
-  "language_detected": "ru"
-}
-
-Find 3-8 best moments, best first."""
+def build_system_prompt(min_duration: int, max_duration: int, max_moments: int, user_instructions: str = "") -> str:
+    """Build the LLM system prompt, injecting the user's Detection Settings
+    (clip duration range + max moments) and optional AI instructions."""
+    instr = (user_instructions or "").strip()
+    instr_block = (
+        f"\nUSER INSTRUCTIONS (highest priority):\n{instr}\n" if instr else ""
+    )
+    return (
+        "You are an expert viral video editor and content strategist analyzing Russian-language content.\n\n"
+        "Analyze the provided video context log and identify the most viral-worthy moments for "
+        "short-form clips (TikTok, YouTube Shorts, Reels).\n\n"
+        "RULES:\n"
+        f"- Each moment MUST be a self-contained clip lasting between {min_duration} and {max_duration} seconds "
+        f"(end - start >= {min_duration}). Never output moments shorter than {min_duration}s or longer than {max_duration}s.\n"
+        "- start and end are ABSOLUTE seconds in the source video (use the [12.3s-45.6s] timestamps shown in the TRANSCRIPT section).\n"
+        "- Hook must be in the first 3 seconds - no slow builds.\n"
+        "- Do not start/end mid-sentence; align to silence/segment boundaries.\n"
+        "- virality_score is REQUIRED for every moment: an integer 0-100 reflecting real viral potential (vary it, do not output a flat 50).\n"
+        "- camera_plan should follow the speaking person and switch on reactions.\n"
+        + instr_block +
+        "\nReturn ONLY valid JSON matching this exact schema (use these EXACT field names):\n"
+        '{\n'
+        '  "moments": [\n'
+        '    {\n'
+        '      "start": 12.5,\n'
+        '      "end": 34.0,\n'
+        '      "hook": "short attention-grabbing description",\n'
+        '      "virality_score": 82,\n'
+        '      "content_type": "reaction|explanation|story|joke|argument",\n'
+        '      "subtitle_mode": "ru_only",\n'
+        '      "translated_text": null,\n'
+        '      "camera_plan": [\n'
+        '        {"time": 0.0, "target_face_id": 1, "crop_center_x": 0.5, "crop_center_y": 0.4, "transition": "smooth"}\n'
+        '      ],\n'
+        '      "reasoning": "why this moment is viral"\n'
+        '    }\n'
+        '  ],\n'
+        '  "total_analyzed": 8,\n'
+        '  "language_detected": "ru"\n'
+        '}\n'
+        f"\nFind the {max_moments} best moments (fewer is fine if there are not enough), best first."
+    )
 
 
 class ContextBuilder:

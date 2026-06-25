@@ -15,7 +15,7 @@ from backend.gpu_config import (
 )
 from backend.services.vram_manager import vram_manager
 from backend.schemas.moment_instruction import DirectorOutput
-from backend.services.context_builder import SYSTEM_PROMPT
+from backend.services.context_builder import build_system_prompt
 
 # Try to import huggingface_hub for robust model downloads (handles auth, resumable, case-sensitive filenames)
 try:
@@ -143,7 +143,10 @@ class LLMDirector:
         self,
         context_log_or_chunks: str | list[str],
         user_instructions: str = "",
-        on_progress: Optional[Callable[[int, int, str], None]] = None
+        on_progress: Optional[Callable[[int, int, str], None]] = None,
+        min_duration: int = 60,
+        max_duration: int = 90,
+        max_moments: int = 15,
     ) -> DirectorOutput:
         """Analyze video context and generate moment instructions.
         
@@ -209,22 +212,25 @@ class LLMDirector:
         
         # Handle chunked vs single analysis
         if isinstance(context_log_or_chunks, list):
-            return self._analyze_chunked(create_fn, context_log_or_chunks, user_instructions, on_progress=on_progress)
+            return self._analyze_chunked(create_fn, context_log_or_chunks, user_instructions, on_progress=on_progress, min_duration=min_duration, max_duration=max_duration, max_moments=max_moments)
         else:
-            return self._analyze_single(create_fn, context_log_or_chunks, user_instructions)
+            return self._analyze_single(create_fn, context_log_or_chunks, user_instructions, min_duration=min_duration, max_duration=max_duration, max_moments=max_moments)
 
     def _analyze_single(
         self,
         create_fn,
         context_log: str,
-        user_instructions: str
+        user_instructions: str,
+        min_duration: int = 60,
+        max_duration: int = 90,
+        max_moments: int = 15,
     ) -> DirectorOutput:
         """Single-pass LLM analysis for videos that fit in context window."""
         logger.info(f"🧠 [Qwen3] Анализирую контекст ({len(context_log)} символов)...")
         
         analyze_start = time.time()
         
-        system_prompt_filled = SYSTEM_PROMPT.format(user_instructions=user_instructions or "Нет")
+        system_prompt_filled = build_system_prompt(min_duration, max_duration, max_moments, user_instructions)
         
         try:
             result = self._call_with_thinking(create_fn,
@@ -260,7 +266,10 @@ class LLMDirector:
         create_fn,
         chunks: list[str],
         user_instructions: str,
-        on_progress: Optional[Callable[[int, int, str], None]] = None
+        on_progress: Optional[Callable[[int, int, str], None]] = None,
+        min_duration: int = 60,
+        max_duration: int = 90,
+        max_moments: int = 15,
     ) -> DirectorOutput:
         """Multi-pass analysis for long videos split into chunks.
         
@@ -274,7 +283,7 @@ class LLMDirector:
             logger.info(f"🧠 [Qwen3] Обрабатываю chunk {i+1}/{len(chunks)} ({len(chunk)} символов)...")
             
             chunk_start = time.time()
-            system_prompt = SYSTEM_PROMPT.format(user_instructions=user_instructions or "Нет")
+            system_prompt = build_system_prompt(min_duration, max_duration, max_moments, user_instructions)
             
             try:
                 chunk_result = self._call_with_thinking(create_fn,

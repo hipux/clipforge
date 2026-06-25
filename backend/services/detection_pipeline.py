@@ -262,7 +262,8 @@ class DetectionPipeline:
             asyncio.run_coroutine_threadsafe(coro, _loop)
 
         director_output = await asyncio.to_thread(
-            llm_director.analyze, context_chunks, user_instructions, _llm_progress
+            llm_director.analyze, context_chunks, user_instructions, _llm_progress,
+            min_duration, max_duration, max_moments
         )
         vram_manager.unload_all()  # Safety flush
         
