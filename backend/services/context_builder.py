@@ -24,23 +24,25 @@ def build_system_prompt(min_duration: int, max_duration: int, max_moments: int, 
         "- Hook must be in the first 3 seconds - no slow builds.\n"
         "- Do not start/end mid-sentence; align to silence/segment boundaries.\n"
         "- virality_score is REQUIRED for every moment: an integer 0-100 reflecting real viral potential (vary it, do not output a flat 50).\n"
+        "- THINK FIRST inside the \"reasoning\" field (it MUST be the first field): identify the self-contained idea, its hook and resolution, then derive start/end/virality_score from that analysis. This reasoning is what makes the selection good - do not skip it.\n"
+        "- A clip must make sense WITHOUT prior context: it should open by establishing who/what is happening so a cold viewer understands within the first seconds.\n"
         "- camera_plan should follow the speaking person and switch on reactions.\n"
         + instr_block +
         "\nReturn ONLY valid JSON matching this exact schema (use these EXACT field names):\n"
         '{\n'
         '  "moments": [\n'
         '    {\n'
+        '      "reasoning": "FIRST analyze: what is the self-contained idea/story, where is its hook, why would a viewer stop scrolling? Decide start/end/score FROM this.",\n'
+        '      "hook": "short attention-grabbing description",\n'
         '      "start": 12.5,\n'
         '      "end": 34.0,\n'
-        '      "hook": "short attention-grabbing description",\n'
         '      "virality_score": 82,\n'
         '      "content_type": "reaction|explanation|story|joke|argument",\n'
         '      "subtitle_mode": "ru_only",\n'
         '      "translated_text": null,\n'
         '      "camera_plan": [\n'
         '        {"time": 0.0, "target_face_id": 1, "crop_center_x": 0.5, "crop_center_y": 0.4, "transition": "smooth"}\n'
-        '      ],\n'
-        '      "reasoning": "why this moment is viral"\n'
+        '      ]\n'
         '    }\n'
         '  ],\n'
         '  "total_analyzed": 8,\n'
