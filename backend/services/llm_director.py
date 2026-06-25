@@ -238,7 +238,7 @@ class LLMDirector:
                 temperature=QWEN_TEMPERATURE,
                 top_p=QWEN_TOP_P,
                 presence_penalty=QWEN_PRESENCE_PENALTY,
-                max_tokens=4096,
+                max_tokens=3072,  # fits n_ctx 8192 alongside ~4k-token chunk + system prompt
                 max_retries=3,
             )
             

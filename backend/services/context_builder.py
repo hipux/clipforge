@@ -41,7 +41,7 @@ class ContextBuilder:
         self,
         ctx: Stage1Context,
         user_instructions: str = "",
-        max_tokens_per_chunk: int = 6000
+        max_tokens_per_chunk: int = 4000
     ) -> list[str]:
         """Build dynamic time-based chunks for long videos.
         
@@ -51,15 +51,17 @@ class ContextBuilder:
         Args:
             ctx: Stage1Context with all assembled data
             user_instructions: Optional user-provided analysis instructions
-            max_tokens_per_chunk: Maximum tokens per chunk (default 6000)
+            max_tokens_per_chunk: Maximum tokens per chunk (default 4000)
             
         Returns:
             List of context log strings, one per time chunk
         """
         import math
         
-        TOKEN_CHARS = 4  # Approximate characters per token
-        TOKENS_PER_MIN = 400  # Estimate: 400 tokens per minute of speech
+        # Cyrillic/Russian BPE is ~2 chars/token (measured: 19.8k chars -> 10.5k tokens).
+        # Use a conservative ratio so chunks never overflow n_ctx (8192).
+        TOKEN_CHARS = 2  # Approximate characters per token (Cyrillic-safe)
+        TOKENS_PER_MIN = 800  # Estimate: 800 tokens per minute of speech
         
         video_duration_min = ctx.video_duration / 60.0
         
@@ -123,7 +125,7 @@ class ContextBuilder:
         Returns:
             Context log string for this time window
         """
-        TOKEN_CHARS = 4
+        TOKEN_CHARS = 2  # Cyrillic-safe (see build_chunks)
         MAX_CHARS = max_tokens * TOKEN_CHARS
         
         lines = []
