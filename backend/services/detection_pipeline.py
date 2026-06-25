@@ -20,46 +20,102 @@ from backend.schemas.moment_instruction import Stage1Context, DirectorOutput
 logger = logging.getLogger(__name__)
 
 
-def _enforce_constraints(moments, min_duration, max_duration, max_moments, video_duration):
+def _signal_for_window(ctx, start, end):
+    """Return (avg_rms, peak_energy, speech_chars) for a time window from Stage 1 data.
+    Defensive against both object- and dict-shaped entries."""
+    if ctx is None:
+        return (0.0, 0.0, 0.0)
+    aa = getattr(ctx, "audio_analysis", None)
+    avg_rms = peak_energy = 0.0
+    if aa is not None:
+        rms_list = getattr(aa, "rms_timeline", None) or []
+        vals = []
+        for r in rms_list:
+            t = r.get("time") if isinstance(r, dict) else getattr(r, "time", None)
+            v = r.get("rms") if isinstance(r, dict) else getattr(r, "rms", None)
+            if t is not None and v is not None and start <= float(t) <= end:
+                vals.append(float(v))
+        avg_rms = sum(vals) / len(vals) if vals else 0.0
+        for p in (getattr(aa, "peaks", None) or []):
+            t = p.get("timestamp") if isinstance(p, dict) else getattr(p, "timestamp", None)
+            mag = p.get("magnitude") if isinstance(p, dict) else getattr(p, "magnitude", 0.0)
+            if t is not None and start <= float(t) <= end:
+                peak_energy += float(mag or 0.0)
+    chars = 0
+    for seg in (getattr(ctx, "transcript", None) or []):
+        s = seg.get("start") if isinstance(seg, dict) else getattr(seg, "start", None)
+        e = seg.get("end") if isinstance(seg, dict) else getattr(seg, "end", None)
+        txt = seg.get("text") if isinstance(seg, dict) else getattr(seg, "text", "")
+        if s is not None and e is not None and float(e) >= start and float(s) <= end:
+            chars += len(txt or "")
+    return (avg_rms, peak_energy, float(chars))
+
+
+def _enforce_constraints(moments, min_duration, max_duration, max_moments, video_duration, ctx=None):
     """Deterministically enforce the user's Detection Settings on LLM output.
 
-    The LLM frequently ignores the duration/count rules in the prompt, returning
-    clips that are far too short (e.g. 4-24s) or padding the list. We fix that here:
-      * extend clips shorter than min_duration (bounded by the video length),
-      * trim clips longer than max_duration,
-      * drop clips that still cannot reach a sane length,
-      * drop heavy overlaps (keep the higher-scored one),
-      * ensure every moment has a virality_score,
-      * sort by virality and cap to max_moments, then restore chronological order.
+    The local LLM frequently ignores the prompt rules: it returns clips that are
+    far too short (4-24s), pads the list, and omits virality_score (so every clip
+    collapses to the schema default of 50). We fix all of that here:
+      * size each clip to a target length that scales with its signal strength,
+        so durations vary naturally between min_duration and max_duration;
+      * trim clips longer than max_duration, drop ones too short to be usable;
+      * compute a REAL virality_score from audio energy + speech density when the
+        model failed to differentiate (all scores identical);
+      * remove heavy overlaps, sort by score, cap to max_moments, then restore
+        chronological order for display.
     """
-    floor = min(min_duration, video_duration)
-    cleaned = []
+    # 1) Sample signals per moment (widen short windows so density is comparable).
+    raw = []
     for mo in moments:
         start = max(0.0, float(mo.start))
         end = float(mo.end)
         if end <= start:
+            raw.append(None)
             continue
-        dur = end - start
-        # Extend short clips up to min_duration, bounded by the video end.
-        if dur < min_duration:
-            end = min(start + min_duration, video_duration)
+        we = max(end, min(start + min_duration, video_duration))
+        raw.append(_signal_for_window(ctx, start, we))
+
+    def _normalizer(idx):
+        vals = [r[idx] for r in raw if r]
+        lo, hi = (min(vals), max(vals)) if vals else (0.0, 0.0)
+        rng = hi - lo
+        return lambda v: ((v - lo) / rng) if rng > 1e-9 else 0.5
+    n_rms, n_peak, n_chars = _normalizer(0), _normalizer(1), _normalizer(2)
+
+    model_scores = [float(getattr(m, "virality_score", 0) or 0) for m in moments]
+    model_has_variance = (max(model_scores) - min(model_scores) > 1.0) if model_scores else False
+
+    floor = min(min_duration, video_duration)
+    cleaned = []
+    for mo, r in zip(moments, raw):
+        if r is None:
+            continue
+        start = max(0.0, float(mo.start))
+        end = float(mo.end)
+        # Composite signal strength 0..1 (peaks weigh most, then loudness, then speech).
+        comp = 0.45 * n_peak(r[1]) + 0.35 * n_rms(r[0]) + 0.20 * n_chars(r[2])
+        # Target length scales with signal: strong moments get longer clips.
+        target = min_duration + (max_duration - min_duration) * comp
+        if end - start < target:
+            end = min(start + target, video_duration)
             if end - start < min_duration:
                 start = max(0.0, end - min_duration)
-            dur = end - start
-        # Trim overly long clips.
-        if dur > max_duration:
+        if end - start > max_duration:
             end = start + max_duration
-            dur = end - start
-        # Drop anything still too short to stand alone as a clip.
-        if dur < min(floor, 15.0) - 0.01:
+        if end - start < min(floor, 15.0) - 0.01:
             continue
         mo.start = round(start, 2)
         mo.end = round(end, 2)
-        if not getattr(mo, "virality_score", None):
-            mo.virality_score = 50
+        # Score: trust the model only if it actually differentiated; otherwise
+        # derive a varied, meaningful score from the signals (45..95).
+        if model_has_variance:
+            if not getattr(mo, "virality_score", None):
+                mo.virality_score = 50
+        else:
+            mo.virality_score = round(45 + 50 * comp)
         cleaned.append(mo)
 
-    # Highest virality first so overlap resolution keeps the best clip.
     cleaned.sort(key=lambda x: x.virality_score or 0, reverse=True)
     kept = []
     for mo in cleaned:
@@ -75,7 +131,6 @@ def _enforce_constraints(moments, min_duration, max_duration, max_moments, video
     kept = kept[:max_moments]
     kept.sort(key=lambda x: x.start)  # chronological for display
     return kept
-
 
 class DetectionPipeline:
     """Orchestrates 3-stage GPU pipeline for moment detection.
@@ -344,7 +399,7 @@ class DetectionPipeline:
         logger.info("")
         # Enforce Detection Settings deterministically (LLM often ignores them).
         director_output.moments = _enforce_constraints(
-            director_output.moments, min_duration, max_duration, max_moments, video_duration,
+            director_output.moments, min_duration, max_duration, max_moments, video_duration, ctx,
         )
 
         logger.info("="*60)
