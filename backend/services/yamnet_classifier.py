@@ -22,11 +22,16 @@ logger = logging.getLogger(__name__)
 
 # AudioSet classes that correlate with viral / high-engagement moments.
 # Anything not in this set is ignored (we don't surface "Speech", "Silence"...).
+# Only PUNCTUAL reaction sounds — these mark a specific viral instant. Ambient /
+# continuous classes (Music, Chatter, Crowd, Speech) are deliberately EXCLUDED:
+# in a typical talking-head/gameplay video music plays throughout, so tagging it
+# would put an "event" in every window and destroy the signal's discriminative
+# power (observed: 71/73 events were "Music"). We want sounds that spike.
 VIRAL_LABELS = {
     "Laughter", "Baby laughter", "Giggle", "Snicker", "Belly laugh",
-    "Chuckle, chortle", "Applause", "Clapping", "Cheering", "Crowd",
+    "Chuckle, chortle", "Applause", "Clapping", "Cheering",
     "Whoop", "Children shouting", "Screaming", "Shout", "Yell",
-    "Gasp", "Crying, sobbing", "Music", "Booing", "Chatter",
+    "Gasp", "Crying, sobbing", "Booing",
 }
 
 # Hop between YamNet frames (seconds). Fixed by the model architecture.
