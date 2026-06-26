@@ -49,7 +49,7 @@ def _build_from_tfhub(dest: str) -> bool:
         rc = subprocess.call([_sys.executable, "-m", "pip", "install", "--quiet",
                               "tensorflow", "tensorflow_hub", "tf2onnx"])
         if rc != 0:
-            print("  ✗ could not install conversion dependencies")
+            print("  ERROR could not install conversion dependencies")
             return False
         import tensorflow as tf  # noqa
         import tensorflow_hub as hub
@@ -132,7 +132,7 @@ def main() -> int:
         "  Options:\n"
         "   - set CLIPFORGE_YAMNET_URL to a direct ONNX download link and re-run, or\n"
         "   - convert the TF-Hub model: pip install tensorflow tensorflow_hub tf2onnx,\n"
-        "     then export yamnet to ONNX (mono 16kHz float32 input → [frames,521] output).\n"
+        "     then export yamnet to ONNX (mono 16kHz float32 input -> [frames,521] output).\n"
         "  Until then audio-event detection stays disabled (pipeline still works).\n"
     )
     return 1
