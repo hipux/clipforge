@@ -403,6 +403,16 @@ class LLMDirector:
                 out.append(candidates[idx])
             if len(out) >= max_moments:
                 break
+        # Log what the global view actually picked (indices + scores) so the
+        # re-rank decision is visible, not just the count.
+        if out:
+            preview = ", ".join(
+                f"#{keep[i] if i < len(keep) else '?'}({m.start:.0f}-{m.end:.0f}s,v={getattr(m,'virality_score',0):.0f})"
+                for i, m in enumerate(out[:8])
+            )
+            logger.info(f"🧠 [Qwen3] Ре-ранкинг выбрал {len(out)}: {preview}{' ...' if len(out) > 8 else ''}")
+        else:
+            logger.warning("🧠 [Qwen3] Ре-ранкинг не вернул валидных индексов — беру всех кандидатов")
         # Safety: if the model returned nothing usable, fall back to all candidates.
         return out if out else candidates
 

@@ -146,6 +146,13 @@ class AudioAnalyzer:
             # Reuses the already-loaded 16 kHz mono waveform — no extra I/O.
             # Degrades to [] if onnxruntime/model are unavailable.
             events = yamnet_classifier.classify(y, sr)
+            if events:
+                from collections import Counter
+                by_label = Counter(ev.label for ev in events)
+                summary = ", ".join(f"{lbl}×{cnt}" for lbl, cnt in by_label.most_common())
+                logger.info(f"🔊 [YamNet] События по типам: {summary}")
+            else:
+                logger.info("🔊 [YamNet] Семантических событий не найдено (модель отсутствует или тишина)")
 
             analysis_time = time.time() - start_time
             logger.info(f"🔊 [Аудио] Найдено {len(peaks)} пиков активности, {len(events)} аудио-событий")

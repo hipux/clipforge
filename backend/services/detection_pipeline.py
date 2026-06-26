@@ -146,7 +146,23 @@ def _enforce_constraints(moments, min_duration, max_duration, max_moments, video
     model_scores = [float(getattr(m, "virality_score", 0) or 0) for m in moments]
     model_has_variance = (max(model_scores) - min(model_scores) > 1.0) if model_scores else False
 
+    # Diagnostics: how the new features see the input.
+    n_events_total = len(getattr(getattr(ctx, "audio_analysis", None), "events", None) or [])
+    model_hooks_in = [float(getattr(m, "hook_strength", 0.0) or 0.0) for m in moments]
+    n_model_hooks = sum(1 for h in model_hooks_in if h > 0.0)
+    logger.info(
+        f"⚙️  [Ограничения] Вход: {len(moments)} кандидатов | "
+        f"score модели {'РАЗНЫЙ' if model_has_variance else 'плоский→пересчёт'} "
+        f"(min={min(model_scores) if model_scores else 0:.0f}, max={max(model_scores) if model_scores else 0:.0f}) | "
+        f"hook от модели: {n_model_hooks}/{len(moments)} заполнено | "
+        f"YamNet-событий всего: {n_events_total}"
+    )
+
     floor = min(min_duration, video_duration)
+    n_dropped_short = 0
+    n_stretched = 0
+    n_capped = 0
+    n_with_event = 0
     cleaned = []
     for mo, r in zip(moments, raw):
         if r is None:
@@ -156,6 +172,8 @@ def _enforce_constraints(moments, min_duration, max_duration, max_moments, video
         # applause, cheering from YamNet) are the strongest single signal, then
         # energy peaks, loudness and speech density.
         has_event = len(r) > 3 and r[3] > 1e-9
+        if has_event:
+            n_with_event += 1
         if has_event:
             comp = 0.35 * n_event(r[3]) + 0.30 * n_peak(r[1]) + 0.20 * n_rms(r[0]) + 0.15 * n_chars(r[2])
         else:
@@ -167,11 +185,15 @@ def _enforce_constraints(moments, min_duration, max_duration, max_moments, video
         # forward from there.
         start = _refine_start(sentences, start, lookback=6.0)
         end = min(start + target, video_duration)
+        orig_len = end - start
         if end - start > max_duration:
             end = start + max_duration
+            n_capped += 1
         if end - start < min_duration:
             start = max(0.0, end - min_duration)
+            n_stretched += 1
         if end - start < min(floor, 15.0) - 0.01:
+            n_dropped_short += 1
             continue
         mo.start = round(start, 2)
         mo.end = round(end, 2)
@@ -211,6 +233,11 @@ def _enforce_constraints(moments, min_duration, max_duration, max_moments, video
             base = 45 + 50 * comp
         base += (hook - 0.5) * 16.0  # hook 1.0 -> +8, hook 0.0 -> -8
         mo.virality_score = int(round(max(1, min(100, base))))
+        logger.debug(
+            f"⚖️  [Constraints] {mo.start:.1f}-{mo.end:.1f}s ({mo.end-mo.start:.0f}с) "
+            f"comp={comp:.2f} hook={hook:.2f} (модель={model_hook:.2f}/сигнал={signal_hook:.2f}) "
+            f"{'+событие ' if has_event else ''}→ score={mo.virality_score}"
+        )
         cleaned.append(mo)
 
     cleaned.sort(key=lambda x: x.virality_score or 0, reverse=True)
@@ -225,8 +252,38 @@ def _enforce_constraints(moments, min_duration, max_duration, max_moments, video
         if not overlapped:
             kept.append(mo)
 
+    n_before_dedup = len(cleaned)
+    n_after_dedup = len(kept)
+    n_capped_to_max = max(0, n_after_dedup - max_moments)
     kept = kept[:max_moments]
     kept.sort(key=lambda x: x.start)  # chronological for display
+
+    # Final distribution of what survived — makes the new features visible.
+    if kept:
+        sc = [int(m.virality_score or 0) for m in kept]
+        hk = [float(getattr(m, "hook_strength", 0.0) or 0.0) for m in kept]
+        durs = [round(m.end - m.start, 1) for m in kept]
+        logger.info(
+            f"⚙️  [Ограничения] Итог: {len(kept)} моментов | "
+            f"score min/avg/max = {min(sc)}/{sum(sc)//len(sc)}/{max(sc)} | "
+            f"hook min/avg/max = {min(hk):.2f}/{sum(hk)/len(hk):.2f}/{max(hk):.2f} | "
+            f"длительность min/max = {min(durs)}/{max(durs)}с"
+        )
+        logger.info(
+            f"⚙️  [Ограничения] Обработка: растянуто {n_stretched}, обрезано {n_capped}, "
+            f"отброшено коротких {n_dropped_short}, дедуп {n_before_dedup}→{n_after_dedup}, "
+            f"обрезка по max_moments {n_capped_to_max} | с YamNet-событием в окне: {n_with_event}"
+        )
+        # Top-3 preview so you can eyeball quality without the UI.
+        top = sorted(kept, key=lambda x: x.virality_score or 0, reverse=True)[:3]
+        for rank, m in enumerate(top, 1):
+            logger.info(
+                f"⚙️  [Ограничения] ТОП-{rank}: {m.start:.0f}-{m.end:.0f}с "
+                f"score={m.virality_score} hook={getattr(m, 'hook_strength', 0.0):.2f} "
+                f"тип={getattr(m, 'content_type', '?')} hook_text=\"{(getattr(m, 'hook', '') or '')[:60]}\""
+            )
+    else:
+        logger.warning("⚙️  [Ограничения] Итог: 0 моментов после фильтрации!")
     return kept
 
 class DetectionPipeline:
