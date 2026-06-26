@@ -10,6 +10,9 @@ faster-whisper>=1.0.0
 
 # Audio and video analysis (ALL LOCAL - no paid APIs)
 librosa>=0.10.0
+
+# YamNet audio-event classifier (ONNX, no TensorFlow). GPU build falls back to CPU.
+onnxruntime-gpu>=1.17.0
 numpy>=1.24.0
 opencv-python-headless>=4.9.0
 

@@ -110,6 +110,39 @@ Write-Host ""
 Write-Host "[+] Installing Python dependencies..." -ForegroundColor Yellow
 & $pip install -r requirements.txt
 
+# -- 7b. YamNet audio-event model (laughter/applause/cheering) ----
+Write-Host ""
+Write-Host "[+] Checking YamNet audio-event classifier..." -ForegroundColor Yellow
+
+# Check onnxruntime is present in THIS venv before doing anything.
+$ortInstalled = $false
+try {
+    & $python -c "import onnxruntime" 2>$null
+    if ($LASTEXITCODE -eq 0) { $ortInstalled = $true }
+} catch { $ortInstalled = $false }
+
+if (-not $ortInstalled) {
+    Write-Host "[+] onnxruntime not in venv, installing..." -ForegroundColor Yellow
+    & $pip install onnxruntime-gpu --quiet
+    if ($LASTEXITCODE -ne 0) { & $pip install onnxruntime --quiet }
+} else {
+    Write-Host "[OK] onnxruntime already in venv, skipping install" -ForegroundColor Green
+}
+
+# Only download the model if it isn't already on disk.
+$yamnetModel = Join-Path $ScriptDir "models\yamnet\yamnet.onnx"
+$yamnetMap   = Join-Path $ScriptDir "models\yamnet\yamnet_class_map.csv"
+if ((Test-Path $yamnetModel) -and (Test-Path $yamnetMap)) {
+    Write-Host "[OK] YamNet model already present, skipping download" -ForegroundColor Green
+} else {
+    Write-Host "[+] Downloading YamNet assets..." -ForegroundColor Yellow
+    & $python -m backend.scripts.download_yamnet
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[!] YamNet model not fully downloaded (audio-event detection will stay disabled)." -ForegroundColor DarkYellow
+        Write-Host "    Set CLIPFORGE_YAMNET_URL to a direct .onnx link and re-run setup to enable it." -ForegroundColor DarkYellow
+    }
+}
+
 # -- 8. Node.js + frontend ---------------------------------------
 Write-Host ""
 Write-Host "[+] Checking Node.js..." -ForegroundColor Yellow

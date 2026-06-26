@@ -69,6 +69,27 @@ echo ""
 echo "[+] Installing Python dependencies..."
 pip install -r requirements.txt
 
+# YamNet audio-event model (laughter/applause/cheering)
+echo ""
+echo "[+] Checking YamNet audio-event classifier..."
+# Check onnxruntime is present in THIS venv before doing anything.
+if python3 -c "import onnxruntime" &> /dev/null; then
+    echo "[OK] onnxruntime already in venv, skipping install"
+else
+    echo "[+] onnxruntime not in venv, installing..."
+    pip install onnxruntime-gpu --quiet || pip install onnxruntime --quiet
+fi
+# Only download the model if it isn't already on disk.
+if [ -f "models/yamnet/yamnet.onnx" ] && [ -f "models/yamnet/yamnet_class_map.csv" ]; then
+    echo "[OK] YamNet model already present, skipping download"
+else
+    echo "[+] Downloading YamNet assets..."
+    if ! python3 -m backend.scripts.download_yamnet; then
+        echo "[!] YamNet model not fully downloaded (audio-event detection will stay disabled)."
+        echo "    Set CLIPFORGE_YAMNET_URL to a direct .onnx link and re-run setup to enable it."
+    fi
+fi
+
 # Check Node.js
 echo ""
 echo "[+] Checking Node.js..."
