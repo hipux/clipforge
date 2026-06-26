@@ -22,6 +22,9 @@ def build_system_prompt(min_duration: int, max_duration: int, max_moments: int, 
         f"(end - start >= {min_duration}). Never output moments shorter than {min_duration}s or longer than {max_duration}s.\n"
         "- start and end are ABSOLUTE seconds in the source video (use the [12.3s-45.6s] timestamps shown in the TRANSCRIPT section).\n"
         "- Hook must be in the first 3 seconds - no slow builds.\n"
+        "- hook_strength is REQUIRED (0.0-1.0): rate how strong the opening hook is in the FIRST 3 SECONDS. "
+        "1.0 = opens on a question, bold claim, or strong reaction that instantly grabs a cold viewer; "
+        "0.2 = slow build / mid-thought start. Prefer high-hook moments and let this influence virality_score.\n"
         "- Do not start/end mid-sentence; align to silence/segment boundaries.\n"
         "- virality_score is REQUIRED for every moment: an integer 0-100 reflecting real viral potential (vary it, do not output a flat 50).\n"
         "- THINK FIRST inside the \"reasoning\" field (it MUST be the first field): identify the self-contained idea, its hook and resolution, then derive start/end/virality_score from that analysis. This reasoning is what makes the selection good - do not skip it.\n"
@@ -37,6 +40,7 @@ def build_system_prompt(min_duration: int, max_duration: int, max_moments: int, 
         '      "start": 12.5,\n'
         '      "end": 34.0,\n'
         '      "virality_score": 82,\n'
+        '      "hook_strength": 0.9,\n'
         '      "content_type": "reaction|explanation|story|joke|argument",\n'
         '      "subtitle_mode": "ru_only",\n'
         '      "translated_text": null,\n'

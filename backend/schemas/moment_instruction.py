@@ -33,6 +33,7 @@ class MomentInstruction(BaseModel):
     translated_text: Optional[str] = Field(None, description="Russian translation if original is not Russian")
     camera_plan: List[CameraKeyframe] = Field(default_factory=list, description="camera movement keyframes")
     reasoning: str = Field(default="", description="why this moment is viral")
+    hook_strength: float = Field(default=0.0, ge=0.0, le=1.0, description="strength of the opening hook in the first 3s (0..1): is there a question/bold claim/strong reaction that grabs attention immediately and makes sense without prior context")
 
 
 class DirectorOutput(BaseModel):

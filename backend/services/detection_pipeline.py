@@ -175,13 +175,42 @@ def _enforce_constraints(moments, min_duration, max_duration, max_moments, video
             continue
         mo.start = round(start, 2)
         mo.end = round(end, 2)
+
+        # ── HOOK STRENGTH ────────────────────────────────────────────────────
+        # Retention is decided in the first seconds, so we score the OPENING
+        # separately and fold it into the moment. Two sources:
+        #   (a) the model's self-reported hook_strength (0..1), and
+        #   (b) a deterministic signal: how active the FIRST 3s of the (refined)
+        #       clip are vs the whole clip — a clip that opens on energy / a
+        #       YamNet event / dense speech hooks a cold viewer faster than one
+        #       that opens on a lull.
+        hook_window = 3.0
+        sr3 = _signal_for_window(ctx, mo.start, min(mo.start + hook_window, mo.end))
+        # density per second in the opening vs the whole clip (peaks+events+speech)
+        open_sig = (sr3[1] + sr3[3]) + 0.01 * sr3[2]
+        full_sig = (r[1] + r[3]) + 0.01 * r[2]
+        open_dur = max(min(mo.start + hook_window, mo.end) - mo.start, 0.1)
+        full_dur = max(mo.end - mo.start, 0.1)
+        open_density = open_sig / open_dur
+        full_density = full_sig / full_dur
+        # ratio>1 means the opening is more active than average -> strong start
+        signal_hook = open_density / full_density if full_density > 1e-9 else 0.5
+        signal_hook = max(0.0, min(1.0, signal_hook / 2.0))  # ~2x avg -> 1.0
+        model_hook = float(getattr(mo, "hook_strength", 0.0) or 0.0)
+        # combine: trust the model's read but never let a dead opening pass.
+        hook = round(max(model_hook, 0.5 * model_hook + 0.5 * signal_hook), 3)
+        mo.hook_strength = hook
+
         # Score: trust the model only if it actually differentiated; otherwise
-        # derive a varied, meaningful score from the signals (45..95).
+        # derive a varied, meaningful score from the signals (45..95). Either way
+        # the opening hook nudges the score (a great clip with a weak start is
+        # worth less; +/- up to ~8 points).
         if model_has_variance:
-            if not getattr(mo, "virality_score", None):
-                mo.virality_score = 50
+            base = float(getattr(mo, "virality_score", 0) or 50)
         else:
-            mo.virality_score = round(45 + 50 * comp)
+            base = 45 + 50 * comp
+        base += (hook - 0.5) * 16.0  # hook 1.0 -> +8, hook 0.0 -> -8
+        mo.virality_score = int(round(max(1, min(100, base))))
         cleaned.append(mo)
 
     cleaned.sort(key=lambda x: x.virality_score or 0, reverse=True)
