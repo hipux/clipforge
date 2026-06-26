@@ -70,7 +70,21 @@ try {
 
 # -- 5. PyTorch --------------------------------------------------
 Write-Host ""
-if ($gpuAvailable) {
+$torchOk = $false
+try {
+    $torchCuda = & $python -c "import torch; print(torch.cuda.is_available())" 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        if ($gpuAvailable -and ($torchCuda.Trim() -ne "True")) {
+            Write-Host "[!] torch installed but without CUDA - reinstalling GPU build" -ForegroundColor Yellow
+        } else {
+            $torchOk = $true
+        }
+    }
+} catch { $torchOk = $false }
+
+if ($torchOk) {
+    Write-Host "[OK] PyTorch already installed (cuda=$($torchCuda.Trim())), skipping" -ForegroundColor Green
+} elseif ($gpuAvailable) {
     Write-Host "[+] Installing PyTorch with $cudaTag (~2.5 GB)..." -ForegroundColor Yellow
     & $pip install torch torchvision torchaudio `
         --index-url "https://download.pytorch.org/whl/$cudaTag" --quiet
@@ -86,6 +100,15 @@ Write-Host "[OK] PyTorch installed" -ForegroundColor Green
 
 # -- 6. llama-cpp-python (pre-built wheel - no source build needed) --
 Write-Host ""
+$llamaOk = $false
+try {
+    & $python -c "import llama_cpp" 2>$null
+    if ($LASTEXITCODE -eq 0) { $llamaOk = $true }
+} catch { $llamaOk = $false }
+
+if ($llamaOk) {
+    Write-Host "[OK] llama-cpp-python already installed, skipping" -ForegroundColor Green
+} else {
 Write-Host "[+] Installing llama-cpp-python..." -ForegroundColor Yellow
 if ($gpuAvailable) {
     # Use pre-built wheel from GitHub releases - avoids Long Path build issues
@@ -104,6 +127,7 @@ if ($gpuAvailable) {
     & $pip install llama-cpp-python --quiet
 }
 Write-Host "[OK] llama-cpp-python installed" -ForegroundColor Green
+}
 
 # -- 7. Python dependencies (torch/llama already handled above) --
 Write-Host ""
@@ -153,10 +177,14 @@ try {
     Write-Host "[X] Node.js not found. Download: https://nodejs.org/" -ForegroundColor Red
     Read-Host "Press Enter to exit"; exit 1
 }
-Write-Host "[+] Installing frontend dependencies..." -ForegroundColor Yellow
-Set-Location (Join-Path $ScriptDir "frontend")
-npm install --silent
-Set-Location $ScriptDir
+if (Test-Path (Join-Path $ScriptDir "frontend\node_modules")) {
+    Write-Host "[OK] Frontend dependencies already installed, skipping" -ForegroundColor Green
+} else {
+    Write-Host "[+] Installing frontend dependencies..." -ForegroundColor Yellow
+    Set-Location (Join-Path $ScriptDir "frontend")
+    npm install --silent
+    Set-Location $ScriptDir
+}
 
 # -- 9. Directories ----------------------------------------------
 Write-Host ""

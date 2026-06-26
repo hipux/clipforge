@@ -37,29 +37,38 @@ pip install --upgrade pip --quiet
 # Check CUDA
 echo ""
 echo "[+] Checking for NVIDIA GPU..."
+GPU_AVAILABLE=false
 if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
-    echo "[OK] CUDA detected! Installing GPU-accelerated packages..."
-    echo ""
-    
-    # Install PyTorch with CUDA 12.1
+    GPU_AVAILABLE=true
+fi
+
+# --- PyTorch (skip if already importable; reinstall if GPU expected but CPU build) ---
+TORCH_OK=false
+TORCH_CUDA=$(python3 -c "import torch; print(torch.cuda.is_available())" 2>/dev/null || echo "")
+if [ -n "$TORCH_CUDA" ]; then
+    if [ "$GPU_AVAILABLE" = true ] && [ "$TORCH_CUDA" != "True" ]; then
+        echo "[!] torch installed but without CUDA - reinstalling GPU build"
+    else
+        TORCH_OK=true
+    fi
+fi
+if [ "$TORCH_OK" = true ]; then
+    echo "[OK] PyTorch already installed (cuda=$TORCH_CUDA), skipping"
+elif [ "$GPU_AVAILABLE" = true ]; then
     echo "[+] Installing PyTorch with CUDA 12.1 (~2.5 GB)..."
     pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-    
-    # Install llama-cpp-python with CUDA
-    echo "[+] Installing llama-cpp-python with CUDA support..."
-    CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python --no-cache-dir
-    
-    echo "[OK] GPU packages installed"
 else
-    echo "[!] CUDA not detected - installing CPU-only packages"
-    echo "    GPU pipeline will not be available"
-    echo ""
-    
-    # Install PyTorch CPU-only
     echo "[+] Installing PyTorch (CPU-only)..."
     pip install torch torchvision torchaudio
-    
-    # Install llama-cpp-python CPU-only
+fi
+
+# --- llama-cpp-python (skip if already importable) ---
+if python3 -c "import llama_cpp" &> /dev/null; then
+    echo "[OK] llama-cpp-python already installed, skipping"
+elif [ "$GPU_AVAILABLE" = true ]; then
+    echo "[+] Installing llama-cpp-python with CUDA support..."
+    CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python --no-cache-dir
+else
     echo "[+] Installing llama-cpp-python (CPU-only)..."
     pip install llama-cpp-python
 fi
@@ -101,10 +110,14 @@ fi
 echo "[OK] Node.js found: $(node --version)"
 
 # Install frontend dependencies
-echo "[+] Installing frontend dependencies..."
-cd frontend
-npm install
-cd ..
+if [ -d "frontend/node_modules" ]; then
+    echo "[OK] Frontend dependencies already installed, skipping"
+else
+    echo "[+] Installing frontend dependencies..."
+    cd frontend
+    npm install
+    cd ..
+fi
 
 # Create workspace directories
 echo ""
