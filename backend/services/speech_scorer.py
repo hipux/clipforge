@@ -365,7 +365,7 @@ def get_subtitle_style_definition(style_name: str) -> str:
         # Karaoke: Bold 80pt. PrimaryColour=YELLOW (sung/current word), SecondaryColour=WHITE
         # (unsung), so \kf sweeps each word white->yellow as spoken (TikTok highlight look).
         # No outline (per design) + subtle drop shadow for readability.
-        "karaoke": "Style: Default,Arial,64,&H0000D7FF,&H00FFFFFF,&H00000000,&H90000000,1,0,0,0,100,100,0,0,1,0,1,2,60,60,480,1",
+        "karaoke": "Style: Default,Arial,64,&H0000D7FF,&H00FFFFFF,&H00000000,&H64000000,1,0,0,0,100,100,0,0,1,3,1,2,60,60,480,1",
         
         # Bold White: Bold 80pt, white, thick 4px black outline, large font
         "bold": "Style: Default,Arial,80,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,4,2,2,60,60,320,1",
@@ -427,6 +427,8 @@ def generate_subtitles_file(video_path: str, output_path: str, style: str = "kar
             f.write("[Script Info]\n")
             f.write("Title: ClipForge Subtitles\n")
             f.write("ScriptType: v4.00+\n")
+            f.write("ScaledBorderAndShadow: yes\n")
+            f.write("WrapStyle: 2\n")
             f.write("PlayResX: 1080\n")
             f.write("PlayResY: 1920\n")
             f.write("Collisions: Normal\n")
@@ -505,9 +507,9 @@ def generate_subtitles_file(video_path: str, output_path: str, style: str = "kar
                                     wtext = w.word.strip().upper()
                                     if wi == active_i:
                                         # active word: vivid yellow + slight zoom for a clear pop
-                                        parts.append(f"{{\\c{YELLOW}\\fscx112\\fscy112}}{wtext}")
+                                        parts.append(f"{{\\c{YELLOW}}}{wtext}")  # crisp color-only highlight (zoom reflowed/aliased the line)
                                     else:
-                                        parts.append(f"{{\\c{WHITE}\\fscx100\\fscy100}}{wtext}")
+                                        parts.append(f"{{\\c{WHITE}}}{wtext}")
                                 line_text = ' '.join(parts)
                                 f.write(f"Dialogue: 0,{format_ass_time(seg_start)},{format_ass_time(seg_end)},Default,,0,0,0,,{line_text}\n")
                         else:

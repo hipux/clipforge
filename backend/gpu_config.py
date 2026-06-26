@@ -45,7 +45,7 @@ QWEN_TOP_P = float(os.getenv("CLIPFORGE_QWEN_TOP_P", "0.95"))
 
 # ─── NVENC Encoder Configuration ───────────────────────────────────────────
 NVENC_PRESET = os.getenv("CLIPFORGE_NVENC_PRESET", "p7")
-NVENC_CQ = int(os.getenv("CLIPFORGE_NVENC_CQ", "20"))
+NVENC_CQ = int(os.getenv("CLIPFORGE_NVENC_CQ", "18"))  # 20->18: less blocking/banding on the blurred background (flat dark gradients compressed too hard)
 NVENC_RC_LOOKAHEAD = int(os.getenv("CLIPFORGE_NVENC_LOOKAHEAD", "20"))
 
 # ─── Pipeline Mode ─────────────────────────────────────────────────────────
