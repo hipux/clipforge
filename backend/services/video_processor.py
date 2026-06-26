@@ -145,6 +145,7 @@ async def process_clip(
     
     # 5. Banner overlay (if enabled)
     banner_input = None
+    banner_is_gif = False
     if effects.banner and effects.banner.enabled and effects.banner.banner_id:
         if progress_callback:
             progress_callback(0.8, "Adding banner overlay...")
@@ -153,6 +154,7 @@ async def process_clip(
         banner_files = list(BANNERS_DIR.glob(f"{effects.banner.banner_id}.*"))
         if banner_files:
             banner_input = str(banner_files[0])
+            banner_is_gif = banner_input.lower().endswith(".gif")
             input_count = 2
             
             # Calculate overlay position based on user selection
@@ -170,9 +172,13 @@ async def process_clip(
             size_pct = effects.banner.size / 100.0
             opacity = effects.banner.opacity / 100.0
             
+            # Animated GIF banners: shortest=1 ends output with the main video
+            # (the GIF is fed with -ignore_loop 0 below so it loops the whole clip).
+            # Static images must NOT use shortest=1 (single frame -> 1-frame output).
+            overlay_opts = ":shortest=1" if banner_is_gif else ""
             filters.append(
                 f"[1:v]scale=iw*{size_pct}:-1,format=rgba,colorchannelmixer=aa={opacity}[banner];"
-                f"[v4][banner]overlay={position}[vout]"
+                f"[v4][banner]overlay={position}{overlay_opts}[vout]"
             )
         else:
             # Banner file not found, skip
@@ -195,7 +201,12 @@ async def process_clip(
     
     # Add banner input if needed
     if banner_input:
-        cmd.extend(['-i', banner_input])
+        if banner_is_gif:
+            # -ignore_loop 0 makes the GIF loop indefinitely; overlay shortest=1
+            # bounds the output to the main video length.
+            cmd.extend(['-ignore_loop', '0', '-i', banner_input])
+        else:
+            cmd.extend(['-i', banner_input])
     
     cmd.extend([
         '-filter_complex', filter_complex,

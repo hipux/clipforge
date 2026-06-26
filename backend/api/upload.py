@@ -21,15 +21,15 @@ async def upload_banner(file: UploadFile = File(...)):
     """
     Upload a banner/watermark image.
     
-    Accepts PNG, WebP, JPG. Max 5MB.
+    Accepts PNG, WebP, JPG, and animated GIF. Max 5MB.
     Returns banner_id and URL for previewing.
     """
     # Validate file type
-    allowed_types = ["image/png", "image/webp", "image/jpeg", "image/jpg"]
+    allowed_types = ["image/png", "image/webp", "image/jpeg", "image/jpg", "image/gif"]
     if file.content_type not in allowed_types:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid file type. Allowed: PNG, WebP, JPEG. Got: {file.content_type}"
+            detail=f"Invalid file type. Allowed: PNG, WebP, JPEG, GIF. Got: {file.content_type}"
         )
     
     # Read file
