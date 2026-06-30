@@ -82,6 +82,18 @@ if _missing("scipy"):
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _reset_gemini_health_cache():
+    """Wipe the class-level health cache so each test that mocks
+    `_build_client` actually triggers a fake HTTP request. Without this,
+    a successful test_503_is_retried_then_succeeds() poisons the next
+    dozen tests with a stale "OK" cache hit."""
+    from backend.services.gemini_director import GeminiDirector
+    GeminiDirector._health_cache["ok_at_monotonic"] = None
+    yield
+    GeminiDirector._health_cache["ok_at_monotonic"] = None
+
+
 # IDs that we use as test fixtures in `test_accounts.py`. Anything
 # outside this list is treated as production data and preserved.
 TEST_ACCOUNT_IDS = (
