@@ -45,6 +45,11 @@ from backend.services.playwright_youtube import (
     YoutubePublisher,
     detect_auth_status,
 )
+from backend.services.upload_form import (
+    SELECTORS,
+    PUBLISH_DONE_KEYWORDS,
+    PUBLISH_ERROR_KEYWORDS,
+)
 
 logger = logging.getLogger("explore")
 
@@ -173,14 +178,16 @@ async def _scrape_progress(page) -> List[Dict[str, str]]:
         return []
 
 
-_DONE_KEYWORDS = (
-    "опубликов", "published", "publish complete", "publish finished",
-    "завершен", "готово", "complete", "done", "finished",
-)
-_ERROR_KEYWORDS = (
-    "публикация невозможна", "публикация прервана", "ошибка публикации",
-    "upload failed", "failed to publish", "publish error", "publish failed",
-)
+# Use the production-grade keyword lists from upload_form. Earlier
+# this file had a narrow local copy that included bare substrings
+# like "завершен" — which matched the INTERMEDIATE text "Загрузка
+# видео завершена. Скоро начнется обработка." on the very first
+# post-Publish poll, causing us to exit before any real processing
+# stage happened. The narrow lists below are required to be context-
+# anchored (substring of a terminal marker, NOT a partial of an
+# intermediate verb).
+_DONE_KEYWORDS = PUBLISH_DONE_KEYWORDS
+_ERROR_KEYWORDS = PUBLISH_ERROR_KEYWORDS
 
 
 def _is_done_text(text: str) -> bool:
