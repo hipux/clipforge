@@ -200,13 +200,18 @@ def _is_error_text(text: str) -> bool:
 
 async def _publish_and_observe(page, snap_dir: Path, args) -> None:
     """Visibility → click PRIVATE → click Publish (Опубликовать) →
-    poll the page every ``args.interval`` seconds, capturing the
-    visible text nodes inside the upload dialog. Stop on completion
-    marker OR error marker OR ``args.deadline`` seconds.
+    poll Studio's post-publish progress panel every ``args.interval``
+    seconds until completion-text OR error-text OR ``args.deadline``
+    seconds.
+
+    We deliberately poll to completion rather than fire-and-forget
+    because the operator UX is: "did the publish work or did
+    YouTube block the video?". We log the final state and exit
+    cleanly so the operator can decide what's next.
 
     Writes ``progress_NNN.png`` + ``progress_NNN.json`` snapshots
     AND a final ``unique_progress_texts.txt`` summarising every
-    distinct text we saw.
+    distinct text we saw during the wait.
     """
     logger.info("=" * 60)
     logger.info("[publish-observe] --publish: clicking PRIVATE + Publish, then polling...")
@@ -214,11 +219,6 @@ async def _publish_and_observe(page, snap_dir: Path, args) -> None:
 
     # Click PRIVATE radio on Visibility.
     try:
-        # Use the Polymer "name" attribute — stable, locale-
-        # independent, and uniquely identifies the radio (Studio
-        # also has a top-right "Закрыть" close button which text=
-        # matches and was making us close the dialog instead of
-        # picking the PRIVATE radio).
         priv = page.locator('tp-yt-paper-radio-button[name="PRIVATE"]').first
         await priv.click(timeout=4000, force=True)
         logger.info("[publish-observe] PRIVATE radio clicked")
@@ -226,15 +226,17 @@ async def _publish_and_observe(page, snap_dir: Path, args) -> None:
         logger.warning(f"[publish-observe] PRIVATE radio click failed: {e}")
 
     # Click Publish.
-    publish_btn = page.locator(
-        'button:has-text("Опубликовать"), '
-        'button:has-text("Save"), '
-        'button:has-text("Publish"), '
-        'button:has-text("Done")'
-    ).first
     try:
+        publish_btn = page.locator(
+            'button:has-text("Опубликовать"), '
+            'button:has-text("Save"), '
+            'button:has-text("Publish"), '
+            'button:has-text("Done")'
+        ).first
         await publish_btn.click(timeout=5000, force=True)
-        logger.info("[publish-observe] Publish clicked — polling begins")
+        await asyncio.sleep(2.0)
+        await page.screenshot(path=str(snap_dir / "99_post_publish.png"))
+        logger.info("[publish-observe] Publish clicked — polling begins now")
     except Exception as e:
         logger.error(f"[publish-observe] Publish click failed: {e}")
         await page.screenshot(path=str(snap_dir / "publish_click_error.png"))
@@ -676,9 +678,10 @@ def main() -> int:
                              "Ctrl+C в этом терминале = закрыть.")
     parser.add_argument("--publish", action="store_true",
                         help="После Visibility step: кликнуть PRIVATE + "
-                             "Publish и поллить progress-text. ВНИМАНИЕ: "
-                             "видео реально публикуется (PRIVATE) на "
-                             "аккаунт. Не запускать на main-канале.")
+                             "Publish и поллить progress-text до completion marker "
+                             "или ошибки или --deadline секунд. ВНИМАНИЕ: "
+                             "видео реально публикуется (PRIVATE) на аккаунт — "
+                             "каждая попытка тратит suspicious-activity budget.")
     parser.add_argument("--deadline", type=int, default=180,
                         help="сколько секунд ждать завершения Publish (default 180)")
     parser.add_argument("--interval", type=float, default=1.5,
