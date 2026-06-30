@@ -39,64 +39,83 @@ logger = logging.getLogger(__name__)
 # ───────────────────────────────────────────────────────────────────────────────
 #
 # Single source of truth. When YouTube Studio's DOM changes (they
-# forwarded migrated from Material to Polymer to Lit + Lit-Components
-# in 2024 alone), edit the matching key here and re-run tests. The
-# constants below were last verified against YouTube Studio 2026-Q2.
+# migrated Material→Polymer→Lit in 2024), edit the matching key here
+# and re-run tests. The constants below were verified live against
+# YouTube Studio 2026-Q2 in Russian-locale:
+#   * No data-testid attrs (Studio moved away)
+#   * URL stays constant for ALL steps — SPA on `…videos/upload?d=ud`
+#   * Dialog content rendered inside `ytcp-uploads-dialog-host`
+#   * Buttons localised: "Далее" / "Назад" / "Сохранить" / "Загрузить файл"
+#   * Title textarea has aria-label starting "Укажите название..."
 #
-# st-strategy: prefer `data-testid` because the YouTube frontend team
-# keeps them stable across visual redesigns; fall back to `aria-label`
-# if the testid path differs; fall back to `#id` if both fail.
+# Strategy: prefer aria-label substring (locale-stable concept even
+# when language changes), fall back to id (locale-stable), only use
+# button:has-text() when no aria is set.
 
 SELECTORS = {
     # ── Step 1: file picker ────────────────────────────────────────
     # The hidden input always accepts the file directly, regardless
-    # of whether the visible UI shows drag-drop or "Select files" button.
-    "file_input":        'input[type="file"]',
-    "select_files_btn":  'button:has-text("Select files")',
+    # of whether the visible UI shows drag-drop or "Загрузить файл" button.
+    "file_input":           'input[type="file"]',
+    # Russian-locale: "Загрузить файл"; English: "Upload file". Both literal.
+    "select_files_btn":     'button:has-text("Загрузить файл"), button:has-text("Upload file")',
 
     # ── Step 2: Details ─────────────────────────────────────────────
-    # These IDs go back to the early 2020s and are still kept by
-    # YouTube Studio as legacy compatibility references. Confirmed
-    # working 2026-Q2.
-    "title_textarea":    '#title-textarea textarea, [aria-label*="title" i]',
-    "description_box":   '#description-container textarea, [aria-label*="description" i]',
-    "title_counter":     '#title-textarea #counter, [aria-label*="title" i] + *',
+    # Title: Russian aria-prefix "Укажите название"; English "Add a title"
+    # that contains the word "title". The legacy #title-textarea id may
+    # still exist as fallback for older Studio. We use the aria-label
+    # match because Studio has resolved a CSS-class collision by changing
+    # them per-build and aria is more stable across renditions.
+    "title_textarea":       '[aria-label*="название" i], [aria-label*="title" i], textarea[placeholder*="название" i]',
+    "description_box":      '[aria-label*="Расскажите" i], [aria-label*="опишите" i], [aria-label*="description" i], [aria-label*="about your video" i]',
 
-    # ── Step 3: Video elements — usually skipped ─────────────────
-    # The "Cards" and "End screen" panels can have an info-i step
-    # but YouTube Studio usually offers a "Skip" or no-op if you have
-    # no content. The Next button is the way out.
-    "step_next_button":  '#next-button, button:has-text("Next")',
+    # ── Navigation ────────────────────────────────────────
+    # Russian "Далее" (Next); English "Next" / "Continue". Most reliable
+    # is #next-button (Studio has kept this id for years).
+    "step_next_button":     '#next-button, button:has-text("Далее"), button:has-text("Next"), button:has-text("Continue")',
+    # Russian "Назад" (Back). Used only for cancel logic.
+    "step_back_button":     'button:has-text("Назад"), button:has-text("Back")',
 
-    # ── Step 4: Checks — copyright confirmation ────────────────
-    # The "I own the content / I don't own it" radio group.
-    "copyright_owned":   '#ownership-container tp-yt-paper-radio-button:has-text("I own")',
-    # made-for-kids default NOT_MADE (we explicitly opt OUT).
-    "made_for_kids_not": 'tp-yt-paper-radio-button[name="NOT_MADE_FOR_KIDS"]',
+    # ── Made-for-kids (Details step, NOT a separate Checks step) ──
+    # Russian: "Нет, это видео не для детей"; English "No, it's not made for kids".
+    # We pick the second option (= not children-directed) by default.
+    "made_for_kids_not":   'tp-yt-paper-radio-button:has-text("Нет, это видео"), tp-yt-paper-radio-button:has-text("not made for kids")',
+
+    # ── Copyright + age restrictions (also Details step) ────────
+    "copyright_owned":      'tp-yt-paper-radio-button:has-text("я автор"), tp-yt-paper-radio-button:has-text("I own")',
+    "age_restriction":      'button:has-text("Возрастные ограничения"), button:has-text("Age restriction")',
 
     # ── Step 5: Visibility ──────────────────────────────────
-    # The visibility radio group + final Publish button.
-    "visibility_private":   '#private-radio-button',
-    "visibility_unlisted":  '#unlisted-radio-button',
-    "visibility_public":    '#public-radio-button',
-    "visibility_schedule":  '#schedule-radio-button',
+    # The visibility radio group + final Publish button. Studio keeps
+    # the dialog open until the operator confirms, so radio buttons use
+    # their visible text labels.
+    "visibility_private":   'tp-yt-paper-radio-button:has-text("Закрытый"), tp-yt-paper-radio-button:has-text("Private")',
+    "visibility_unlisted":  'tp-yt-paper-radio-button:has-text("Доступ по ссылке"), tp-yt-paper-radio-button:has-text("Unlisted")',
+    "visibility_public":    'tp-yt-paper-radio-button:has-text("Открытый"), tp-yt-paper-radio-button:has-text("Public")',
+    "visibility_schedule":  'tp-yt-paper-radio-button:has-text("Запланировать"), tp-yt-paper-radio-button:has-text("Schedule")',
 
-    # Schedule date/time picker — text inputs whose placeholder hints
-    # at the format. Newer Studio: explicit datetime-local inputs.
-    "schedule_date":    'input[type="datetime-local"], #scheduled-date, [aria-label*="date" i][role="textbox"]',
-    "schedule_time":    '[aria-label*="time" i], input[placeholder*=":" i]',
+    # Schedule date+time. Newer Studio uses <input type="datetime-local">;
+    # older versions split into date + time inputs.
+    "schedule_date":        'input[type="datetime-local"], input[aria-label*="дата" i], input[aria-label*="date" i]',
+    "schedule_time":        'input[aria-label*="время" i], input[aria-label*="time" i]',
 
-    # Publish (formerly 'Done') — final click that locks in the upload.
-    "publish_button":   '#done-button, button:has-text("Publish"), button:has-text("Done")',
+    # Publish (Russian "Сохранить", English "Publish", legacy "Done")
+    # — final click that locks in the upload.
+    "publish_button":       'button:has-text("Сохранить"), button:has-text("Save"), button:has-text("Publish"), button:has-text("Done"), #done-button',
 
     # ── Status surfaces ────────────────────────────────────
-    "processing":       'tp-yt-paper-progress, [role="progressbar"]',
-    "upload_complete":  '#title-textarea',
-    "video_url_link":   '#video-url a, a.video-url-fadeable, a[href*="youtu.be"], a[href*="youtube.com/watch"]',
+    "processing":           'tp-yt-paper-progress, [role="progressbar"]',
+    # Studio 2026: the upload's "details" dialog renders the title
+    # textarea at completion; we wait for this selectability as proof
+    # the file has been accepted + processed.
+    "upload_complete":      '[aria-label*="название" i], [aria-label*="title" i]',
+    "video_url_link":       '#video-url a, a.video-url-fadeable, a[href*="youtu.be"], a[href*="youtube.com/watch"]',
 
-    # Captcha / challenge / error surfaces.
-    "captcha_check":    'iframe[src*="captcha"], iframe[src*="recaptcha"]',
-    "error_short":      '#error-short, .error-short',
+    # Captcha / challenge / error surfaces. /sorry/ redirect catch:
+    # in Studio there is no captcha iframe directly — when Google's
+    # bot check surfaces, the page redirects to /sorry/.
+    "captcha_check":        'iframe[src*="captcha"], iframe[src*="recaptcha"]',
+    "error_short":          '#error-short, .error-short',
 }
 
 
