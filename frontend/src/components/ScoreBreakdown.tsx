@@ -1,5 +1,6 @@
 import { Sparkles, MessageSquare, Zap, Users as UsersIcon, Info } from 'lucide-react'
 import type { ScoreBreakdown as T } from '../store/useAppStore'
+import IconByName from './IconByName'
 
 interface Props {
   score: T | null | undefined
@@ -52,7 +53,7 @@ export default function ScoreBreakdown({ score }: Props) {
         </span>
         {score.content_type && (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
-            <span aria-hidden>{score.content_emoji || '🎬'}</span>
+            <IconByName name={score.content_icon || 'Clapperboard'} size={11} className="text-slate-500" />
             {score.content_type}
           </span>
         )}

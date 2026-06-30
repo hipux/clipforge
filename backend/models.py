@@ -102,7 +102,7 @@ class ScoreBreakdown(BaseModel):
                           description="Audio/visual energy (0-1) — YamNet + motion")
     content_type: str = Field("",
                               description="Hook | Explanation | Funny | Story | Action | Music")
-    content_emoji: str = Field("", description="Emoji marker matching content_type")
+    content_icon: str = Field("", description="lucide-react icon name matching content_type")
     reason: str = Field("", description="One-line verdict from the LLM")
     speakers: List[str] = Field(default_factory=list,
                                 description="Person A/B/C labels from cross-modal analysis")

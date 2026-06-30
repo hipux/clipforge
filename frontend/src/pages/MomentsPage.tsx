@@ -10,8 +10,9 @@ import {
   Play, SlidersHorizontal, Sparkles,
   CheckCircle2, Circle, Loader2,
   Mic, ScanFace, AudioWaveform, Brain, Layers, GitMerge, Save,
-  AlertTriangle, ArrowRight, RotateCcw, Scissors, Clock
+  AlertTriangle, ArrowRight, RotateCcw, Scissors, Clock,
 } from 'lucide-react'
+import IconByName from '../components/IconByName'
 
 interface Substep {
   key: string
@@ -225,7 +226,7 @@ export default function MomentsPage() {
   const [maxMoments, setMaxMoments] = useState(Math.min(20, detectionSettings.maxMoments))
   const [presetId, setPresetId] = useState(detectionSettings.presetId)
   const [presets, setPresets] = useState<Array<{
-    id: string; name: string; emoji: string;
+    id: string; name: string; icon: string;
     description: string; min_duration: number; max_duration: number;
   }>>([])
 
@@ -526,29 +527,35 @@ export default function MomentsPage() {
               <div>
                 <div className="flex justify-between items-baseline mb-2">
                   <label className="text-sm font-medium text-slate-700">Content type</label>
-                  <span className="text-xs text-indigo-600 font-semibold tabular-nums bg-indigo-50 px-2 py-0.5 rounded-full">
-                    {presets.find((p) => p.id === presetId)?.emoji ?? '🎬'}{' '}
+                  <span className="inline-flex items-center gap-1 text-xs text-indigo-600 font-semibold tabular-nums bg-indigo-50 px-2 py-0.5 rounded-full">
+                    <IconByName name={presets.find((p) => p.id === presetId)?.icon ?? 'Clapperboard'} size={11} />
                     {presets.find((p) => p.id === presetId)?.name ?? 'Universal'}
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-1.5">
-                  {presets.map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => setPresetId(p.id)}
-                      title={p.description}
-                      className={`px-2.5 py-1.5 rounded-lg border text-left text-[12px] transition-colors ${
-                        presetId === p.id
-                          ? 'border-accent bg-accent/5 text-slate-800'
-                          : 'border-slate-200 hover:border-slate-300 text-slate-500'
-                      }`}
-                    >
-                      <span className="font-semibold">{p.emoji} {p.name}</span>
-                      <div className="text-[10px] mt-0.5 leading-snug text-slate-500 line-clamp-2">
-                        {p.description}
-                      </div>
-                    </button>
-                  ))}
+                  {presets.map((p) => {
+                    const sel = presetId === p.id
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => setPresetId(p.id)}
+                        title={p.description}
+                        className={`px-2.5 py-1.5 rounded-lg border text-left text-[12px] transition-colors ${
+                          sel
+                            ? 'border-accent bg-accent/5 text-slate-800'
+                            : 'border-slate-200 hover:border-slate-300 text-slate-500'
+                        }`}
+                      >
+                        <span className="inline-flex items-center gap-1 font-semibold">
+                          <IconByName name={p.icon} size={11} className="text-slate-500" />
+                          {p.name}
+                        </span>
+                        <div className="text-[10px] mt-0.5 leading-snug text-slate-500 line-clamp-2">
+                          {p.description}
+                        </div>
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             </div>

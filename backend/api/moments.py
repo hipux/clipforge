@@ -6,7 +6,7 @@ import json
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 from typing import List
 from backend.models import DetectMomentsRequest, MomentCandidate, UpdateMomentRequest, MomentCandidateGPU
-from backend.services.content_presets import get_preset, list_presets
+from backend.services.content_presets import get_preset, list_presets, preset_to_dict
 from backend.services.detection_pipeline import detection_pipeline
 from backend.db import get_video, save_moments, get_moments, update_moment
 
@@ -119,18 +119,7 @@ async def _run_detection_session(session: "DetectionSession", video: dict, reque
 @router.get("/moments/presets")
 async def list_detection_presets():
     """List all available detection presets so the UI can render a picker."""
-    return [
-        {
-            "id": p.id,
-            "name": p.name,
-            "description": p.description,
-            "emoji": p.emoji,
-            "min_duration": p.min_duration,
-            "max_duration": p.max_duration,
-            "content_types": p.content_types,
-        }
-        for p in list_presets()
-    ]
+    return [preset_to_dict(p) for p in list_presets()]
 
 
 @router.get("/moments/detect-status/{video_id}")

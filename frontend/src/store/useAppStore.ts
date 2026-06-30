@@ -43,7 +43,7 @@ export interface ScoreBreakdown {
   self_contained: number  // 0-1
   pacing: number          // 0-1
   content_type: string
-  content_emoji: string
+  content_icon: string    // lucide-react icon name resolved by <IconByName/>
   reason: string
   speakers: string[]
 }

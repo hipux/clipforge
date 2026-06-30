@@ -8,26 +8,29 @@ from __future__ import annotations
 from typing import Iterable, List, Optional
 
 
-# Emoji per content type — chosen so the UI can render a single badge without
-# shipping a backend enum list. Keep short to fit a 14-px chip.
-CONTENT_TYPE_EMOJI = {
-    "hook":        "🎣",  # attention-grabber
-    "explanation": "🧠",  # information-dense talking
-    "funny":       "😂",  # comedic beat
-    "story":       "📖",  # narrative arc
-    "action":      "⚔️",  # fight / chase / sports
-    "music":       "🎶",  # song or dance
-    "reaction":    "😱",  # shock / awe
-    "emotional":   "💔",  # emotional beat
-    "anime":       "🎌",  # anime-specific for content-preset (#4)
-    "stream":      "🎮",  # stream clip specific
+# Lucide icon name per content type. The frontend renders these via
+# `lucide-react`'s dynamic import (`<DynamicIcon name="..."/>`-style).
+# We deliberately do NOT use unicode emoji here — the operator dashboard
+# uses custom SVG icons so icon weight, color, and hover/tooltip match
+# the rest of the design system.
+CONTENT_TYPE_ICON = {
+    "hook":        "Zap",        # attention-grabber
+    "explanation": "Lightbulb",  # information-dense talking
+    "funny":       "Smile",      # comedic beat
+    "story":       "BookOpen",   # narrative arc
+    "action":      "Flame",      # fight / chase / sports
+    "music":       "Music",      # song or dance
+    "reaction":    "Heart",      # shock / awe
+    "emotional":   "HeartHandshake",  # emotional beat
+    "anime":       "Sparkles",   # anime-specific for content-preset (#4)
+    "stream":      "Gamepad2",   # stream clip specific
 }
-_DEFAULT_EMOJI = "🎬"
+_DEFAULT_ICON = "Clapperboard"
 
 
-def emoji_for(content_type: str) -> str:
-    """Return a single emoji for `content_type`. Falls back to 🎬."""
-    return CONTENT_TYPE_EMOJI.get((content_type or "").lower(), _DEFAULT_EMOJI)
+def icon_for(content_type: str) -> str:
+    """Return a lucide icon name for `content_type`. Falls back to Clapperboard."""
+    return CONTENT_TYPE_ICON.get((content_type or "").lower(), _DEFAULT_ICON)
 
 
 def _avg(values: Iterable[float]) -> float:
@@ -62,7 +65,8 @@ def build_score_breakdown(
         "self_contained": round(_avg([self_contained]), 2),
         "pacing":        round(pacing, 2),
         "content_type":  (content_type or "").strip(),
-        "content_emoji": emoji_for(content_type or ""),
+        "content_icon":  icon_for(content_type or ""),
         "reason":        (reasoning or "").strip(),
         "speakers":      [s for s in speakers if s],
     }
+

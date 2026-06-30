@@ -1,21 +1,24 @@
 """Tests for score_breakdown helper (publish-UI "why this clip")."""
 import pytest
+
 from backend.services.score_breakdown import (
-    build_score_breakdown, emoji_for, CONTENT_TYPE_EMOJI,
+    build_score_breakdown, icon_for, CONTENT_TYPE_ICON,
 )
 
 
-def test_emoji_for_known_content_types():
+# ===== Safe getters =====
+
+def test_icon_for_known_content_types():
     for ct in ("hook", "explanation", "funny", "story",
                "action", "music", "reaction", "emotional", "anime", "stream"):
-        assert emoji_for(ct) == CONTENT_TYPE_EMOJI[ct]
+        assert icon_for(ct) == CONTENT_TYPE_ICON[ct]
 
 
-def test_emoji_for_unknown_returns_default():
-    assert emoji_for("") == "🎬"
-    assert emoji_for(None) == "🎬"  # type: ignore[arg-type]
-    assert emoji_for("totally_made_up") == "🎬"
-    assert emoji_for("HOOK") == CONTENT_TYPE_EMOJI["hook"]  # case-insensitive
+def test_icon_for_unknown_returns_default():
+    assert icon_for("") == "Clapperboard"
+    assert icon_for(None) == "Clapperboard"  # type: ignore[arg-type]
+    assert icon_for("totally_made_up") == "Clapperboard"
+    assert icon_for("HOOK") == CONTENT_TYPE_ICON["hook"]  # case-insensitive
 
 
 def test_build_score_breakdown_full():
@@ -33,7 +36,7 @@ def test_build_score_breakdown_full():
     assert out["self_contained"] == 0.71
     assert out["pacing"] == 0.45         # yamnet_energy wins over hook fallback
     assert out["content_type"] == "hook"
-    assert out["content_emoji"] == "🎣"
+    assert out["content_icon"] == "Zap"          # lucide-react icon name
     assert "hook" in out["reason"].lower()
     assert out["speakers"] == ["Person A"]
 
@@ -49,9 +52,9 @@ def test_build_score_breakdown_no_inputs_uses_defaults():
         "overall": 0,
         "hook": 0.0,
         "self_contained": 0.0,
-        "pacing": 0.0,                 # both hook and yamnet are None → 0.0
+        "pacing": 0.0,                       # both hook and yamnet are None → 0.0
         "content_type": "",
-        "content_emoji": "🎬",          # default fallback
+        "content_icon": "Clapperboard",     # default fallback
         "reason": "",
         "speakers": [],
     }
@@ -67,10 +70,10 @@ def test_build_score_breakdown_speakers_filtered():
     assert out["speakers"] == ["Person A", "Person B"]
 
 
-def test_emoji_table_is_complete_for_documented_types():
-    """content_type values produced by the LLM should all map to something."""
-    # These are the values surface in pipeline.JSON. If a new one ships, add
-    # it to the table — this test reminder prevents a silent "🎬" fallback.
+def test_icon_table_is_complete_for_documented_types():
+    """content_type values produced by the LLM should all map to a lucide icon.
+    If a new one ships, add it to the table — this test reminder prevents a
+    silent 'Clapperboard' fallback."""
     required = {"hook", "explanation", "funny", "story",
                 "action", "music", "reaction", "emotional"}
-    assert required.issubset(CONTENT_TYPE_EMOJI.keys())
+    assert required.issubset(CONTENT_TYPE_ICON.keys())

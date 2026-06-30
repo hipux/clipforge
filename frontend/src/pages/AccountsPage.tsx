@@ -5,9 +5,10 @@ import {
   Users as UsersIcon, KeyRound, Globe, Clock,
 } from 'lucide-react'
 import { Account, useAppStore } from '../store/useAppStore'
+import IconByName from '../components/IconByName'
 
 interface PresetSummary {
-  id: string; name: string; emoji: string; description: string
+  id: string; name: string; icon: string; description: string
 }
 
 export default function AccountsPage() {
@@ -37,7 +38,7 @@ export default function AccountsPage() {
   // Helper to render the preset badge inline.
   const badge = (id: string) =>
     presets.find((p) => p.id === id) ?? {
-      id, name: id, emoji: '🎬', description: ''
+      id, name: id, icon: 'Clapperboard', description: ''
     }
 
   return (
@@ -70,7 +71,7 @@ export default function AccountsPage() {
             Active publish target: <strong>{
               accounts.find(a => a.id === activeAccountId)?.name
             }</strong>{' '}
-            ({badge(activeAccountId).emoji} {badge(activeAccountId).name})
+            ({badge(activeAccountId).icon} {badge(activeAccountId).name})
           </span>
           <button
             onClick={() => setActiveAccountId('default')}
@@ -211,7 +212,8 @@ function AccountRow({
               </div>
               <div className="text-slate-700">
                 <span className="inline-flex items-center gap-1">
-                  <span aria-hidden>{badge.emoji}</span> {badge.name}
+                  <IconByName name={badge.icon} size={11} className="text-slate-500" />
+                  {badge.name}
                 </span>
               </div>
             </div>
@@ -369,7 +371,10 @@ function AccountEditor({
                       : 'border-slate-200 hover:border-slate-300 text-slate-500'
                   }`}
                 >
-                  <span className="font-semibold">{p.emoji} {p.name}</span>
+                  <span className="inline-flex items-center gap-1 font-semibold">
+                    <IconByName name={p.icon} size={11} className="text-slate-500" />
+                    {p.name}
+                  </span>
                   <div className="text-[10px] mt-0.5 leading-snug text-slate-500 line-clamp-2">
                     {p.description}
                   </div>

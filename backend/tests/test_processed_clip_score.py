@@ -27,16 +27,17 @@ def test_processed_clip_with_score():
         id='1', moment_id='m1', file_path='x.mp4', status='completed',
         effects=_effects(),
         score=ScoreBreakdown(overall=82, hook=0.75, self_contained=0.6,
-                             pacing=0.4, content_type='hook', content_emoji='🎣',
+                             pacing=0.4, content_type='hook', content_icon='Zap',
                              reason='Clear question with payoff.',
                              speakers=['Person A']),
     )
     assert pc.score.overall == 82
-    assert pc.score.content_emoji == '🎣'
+    assert pc.score.content_icon == 'Zap'
     assert pc.score.speakers == ['Person A']
     # Round-trip through JSON — this is what hits the API.
     data = pc.model_dump()
     assert data['score']['content_type'] == 'hook'
+    assert data['score']['content_icon'] == 'Zap'
     assert data['score']['speakers'] == ['Person A']
 
 

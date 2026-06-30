@@ -16,6 +16,8 @@ import {
   LogIn,
   Maximize2,
   X,
+  Globe,
+  KeyRound,
 } from 'lucide-react'
 
 interface ClipPublishState {
@@ -233,9 +235,10 @@ export default function PublishPage() {
                 : 'border-slate-200 hover:border-slate-300 text-slate-500'
             }`}
           >
-            <div className="font-semibold flex items-center gap-1">
-              🦊 Browser (ytb-up)
-              <span className="ml-auto text-success">recommended</span>
+            <div className="inline-flex items-center gap-1.5 font-semibold">
+              <Globe size={13} className="text-accent" />
+              Browser (ytb-up)
+              <span className="ml-auto text-success text-[10px] uppercase tracking-wider">recommended</span>
             </div>
             <div className="text-[11px] mt-1 leading-snug text-slate-500">
               Cookie auth + headless Playwright. Looks like a real uploader,
@@ -258,7 +261,10 @@ export default function PublishPage() {
                 : 'border-slate-200 hover:border-slate-300 text-slate-500'
             }`}
           >
-            <div className="font-semibold">🔌 OAuth Data API</div>
+            <div className="inline-flex items-center gap-1.5 font-semibold">
+              <KeyRound size={13} className="text-slate-500" />
+              OAuth Data API
+            </div>
             <div className="text-[11px] mt-1 leading-snug text-slate-500">
               Official Google API. Requires client_secrets.json + Workspace.
               Connection status below.

@@ -31,7 +31,7 @@ class ContentPreset:
     id: str
     name: str
     description: str
-    emoji: str                       # shown in UI
+    icon: str                        # lucide-react icon name (no unicode emoji)
     min_duration: int
     max_duration: int
     content_types: List[str]         # LLM is asked to choose among these
@@ -42,12 +42,14 @@ class ContentPreset:
 
 # Each preset defines what the LLM should look for. Defaults behave exactly
 # like the pre-preset pipeline so we never silently regress existing runs.
+# Icons are lucide-react names (no unicode emoji) so the dashboard uses a
+# single coherent icon system instead of mixing unicode glyphs with SVG icons.
 PRESETS: Dict[str, ContentPreset] = {
     "default": ContentPreset(
         id="default",
         name="Universal",
         description="General viral clips — hook + self-contained balance.",
-        emoji="🎬",
+        icon="Clapperboard",
         min_duration=30,
         max_duration=90,
         content_types=["reaction", "explanation", "story", "joke", "argument"],
@@ -60,7 +62,7 @@ PRESETS: Dict[str, ContentPreset] = {
         id="youtube_cuts",
         name="YouTube cuts",
         description="Talking-head essays, vlogs, podcasts. Long hook + clear payoff.",
-        emoji="🗣️",
+        icon="Mic",
         min_duration=30,
         max_duration=80,
         content_types=["explanation", "story", "reaction", "argument", "joke"],
@@ -81,7 +83,7 @@ PRESETS: Dict[str, ContentPreset] = {
         id="films_anime",
         name="Films / Anime",
         description="Action / emotional / musical beats. NO subtitles overlay.",
-        emoji="🎌",
+        icon="Sparkles",
         min_duration=45,
         max_duration=90,
         content_types=["action", "emotional", "music", "anime"],
@@ -105,7 +107,7 @@ PRESETS: Dict[str, ContentPreset] = {
         id="streams",
         name="Streams / Gaming",
         description="VODs and stream highlights — laughter, shock, fails, big plays.",
-        emoji="🎮",
+        icon="Gamepad2",
         min_duration=20,
         max_duration=55,
         content_types=["reaction", "funny", "action", "stream"],
@@ -159,3 +161,16 @@ def apply_to_prompt(system_prompt: str, preset: ContentPreset) -> str:
         # Fallback: append — better than dropping the preset.
         return system_prompt + insertion
     return system_prompt.replace(anchor, insertion.strip() + "\n" + anchor)
+
+
+def preset_to_dict(p: ContentPreset) -> dict:
+    """JSON-serialisable shape for the /api/moments/presets endpoint."""
+    return {
+        "id": p.id,
+        "name": p.name,
+        "description": p.description,
+        "icon": p.icon,
+        "min_duration": p.min_duration,
+        "max_duration": p.max_duration,
+        "content_types": p.content_types,
+    }

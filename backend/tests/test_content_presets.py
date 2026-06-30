@@ -45,10 +45,11 @@ def test_every_preset_has_at_least_one_content_type():
         )
 
 
-def test_every_preset_has_nonempty_emoji():
+def test_every_preset_has_nonempty_icon():
+    """Every preset has a lucide-react icon name so the dashboard renders
+    a single cohesive icon system (no unicode glyph mixing)."""
     for preset in PRESETS.values():
-        # emoji chars live outside ASCII — len != bytes for emoji is fine.
-        assert preset.emoji.strip(), f"{preset.id}: missing emoji"
+        assert preset.icon.strip(), f"{preset.id}: missing icon"
 
 
 def test_preset_dataclass_is_frozen():
