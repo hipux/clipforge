@@ -334,12 +334,33 @@ async def main_async(args) -> int:
         ]
 
         while step_index < 6:
+            # ── IMPORTANT: in YouTube Studio 2026 the "is this for
+            # kids" radio group is on the Details step and Studio
+            # validates it before allowing click on Далее (Next) to
+            # actually transition. Without an answer, the Next
+            # click is registered but the form stays on Details. So
+            # before every Next attempt we click the "Нет, это видео
+            # не для детей" / "No, it's not made for kids" radio.
+            kids_radio_candidates = [
+                'tp-yt-paper-radio-button:has-text("Нет, это видео")',
+                'tp-yt-paper-radio-button:has-text("не для детей")',
+                'tp-yt-paper-radio-button:has-text("not made for kids")',
+                'tp-yt-paper-radio-button:has-text("not for kids")',
+            ]
+            kids_hit = await _try_click_any(
+                page, kids_radio_candidates, per_timeout_ms=2000,
+            )
+            if kids_hit:
+                logger.info(f"kids-radio answered via {kids_hit}")
+            else:
+                # Either not on Details anymore (Visibility step
+                # doesn't need kids-radio) OR a totally missing UI
+                # path — handle both.
+                logger.info("kids-radio not found; assuming not required on this step")
+
             # Try to find a visible, clickable Next button.
             clicked = await _try_click_any(page, next_button_selectors, per_timeout_ms=4000)
             if clicked is None:
-                # Could be on the very final step or stuck on a
-                # step that needs a different action (e.g. kids
-                # radio). Capture diagnostic snapshot then stop.
                 await _snapshot_step(99, f"next_absent_{step_index}")
                 logger.info(
                     f"Next button absent at step {step_index}. "
@@ -349,9 +370,6 @@ async def main_async(args) -> int:
             logger.info(f"step {step_index} -> Next clicked via {clicked}")
             elapsed = await _wait_steady(steady_seconds=8.0)
             if elapsed >= 8.0:
-                # DOM fingerprint didn't change for 8s after the Next
-                # click — assume we ARE on the final step (Visibility)
-                # OR stuck because kids-radio wasn't answered.
                 await _snapshot_step(step_index, "final_no_change")
                 break
             step_index += 1

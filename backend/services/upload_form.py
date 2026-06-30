@@ -227,13 +227,33 @@ async def attach_video_file(page, video_path: Path, *, logger_extra: str = "") -
 
 async def fill_metadata(page, *, title: str, description: str = "", tags: Optional[list] = None) -> None:
     """Step 2: Details — title (required), description (optional),
-    tags are ignored since we don't expose them in our UI."""
+    made-for-kids radio, tags are ignored since we don't expose them
+    in our UI.
+
+    Note on kids-radio: in YouTube Studio 2026 the
+    "is this made for kids" radio group lives on the **Details**
+    step — it is NOT its own step (it used to be a Checks step in
+    older Studio). You must answer it before Next is accepted;
+    otherwise the click registers but the form does not transition.
+    So we click the "Нет, это видео не для детей" option here before
+    we return so the caller can immediately advance."""
     title_box = page.locator(SELECTORS["title_textarea"]).first
     await title_box.fill(title)
 
     if description:
         desc_box = page.locator(SELECTORS["description_box"]).first
         await desc_box.fill(description)
+
+    # Click "No, not made for kids" before checking Next-button's
+    # enabled state — kids-radio MUST be answered or Next does nothing.
+    kids_radio = page.locator(SELECTORS["made_for_kids_not"]).first
+    try:
+        await kids_radio.click(timeout=4000, force=True)
+    except Exception as e:
+        # If it isn't there (already answered or never present),
+        # carry on — we don't want one missing radio to kill the run.
+        logger.debug(f"kids-radio click skipped: {e}")
+
     # Wait for the "Next" button to ENABLE. YouTube Studio's Next is
     # disabled until title validation finishes.
     next_btn = page.locator(SELECTORS["step_next_button"]).first
