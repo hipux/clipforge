@@ -143,7 +143,16 @@ async def run_processing(job_id: str):
                     'effects_json': effects.model_dump_json(),
                     'score_json': json.dumps(score_dict) if score_dict else None,
                 })
-                job['clips'].append(clip_data)
+                # ALSO attach the score to the in-memory job entry so the
+                # WebSocket 'completed' payload (consumed by ProcessPage
+                # → setClips → PublishPage) carries it. Without this, the
+                # Publish UI reads processedClips from the store, sees no
+                # score, and shows "no AI score (re-process to generate)"
+                # even though score_json is correctly persisted in the DB.
+                job['clips'].append({
+                    **clip_data,
+                    'score': score_dict,
+                })
             else:
                 logger.warning(f"Failed to process moment {moment['id']}")
         

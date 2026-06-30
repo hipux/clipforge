@@ -39,7 +39,18 @@ async def migrate():
             ("camera_plan",     "ALTER TABLE moments ADD COLUMN camera_plan TEXT"),
             ("reasoning",       "ALTER TABLE moments ADD COLUMN reasoning TEXT"),
             ("pipeline_mode",   "ALTER TABLE moments ADD COLUMN pipeline_mode TEXT DEFAULT 'gpu'"),
+            # Score-breakdown ingredients. These MUST be migrated because
+            # build_score_breakdown() in score_breakdown.py reads
+            # moment['hook_strength'] / moment['self_contained'] /
+            # moment['speakers'] from the DB row. Without these columns
+            # the score is saved into clips.score_json with mostly zeros,
+            # and the Publish-page breakdown shows "no AI score".
+            ("hook_strength",   "ALTER TABLE moments ADD COLUMN hook_strength REAL DEFAULT 0"),
+            ("self_contained",  "ALTER TABLE moments ADD COLUMN self_contained REAL DEFAULT 0.5"),
+            ("speakers",        "ALTER TABLE moments ADD COLUMN speakers TEXT DEFAULT '[]'"),
         ]
+
+
 
         added = 0
         for col_name, sql in migrations:

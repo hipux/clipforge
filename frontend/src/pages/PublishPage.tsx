@@ -58,6 +58,23 @@ export default function PublishPage() {
       .catch(() => setAccounts([]))
   }, [])
 
+  // Re-fetch the authoritative list of clips on mount. The in-store
+  // `processedClips` arrives via the WebSocket `completed` payload,
+  // which used to NOT carry the score breakdown (built and saved
+  // separately into clips.score_json). With the WS payload now
+  // including score, this re-fetch is mostly defensive — but for any
+  // page reload after processing, it guarantees the score breakdown
+  // matches the actual DB row (the source of truth).
+  const setClips = useAppStore((s) => s.setClips)
+  useEffect(() => {
+    axios.get('/api/clips')
+      .then((r) => {
+        if (Array.isArray(r.data) && r.data.length > 0) setClips(r.data)
+      })
+      .catch(() => { /* keep WS-derived state */ })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   useEffect(() => {
     setCurrentStep(5)
     checkAuth()
@@ -353,12 +370,16 @@ export default function PublishPage() {
 
           return (
             <div key={clip.id} className="card">
-              {/* Video preview */}
+              {/* Video preview — sized for the operator to actually see
+                  the clip's framing, subtitles, and color before publishing.
+                  The previous h-64+aspect-9/16 rendered at just 144×256px
+                  which felt postage-stamp-sized in a wide Publish card.
+                  w-56 + 9/16 aspect = 224×398px, roughly 2.4× the area. */}
               <div className="flex justify-center mb-4">
                 <div className="relative group">
                   <video
                     src={`/files/${clip.file_path}`}
-                    className="h-64 aspect-[9/16] rounded-xl bg-black object-cover shadow-sm"
+                    className="w-56 aspect-[9/16] rounded-xl bg-black object-cover shadow-sm"
                     controls
                     preload="metadata"
                   />

@@ -35,6 +35,22 @@ async def init_db():
                 thumbnail_url TEXT,
                 approved INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                -- Score breakdown ingredients. Keep these here too so a
+                -- brand-new install has them without having to run the
+                -- legacy migrate_gpu_fields.py script.
+                hook TEXT DEFAULT '',
+                virality_score REAL DEFAULT 0,
+                content_type TEXT DEFAULT '',
+                hook_strength REAL DEFAULT 0,
+                self_contained REAL DEFAULT 0.5,
+                -- speakers stored as JSON array of person_ids; default '[]'
+                -- so legacy rows still parse cleanly.
+                speakers TEXT DEFAULT '[]',
+                subtitle_mode TEXT DEFAULT 'ru_only',
+                translated_text TEXT,
+                camera_plan TEXT,
+                reasoning TEXT,
+                pipeline_mode TEXT DEFAULT 'gpu',
                 FOREIGN KEY (video_id) REFERENCES videos(id)
             )
         """)

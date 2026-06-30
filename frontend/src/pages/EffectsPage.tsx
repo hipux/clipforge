@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '../store/useAppStore'
 import EffectToggle from '../components/EffectToggle'
@@ -37,6 +38,13 @@ const effectConfig = [
 export default function EffectsPage() {
   const navigate = useNavigate()
   const { selectedMomentIds, globalEffects, updateGlobalEffects, setCurrentStep } = useAppStore()
+
+  // Mark step 3 as visited so the top-bar stepper stops grey-checking
+  // it. Without this, Effects is never green even after the operator
+  // configures subtitles/zoom/etc.
+  useEffect(() => {
+    setCurrentStep(3)
+  }, [setCurrentStep])
 
   if (selectedMomentIds.length === 0) {
     navigate('/moments')

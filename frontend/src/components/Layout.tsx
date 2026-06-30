@@ -34,8 +34,11 @@ export default function Layout() {
   const canAccessStep = (stepId: number) => {
     if (stepId === 1) return true
     if (stepId === 2) return currentVideo !== null
-    if (stepId === 3) return moments.length > 0
-    if (stepId === 4) return moments.length > 0
+    // Effects and Process require the operator to have actually picked
+    // moments on the /moments page. Just having detected moments isn't
+    // enough — those steps are pointless if you haven't chosen what to
+    // process. Shown as a disabled step in the top-bar by the renderer.
+    if (stepId === 3 || stepId === 4) return selectedMomentIds.length > 0
     if (stepId === 5) return processedClips.length > 0
     return false
   }
@@ -46,15 +49,24 @@ export default function Layout() {
   const currentIndex = steps.findIndex(s => s.path === location.pathname)
 
   const isStepComplete = (stepId: number) => {
-    // Data-based completion for each step.
+    // We've actually gone past this step in the URL at some point OR
+    // the persisted high-water step is beyond this one. Each page calls
+    // setCurrentStep(N) on mount, so currentStep tells us how far the
+    // operator has actually walked.
+    const movedPast = (currentIndex !== -1 && currentIndex + 1 >= stepId) || currentStep >= stepId
+
+    // Step 3 (Effects) was previously marked green the moment you
+    // ticked any moment on /moments. Selecting a moment ≠ having
+    // configured effects. Mark Effects complete only when you've
+    // actually opened the Effects page (currentStep >= 3) or moved
+    // past it.
+    if (stepId === 3) return movedPast && currentStep >= 3
+
+    // Step 4 (Process): true completion = we actually ran processing.
     let dataComplete = false
     if (stepId === 1) dataComplete = currentVideo !== null
     else if (stepId === 2) dataComplete = moments.length > 0
-    else if (stepId === 3) dataComplete = selectedMomentIds.length > 0
     else if (stepId === 4) dataComplete = processedClips.length > 0
-    // Also complete if the user has navigated to a later step, or the persisted
-    // high-water step is beyond this one.
-    const movedPast = (currentIndex !== -1 && currentIndex + 1 > stepId) || currentStep > stepId
     return dataComplete || movedPast
   }
 
