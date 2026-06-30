@@ -451,6 +451,15 @@ async def main_async(args) -> int:
             wait_until="domcontentloaded",
             timeout=30_000,
         )
+        # Wait for the new page to settle. Without this, the next
+        # ``page.evaluate`` call can race the navigation and fail with:
+        #   Execution context was destroyed, most likely because of a navigation
+        # We wait for "load" + a 1-second settle to be safe.
+        try:
+            await page.wait_for_load_state("load", timeout=15_000)
+        except Exception as e:
+            logger.info(f"load-state wait timed out (continuing): {e!s}")
+        await asyncio.sleep(1.0)
         await dump_selectors_on(page, "00_landing", snap_dir)
         (snap_dir / "00_landing.json").write_text(
             json.dumps(
