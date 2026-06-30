@@ -89,19 +89,30 @@ SELECTORS = {
     # The visibility radio group + final Publish button. Studio keeps
     # the dialog open until the operator confirms, so radio buttons use
     # their visible text labels.
-    "visibility_private":   'tp-yt-paper-radio-button:has-text("Закрытый"), tp-yt-paper-radio-button:has-text("Private")',
-    "visibility_unlisted":  'tp-yt-paper-radio-button:has-text("Доступ по ссылке"), tp-yt-paper-radio-button:has-text("Unlisted")',
-    "visibility_public":    'tp-yt-paper-radio-button:has-text("Открытый"), tp-yt-paper-radio-button:has-text("Public")',
-    "visibility_schedule":  'tp-yt-paper-radio-button:has-text("Запланировать"), tp-yt-paper-radio-button:has-text("Schedule")',
+    #
+    # Reliability note: in Russian locale we saw two distinct Unlisted
+    # labels visible on the same dialog — "Ограниченный доступ" and
+    # "Доступ по ссылке". Playwright's :has-text() matches the FIRST
+    # visible locator; picking either works. We use the shorter one
+    # below to avoid colliding with the "Доступ" (Access) sidebar-label.
+    "visibility_private":   'tp-yt-paper-radio-button:has-text("Закрыть"), tp-yt-paper-radio-button:has-text("Private")',
+    "visibility_unlisted":  'tp-yt-paper-radio-button:has-text("Ограниченный доступ"), tp-yt-paper-radio-button:has-text("Доступ по ссылке"), tp-yt-paper-radio-button:has-text("Unlisted")',
+    "visibility_public":    'tp-yt-paper-radio-button:has-text("Открытый доступ"), tp-yt-paper-radio-button:has-text("Public")',
+    "visibility_schedule":  'tp-yt-paper-radio-button:has-text("Назначить премьеру"), tp-yt-paper-radio-button:has-text("Запланировать"), tp-yt-paper-radio-button:has-text("Schedule"), tp-yt-paper-radio-button:has-text("Premiere")',
 
     # Schedule date+time. Newer Studio uses <input type="datetime-local">;
     # older versions split into date + time inputs.
     "schedule_date":        'input[type="datetime-local"], input[aria-label*="дата" i], input[aria-label*="date" i]',
     "schedule_time":        'input[aria-label*="время" i], input[aria-label*="time" i]',
 
-    # Publish (Russian "Сохранить", English "Publish", legacy "Done")
-    # — final click that locks in the upload.
-    "publish_button":       'button:has-text("Сохранить"), button:has-text("Save"), button:has-text("Publish"), button:has-text("Done"), #done-button',
+    # Publish — final click that locks in the upload. Locale notes
+    # from the 2026-Q2 explore: Russian Studio says "Опубликовать"
+    # (Publish); English says "Save"/"Publish"; legacy 2020-2024
+    # used "Done". Note: "Сохранить" (Russian for "Save") is NOT the
+    # publish button — it's the sidebar-filter "Apply" button and
+    # would accidentally click the wrong thing. We deliberately
+    # excluded "Сохранить" from the candidates here.
+    "publish_button":       'button:has-text("Опубликовать"), button:has-text("Save"), button:has-text("Publish"), button:has-text("Done"), #done-button',
 
     # ── Status surfaces ────────────────────────────────────
     "processing":           'tp-yt-paper-progress, [role="progressbar"]',

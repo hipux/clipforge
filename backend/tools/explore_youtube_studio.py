@@ -73,6 +73,27 @@ async def _try_click_any(page, candidates, per_timeout_ms: int = 3000):
     return None
 
 
+async def _any_locator_exists(page, candidates, per_timeout_ms: int = 1500) -> str | None:
+    """Returns the FIRST matching selector or ``None``. We don't click,
+    we just probe — used for TRANSITION DETECTION (e.g. is the
+    Next-button still present? Are we already on Visibility?).
+    ``.first.is_visible()`` is cheap and Studio's Polymer DOM is
+    large enough that we don't want to click every candidate.
+    """
+    for sel in candidates:
+        try:
+            loc = page.locator(sel)
+            count = await loc.count()
+            if count == 0:
+                continue
+            visible = await loc.first.is_visible(timeout=per_timeout_ms)
+            if visible:
+                return sel
+        except Exception:
+            continue
+    return None
+
+
 def _safe_slug(s: str) -> str:
     """Make ``s`` filename-safe. We only need this so the snapshot
     label reflects the URL without breaking the OS filesystem."""
@@ -317,9 +338,12 @@ async def main_async(args) -> int:
 
         # 3) Try to advance via Next-button candidate list. Each
         # attempt: try to click, wait for URL change OR steady-state.
-        # We snapshot every observed step. We stop when we detect
-        # Visibility radio buttons (the final step) OR no URL change
-        # for 10 seconds.
+        # We snapshot every observed step. YouTube Studio 2026 keeps
+        # the SAME DOM dialog across all upload stages, only changing
+        # the inner panel content. So the previous "DOM fingerprint
+        # changed?" detector never fires — we now loop differently:
+        # click Next while Next-button exists. When Next disappears,
+        # we've reached the final Visibility step.
         next_button_selectors = [
             'button:has-text("Next")',
             'button:has-text("Далее")',
@@ -328,53 +352,78 @@ async def main_async(args) -> int:
             'button[aria-label="Далее"]',
             '#next-button',
             'tp-yt-paper-icon-button[aria-label="Next"]',
-            # Material Lit "trailing" button — newer Studio
             '.ytcpRightPinnedButton button',
             'button.ytcpRightPinnedButton',
         ]
+        kids_radio_candidates = [
+            'tp-yt-paper-radio-button:has-text("Нет, это видео")',
+            'tp-yt-paper-radio-button:has-text("не для детей")',
+            'tp-yt-paper-radio-button:has-text("not made for kids")',
+            'tp-yt-paper-radio-button:has-text("not for kids")',
+        ]
+        # Visibility-specific radios — if they appear, the form is on
+        # the LAST step (Visibility) and we should stop clicking Next.
+        visibility_radio_candidates = [
+            'tp-yt-paper-radio-button:has-text("Закрытый")',
+            'tp-yt-paper-radio-button:has-text("Открытый")',
+            'tp-yt-paper-radio-button:has-text("Private")',
+            'tp-yt-paper-radio-button:has-text("Public")',
+            'tp-yt-paper-radio-button:has-text("Запланировать")',
+            'tp-yt-paper-radio-button:has-text("Schedule")',
+        ]
 
-        while step_index < 6:
-            # ── IMPORTANT: in YouTube Studio 2026 the "is this for
-            # kids" radio group is on the Details step and Studio
-            # validates it before allowing click on Далее (Next) to
-            # actually transition. Without an answer, the Next
-            # click is registered but the form stays on Details. So
-            # before every Next attempt we click the "Нет, это видео
-            # не для детей" / "No, it's not made for kids" radio.
-            kids_radio_candidates = [
-                'tp-yt-paper-radio-button:has-text("Нет, это видео")',
-                'tp-yt-paper-radio-button:has-text("не для детей")',
-                'tp-yt-paper-radio-button:has-text("not made for kids")',
-                'tp-yt-paper-radio-button:has-text("not for kids")',
-            ]
-            kids_hit = await _try_click_any(
-                page, kids_radio_candidates, per_timeout_ms=2000,
+        # Hard cap: max 7 transitions. The form has 4 movements
+        # (Details → Video elements → Checks → Visibility); 7 leaves
+        # comfortable room for transient state without ever publishing.
+        for attempt in range(7):
+            # Stop conditions:
+            # 1) Visibility radios present — last step reached.
+            on_visibility = await _try_click_any(
+                page, visibility_radio_candidates, per_timeout_ms=1500,
             )
-            if kids_hit:
-                logger.info(f"kids-radio answered via {kids_hit}")
-            else:
-                # Either not on Details anymore (Visibility step
-                # doesn't need kids-radio) OR a totally missing UI
-                # path — handle both.
-                logger.info("kids-radio not found; assuming not required on this step")
+            if on_visibility:
+                logger.info(f"visibility radios visible via {on_visibility} → we are on the final step")
+                await _snapshot_step(step_index, "visibility_reached")
+                break
 
-            # Try to find a visible, clickable Next button.
+            # 2) No Next-button at all — could also be a transition
+            # mid-progress; check with a short timeout.
+            has_next = await _any_locator_exists(
+                page, next_button_selectors, per_timeout_ms=1500,
+            )
+            if not has_next:
+                logger.info(f"Next-button not present on step {step_index}; assuming final")
+                await _snapshot_step(step_index, "next_absent")
+                break
+
+            # ── Answer kids-radio before clicking Next (Studio 2026
+            # validates the radio first or the click is silently
+            # ignored when the dialog hasn't transitioned yet).
+            await _try_click_any(page, kids_radio_candidates, per_timeout_ms=2000)
+
+            # Click Next.
             clicked = await _try_click_any(page, next_button_selectors, per_timeout_ms=4000)
             if clicked is None:
-                await _snapshot_step(99, f"next_absent_{step_index}")
                 logger.info(
-                    f"Next button absent at step {step_index}. "
-                    f"Final URL: {page.url}. See {snap_dir}/99_next_absent*.html"
+                    f"Next-button vanished between pre-check and click "
+                    f"(step {step_index}). Likely on Visibility now."
                 )
+                await _snapshot_step(step_index, "next_vanished")
                 break
             logger.info(f"step {step_index} -> Next clicked via {clicked}")
-            elapsed = await _wait_steady(steady_seconds=8.0)
-            if elapsed >= 8.0:
-                await _snapshot_step(step_index, "final_no_change")
-                break
+            # Give Studio time to transition the inner panels.
+            await asyncio.sleep(2.5)
             step_index += 1
             last_step_change_at = time.monotonic()
             await _snapshot_step(step_index, f"after_next_{clicked}")
+
+        # Phase 5: dry-run the FINAL step (Visibility). Don't click
+        # Publish. Capture state for finishing-type-selector detection.
+        try:
+            await page.wait_for_timeout(2000)
+            await _snapshot_step(99, "final_dry_run")
+        except Exception:
+            pass
 
         # Phase 5: dry-run the FINAL step (Visibility). Don't click
         # Publish. Capture state for finishing-type-selector detection.
