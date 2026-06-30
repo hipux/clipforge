@@ -67,6 +67,10 @@ function CustomSelect<V extends string | number>(
   const rootRef = useRef<HTMLDivElement | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const searchRef = useRef<HTMLInputElement | null>(null)
+  // Flip panel above the trigger when there's not enough room below —
+  // prevents the panel from being clipped by the parent modal's
+  // overflow:hidden.
+  const [flipUp, setFlipUp] = useState(false)
 
   // Use a callback ref pair — one for our internal state and one for the
   // forwarded ref. We can't mix ref= assignments (forwardedRef is read-only),
@@ -93,6 +97,45 @@ function CustomSelect<V extends string | number>(
       requestAnimationFrame(() => searchRef.current?.focus())
     }
   }, [open, options.length, searchableThreshold])
+
+  // Flip-above logic. When the open menu is positioned below the
+  // trigger and would clip against the viewport / a parent with
+  // overflow:hidden, render it upward instead. We walk up the
+  // ancestor chain to find the nearest overflow ancestor — that
+  // ancestor's clipping rect tells us when to flip.
+  useEffect(() => {
+    if (!open) { setFlipUp(false); return }
+    const root = rootRef.current
+    if (!root) return
+    const triggerRect = root.getBoundingClientRect()
+    // Approximate menu height. Conservative — even with 10 options, the
+    // panel never grows past 280px because of max-h-64.
+    const menuHeightGuess = 280
+
+    // Walk up the DOM to find an ancestor that DOES clip its contents
+    // (overflow != visible). That's our true ceiling.
+    function findClipAncestor(el: HTMLElement | null): HTMLElement | null {
+      let cur = el?.parentElement ?? null
+      while (cur && cur !== document.body) {
+        const cs = getComputedStyle(cur)
+        if (cs.overflow !== 'visible' && cs.overflowX !== 'visible') {
+          return cur
+        }
+        cur = cur.parentElement
+      }
+      return null
+    }
+    const clipEl = findClipAncestor(root)
+    const clipRect = clipEl ? clipEl.getBoundingClientRect() : null
+    const aboveRect = clipRect ?? {
+      top: 0,
+      bottom: window.innerHeight,
+    }
+    const below = triggerRect.bottom + 4 + menuHeightGuess
+    const viewportBottom = aboveRect.bottom
+    // If menu overflows the clipper, flip. Aim for 16px of breathing room.
+    setFlipUp(below > viewportBottom - 16)
+  }, [open, options.length])
 
   // Compute selected values as a normalized Set for fast lookup.
   const selected: Set<V> = useMemo(() => {
@@ -267,19 +310,25 @@ function CustomSelect<V extends string | number>(
         role="listbox"
         aria-disabled={disabled}
         className={[
-          'absolute left-0 right-0 z-40 mt-1.5 origin-top',
+          'absolute left-0 right-0 z-40 origin-top',
+          // flush against the trigger edge — earlier mt-1.5 produced an
+          // awkward white gap that read as visual misalignment between the
+          // button and the panel.
+          flipUp ? 'bottom-full mb-0' : 'top-full mt-0',
           full ? '' : 'min-w-[16rem]',
           'bg-white border border-slate-200 rounded-xl shadow-xl',
           'overflow-hidden',
-          // animation: scale-y + opacity
+          // animation: scale-y + opacity. Flip the transform origin so the
+          // menu grows downward visually when it renders above us.
           'transition-all duration-150 ease-out',
           open
             ? 'opacity-100 scale-y-100 pointer-events-auto'
-            : 'opacity-0 scale-y-95 pointer-events-none',
+            : 'opacity-0 pointer-events-none',
+          flipUp ? 'origin-bottom' : 'origin-top',
         ].join(' ')}
         onKeyDown={onKeyDownPanel}
         tabIndex={open ? 0 : -1}
-        style={{ transformOrigin: 'top center' }}
+        style={{ transform: open ? 'scaleY(1)' : (flipUp ? 'scaleY(0.95)' : 'scaleY(0.95)') }}
       >
         {/* Search */}
         {options.length >= searchableThreshold && (
@@ -306,10 +355,10 @@ function CustomSelect<V extends string | number>(
           </div>
         )}
 
-        {/* Options list */}
-        <div
-          className="max-h-64 overflow-y-auto py-1"
-        >
+        {/* Options list. Tighter vertical padding than before so the first
+            option reads as 'flush' against the trigger-button edge — there's
+            no awkward white strip above "YouTube" anymore. */}
+        <div className="max-h-64 overflow-y-auto py-0.5">
           {filtered.length === 0 ? (
             <div className="px-3 py-6 text-center text-[12px] text-slate-400">
               No matches.

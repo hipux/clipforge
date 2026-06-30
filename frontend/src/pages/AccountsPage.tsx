@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import axios from 'axios'
 import {
   Plus, Trash2, Edit2, X, Check, CheckCircle2,
-  Users as UsersIcon, KeyRound, Globe, Clock,
+  Users as UsersIcon, Clock,
   Video, Sparkles, Tv,
 } from 'lucide-react'
 import { Account, useAppStore } from '../store/useAppStore'
@@ -121,10 +121,13 @@ export default function AccountsPage() {
         </div>
       )}
 
-      {/* List — 12-col grid: cards get a clean status column */}
+      {/* List — single vertical stack of AccountRow lines. Each row is
+          a flat list-item with its own bottom border; the active row gets
+          a left accent border. The default 'system default' row is
+          always pinned first as a non-deletable fallback. */}
       {accounts.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {accounts.map((acc) => (
+        <div className="card overflow-hidden p-0">
+          {accounts.map((acc, i) => (
             <AccountRow
               key={acc.id}
               acc={acc}
@@ -190,138 +193,83 @@ function AccountRow({
 }) {
   const st = statusFor(acc)
   return (
-    <div className={`card p-4 transition-all ${
-      isActive ? 'ring-2 ring-accent border-transparent shadow-card-hover' : ''
-    }`}>
-      {/* Top row: name + status + actions */}
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[15px] font-semibold text-slate-900 truncate">
-              {acc.name}
-            </span>
-            <StatusPill label={st.label} tone={st.tone} />
-            {isActive && !isDefault && (
-              <span className="text-[10px] text-accent bg-accent/10 border border-accent/30 px-1.5 py-0.5 rounded-md font-medium uppercase tracking-wider">
-                active
-              </span>
-            )}
-          </div>
-          <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
-            <PlatformIcon platform={acc.platform} size={11} className="text-slate-400" />
-            <span className="capitalize">{acc.platform}</span>
-            {acc.preferred_preset && (
-              <>
-                <span className="text-slate-300 mx-0.5">·</span>
-                <IconByName name={badge.icon} size={10} className="text-slate-400" />
-                <span>{badge.name}</span>
-              </>
-            )}
-          </div>
-        </div>
+    // List-style row (not card-style). border-b between rows gives the
+    // same visual separation as cards but keeps the page MUCH calmer —
+    // no box-per-item density. The active row is accented with a left
+    // border instead of a full ring so the page rhythm isn't broken.
+    <div className={`relative px-4 py-3 flex items-center gap-3 transition-colors ${
+      isActive
+        ? 'bg-accent/5 border-l-2 border-l-accent'
+        : 'hover:bg-slate-50 border-l-2 border-l-transparent'
+    } border-b border-slate-100`}>
+      {/* Status dot — small but unmistakable from corner of eye */}
+      <span className={`shrink-0 w-2 h-2 rounded-full ${
+        st.tone === 'ok' ? 'bg-emerald-500' :
+        st.tone === 'warn' ? 'bg-amber-400' : 'bg-slate-300'
+      }`} title={st.label} />
 
-        <div className="flex gap-1 shrink-0">
-          {!isActive && !isDefault && (
-            <button
-              onClick={onActivate}
-              className="btn btn-primary text-[11px] py-1 px-2"
-            >
-              <Check size={12} /> Activate
-            </button>
-          )}
+      {/* Identity column: name + meta inline */}
+      <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+        <span className="text-[14px] font-semibold text-slate-900 truncate">
+          {acc.name}
+        </span>
+        <span className="text-[10px] px-1.5 py-0.5 rounded border border-slate-200 text-slate-500 bg-white">
+          <PlatformIcon platform={acc.platform} size={9} className="inline mr-0.5 -mt-0.5" />
+          {acc.platform}
+        </span>
+        <span className="inline-flex items-center gap-1 text-xs text-slate-500 truncate max-w-[260px]">
+          <IconByName name={badge.icon} size={11} className="text-slate-400 shrink-0" />
+          <span className="truncate">{badge.name}</span>
+        </span>
+        {isDefault && (
+          <span className="text-[10px] text-slate-400 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded-md">
+            system default
+          </span>
+        )}
+        {acc.last_used_at && (
+          <span className="text-[10px] text-slate-400 inline-flex items-center gap-1">
+            <Clock size={9} /> {acc.last_used_at}
+          </span>
+        )}
+      </div>
+
+      {/* Action column */}
+      <div className="flex gap-1 shrink-0">
+        {!isActive && !isDefault && (
           <button
-            onClick={onEdit}
-            className="btn btn-secondary text-[11px] py-1 px-2"
-            title="Edit"
+            onClick={onActivate}
+            className="btn btn-primary text-[11px] py-1 px-2"
           >
-            <Edit2 size={12} />
+            <Check size={12} /> Activate
           </button>
-          {!isDefault && (
-            <button
-              onClick={onDelete}
-              className="btn btn-secondary text-[11px] py-1 px-2 text-danger hover:bg-danger/10 border-danger/30"
-              title="Delete"
-            >
-              <Trash2 size={12} />
-            </button>
-          )}
-        </div>
+        )}
+        <button
+          onClick={onEdit}
+          className="btn btn-secondary text-[11px] py-1 px-2"
+          title="Edit"
+        >
+          <Edit2 size={12} />
+        </button>
+        {!isDefault && (
+          <button
+            onClick={onDelete}
+            className="btn btn-secondary text-[11px] py-1 px-2 text-danger hover:bg-danger/10 border-danger/30"
+            title="Delete"
+          >
+            <Trash2 size={12} />
+          </button>
+        )}
       </div>
-
-      {/* Bottom row: cookies + proxy paths */}
-      <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-[11px]">
-        <DetailRow
-          icon={<KeyRound size={10} className="text-slate-400" />}
-          label="Cookies"
-          value={acc.cookies_path}
-          placeholder="not configured"
-          mono
-        />
-        <DetailRow
-          icon={<Globe size={10} className="text-slate-400" />}
-          label="Proxy"
-          value={acc.proxy}
-          placeholder="none (deferred)"
-          mono
-        />
-      </div>
-
-      {acc.last_used_at && (
-        <div className="mt-2 text-[10px] text-slate-400 flex items-center gap-1">
-          <Clock size={10} /> Last used {acc.last_used_at}
-        </div>
-      )}
     </div>
   )
 }
 
 // ─── Small visual primitives ────────────────────────────────────────────────
 
-function StatusPill({ label, tone }: { label: string; tone: 'ok' | 'warn' | 'idle' }) {
-  const palette = {
-    ok:   'bg-emerald-50 text-emerald-700 border-emerald-200',
-    warn: 'bg-amber-50 text-amber-700 border-amber-200',
-    idle: 'bg-slate-100 text-slate-500 border-slate-200',
-  }[tone]
-  // matching colour dot
-  const dot = {
-    ok:   'bg-emerald-500',
-    warn: 'bg-amber-400',
-    idle: 'bg-slate-400',
-  }[tone]
-  return (
-    <span className={`inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-medium px-1.5 py-0.5 rounded-md border ${palette}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
-      {label}
-    </span>
-  )
-}
-
 function PlatformIcon({ platform, ...props }: { platform: string; size?: number; className?: string }) {
   if (platform === 'youtube') return <Tv {...props} />
   if (platform === 'tiktok') return <Video {...props} />
   return <Sparkles {...props} />
-}
-
-function DetailRow({
-  icon, label, value, placeholder, mono,
-}: {
-  icon: React.ReactNode
-  label: string
-  value: string | null
-  placeholder: string
-  mono?: boolean
-}) {
-  return (
-    <div className="min-w-0">
-      <div className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">
-        {icon}{label}
-      </div>
-      <div className={`truncate ${mono ? 'font-mono' : ''} text-slate-700`}>
-        {value || <span className="text-slate-400 italic">{placeholder}</span>}
-      </div>
-    </div>
-  )
 }
 
 // ─── Modal editor (create + patch) ──────────────────────────────────────────
@@ -371,7 +319,12 @@ function AccountEditor({
       onClick={onClose}
     >
       <div
-        className="relative bg-white border border-slate-200 rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden"
+        className="relative bg-white border border-slate-200 rounded-2xl shadow-2xl max-w-2xl w-full"
+        // NB: NO overflow-hidden. Earlier we clipped here so a
+        // CustomSelect panel could extend outside the modal was cut by
+        // this container. The panel now flips above the trigger
+        // automatically, and we keep the rounded corners on the modal by
+        // accepting that the panel's rounded panel sits in front.
         onClick={(e) => e.stopPropagation()}
       >
         <button
@@ -482,10 +435,7 @@ function AccountEditor({
             </Field>
           )}
 
-          <Field
-            label="Preferred content preset"
-            hint="Picked auto-applies on the Moments page next time you run detection."
-          >
+          <Field label="Preferred content preset">
             <CustomSelect
               value={preferredPreset}
               onChange={(v) => setPreferredPreset(v)}
