@@ -49,7 +49,10 @@ export default function AccountsPage() {
       {/* Header — one tight row with view-mode toggle + actionable
           "New account" on the right. The toggle lives at the top because
           it changes how the entire list below is rendered. */}
-      <div className="mb-6 flex items-end justify-between gap-4 flex-wrap">
+      {/* Header — title + count on the left, primary "+ New account"
+          action on the right. The view-mode toggle gets its own row
+          below so it isn't competing with the primary button visually. */}
+      <div className="mb-4 flex items-end justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
             <UsersIcon size={22} className="text-accent" />
@@ -61,45 +64,48 @@ export default function AccountsPage() {
               : `${accounts.length} channel${accounts.length === 1 ? '' : 's'} configured`}
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          {/* View-mode toggle — segmented control. Table compresses a
-              dozen accounts into scannable rows; cards breathe when
-              you only have a handful. The choice persists across
-              page reloads through the localStorage-backed store. */}
-          <div className="inline-flex rounded-md border border-slate-200 bg-bg-elev p-0.5">
-            <button
-              type="button"
-              onClick={() => setAccountViewMode('table')}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded transition-colors ${
-                accountViewMode === 'table'
-                  ? 'bg-accent text-white'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-              title="Table view — best for many accounts"
-            >
-              <Rows3 size={13} /> Table
-            </button>
-            <button
-              type="button"
-              onClick={() => setAccountViewMode('cards')}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded transition-colors ${
-                accountViewMode === 'cards'
-                  ? 'bg-accent text-white'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-              title="Card view — best for a handful of accounts"
-            >
-              <LayoutGrid size={13} /> Cards
-            </button>
-          </div>
+        <button
+          onClick={() => setShowCreate(true)}
+          className="btn btn-primary text-sm shrink-0"
+        >
+          <Plus size={14} /> New account
+        </button>
+      </div>
+
+      {/* View-mode sub-bar — sits between the title row and the list.
+          Subdued weight: no accent fill on the active option, just a
+          slightly darker background and bolder text. This way it reads
+          as a layout choice, not a second action button. The choice
+          persists across page reloads through the localStorage store. */}
+      {accounts.length > 0 && (
+        <div className="mb-4 flex items-center gap-1 text-xs">
+          <span className="text-slate-400 mr-1">View</span>
           <button
-            onClick={() => setShowCreate(true)}
-            className="btn btn-primary text-sm shrink-0"
+            type="button"
+            onClick={() => setAccountViewMode('table')}
+            className={`inline-flex items-center gap-1.5 px-2 py-1 rounded transition-colors ${
+              accountViewMode === 'table'
+                ? 'bg-slate-100 text-slate-900 font-medium border border-slate-200'
+                : 'text-slate-500 hover:text-slate-800'
+            }`}
+            title="Table view — best for many accounts"
           >
-            <Plus size={14} /> New account
+            <Rows3 size={12} /> Table
+          </button>
+          <button
+            type="button"
+            onClick={() => setAccountViewMode('cards')}
+            className={`inline-flex items-center gap-1.5 px-2 py-1 rounded transition-colors ${
+              accountViewMode === 'cards'
+                ? 'bg-slate-100 text-slate-900 font-medium border border-slate-200'
+                : 'text-slate-500 hover:text-slate-800'
+            }`}
+            title="Card view — best for a handful of accounts"
+          >
+            <LayoutGrid size={12} /> Cards
           </button>
         </div>
-      </div>
+      )}
 
       {/* Error toast */}
       {error && (
