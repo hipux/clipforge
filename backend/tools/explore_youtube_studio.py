@@ -100,6 +100,198 @@ def _safe_slug(s: str) -> str:
     return "".join(c if (c.isalnum() or c in "._-") else "_" for c in s)[:32] or "unknown"
 
 
+# ───────────────────────────────────────────────────────────────────
+# Publish-and-observe (only with --publish flag)
+# ───────────────────────────────────────────────────────────────────
+#
+# Studio's post-Publish phase is a real DOM-landscape:
+#
+#   1. Progress bar appears in the left-bottom corner with a text
+#      caption underneath (in Russian: "Сохранение метаданных",
+#      "Проверка нарушений", "Кодирование видео", "Завершено").
+#   2. Each sub-stage takes 5-30 seconds. Different sizes -->
+#      different times.
+#   3. When complete, the dialog swaps to a "Готово / Published"
+#      card OR redirects to the channel's content list.
+#
+# Our ``click_publish()`` in production code only knows two signals:
+# (a) progress-bar disappeared, (b) success/error text appeared.
+# Once we have the real selector for the post-Publish text caption,
+# we can both log progress ("still on 'Проверка нарушений' after
+# 30 s") AND detect completion with one extra selector match.
+#
+# The helper here is read-only on the LIVE page during a real
+# Publish run, so we get true production-grade selector data.
+
+
+PROGRESS_SCRAPE_JS = r"""
+    () => {
+        const statuss = Array.from(document.querySelectorAll(
+            '[role="status"], [role="progressbar"], [role="alert"], [role="log"]'
+        ));
+        const hosts = [
+            'ytcp-uploads-dialog',
+            'ytcp-dialog',
+            'ytcp-video-upload-progress',
+        ];
+        const out = [];
+        const seen = new Set();
+        for (const el of [...statuss, ...document.querySelectorAll(hosts.join(','))]) {
+            const r = el.getBoundingClientRect();
+            if (!r || r.width === 0 || r.height === 0) continue;
+            const text = (el.innerText || '').trim();
+            if (!text || text.length > 200) continue;
+            const aria = el.getAttribute('aria-label') || '';
+            const sig = JSON.stringify({
+                tag: el.tagName,
+                cls: (el.className || '').toString().slice(0, 80),
+                id: el.id || '',
+                text: text.slice(0, 120),
+                aria: aria.slice(0, 120),
+            });
+            if (seen.has(sig)) continue;
+            seen.add(sig);
+            out.push({
+                tag: el.tagName,
+                cls: (el.className || '').toString().slice(0, 80),
+                id: el.id || '',
+                role: el.getAttribute('role') || '',
+                text: text.slice(0, 120),
+                aria: aria.slice(0, 120),
+            });
+        }
+        return out;
+    }
+"""
+
+
+async def _scrape_progress(page) -> List[Dict[str, str]]:
+    try:
+        return await page.evaluate(PROGRESS_SCRAPE_JS)
+    except Exception as e:
+        logger.warning(f"scrape failed: {e}")
+        return []
+
+
+_DONE_KEYWORDS = (
+    "опубликов", "published", "publish complete", "publish finished",
+    "завершен", "готово", "complete", "done", "finished",
+)
+_ERROR_KEYWORDS = (
+    "публикация невозможна", "публикация прервана", "ошибка публикации",
+    "upload failed", "failed to publish", "publish error", "publish failed",
+)
+
+
+def _is_done_text(text: str) -> bool:
+    return any(k in text.lower() for k in _DONE_KEYWORDS)
+
+
+def _is_error_text(text: str) -> bool:
+    return any(k in text.lower() for k in _ERROR_KEYWORDS)
+
+
+async def _publish_and_observe(page, snap_dir: Path, args) -> None:
+    """Visibility → click PRIVATE → click Publish (Опубликовать) →
+    poll the page every ``args.interval`` seconds, capturing the
+    visible text nodes inside the upload dialog. Stop on completion
+    marker OR error marker OR ``args.deadline`` seconds.
+
+    Writes ``progress_NNN.png`` + ``progress_NNN.json`` snapshots
+    AND a final ``unique_progress_texts.txt`` summarising every
+    distinct text we saw.
+    """
+    logger.info("=" * 60)
+    logger.info("[publish-observe] --publish: clicking PRIVATE + Publish, then polling...")
+    logger.info("=" * 60)
+
+    # Click PRIVATE radio on Visibility.
+    try:
+        priv = page.locator(
+            'tp-yt-paper-radio-button:has-text("Закрыть"), '
+            'tp-yt-paper-radio-button:has-text("Private")'
+        ).first
+        await priv.click(timeout=4000, force=True)
+        logger.info("[publish-observe] PRIVATE radio clicked")
+    except Exception as e:
+        logger.warning(f"[publish-observe] PRIVATE radio click failed: {e}")
+
+    # Click Publish.
+    publish_btn = page.locator(
+        'button:has-text("Опубликовать"), '
+        'button:has-text("Save"), '
+        'button:has-text("Publish"), '
+        'button:has-text("Done")'
+    ).first
+    try:
+        await publish_btn.click(timeout=5000, force=True)
+        logger.info("[publish-observe] Publish clicked — polling begins")
+    except Exception as e:
+        logger.error(f"[publish-observe] Publish click failed: {e}")
+        await page.screenshot(path=str(snap_dir / "publish_click_error.png"))
+        return
+
+    unique_texts: List[str] = []
+    seen_done = False
+    seen_error = False
+    deadline = time.monotonic() + args.deadline
+    sample_idx = 0
+
+    while time.monotonic() < deadline:
+        sample_idx += 1
+        await asyncio.sleep(args.interval)
+        scrape = await _scrape_progress(page)
+        await page.screenshot(path=str(snap_dir / f"progress_{sample_idx:03d}.png"))
+        (snap_dir / f"progress_{sample_idx:03d}.json").write_text(
+            json.dumps(scrape, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        for el in scrape:
+            t = (el.get("text") or "").strip()
+            if not t or t in unique_texts:
+                continue
+            unique_texts.append(t)
+            logger.info(f"[publish-observe] new text: {t[:140]!r}")
+            if _is_done_text(t):
+                seen_done = True
+            elif _is_error_text(t):
+                seen_error = True
+
+        if seen_done:
+            logger.info("[publish-observe] completed-text detected; exiting poll")
+            break
+        if seen_error:
+            logger.warning("[publish-observe] error text detected; exiting poll")
+            break
+
+    if not seen_done and not seen_error:
+        logger.warning(
+            f"[publish-observe] deadline reached at {args.deadline}s without done/error; "
+            f"captured {sample_idx} samples"
+        )
+
+    (snap_dir / "unique_progress_texts.txt").write_text(
+        "\n".join(unique_texts), encoding="utf-8",
+    )
+    logger.info(
+        f"[publish-observe] unique progress texts ({len(unique_texts)}) → "
+        f"{snap_dir}/unique_progress_texts.txt"
+    )
+    logger.info(
+        f"[publish-observe] series: progress_001.png .. progress_{sample_idx:03d}.png"
+    )
+
+    if seen_done:
+        logger.info(
+            "[publish-observe] ★ publish COMPLETED. video is now PRIVATE on the channel."
+        )
+    elif seen_error:
+        logger.warning(
+            f"[publish-observe] ★ publish FAILED. Open {snap_dir}/progress_* to debug."
+        )
+
+
 async def _dom_fingerprint(page) -> tuple:
     """Tiny DOM signature: counts of buttons, h1s, the visible
     ``ytcp-uploads-dialog-host`` host name + all visible text buttons.
@@ -425,13 +617,15 @@ async def main_async(args) -> int:
         except Exception:
             pass
 
-        # Phase 5: dry-run the FINAL step (Visibility). Don't click
-        # Publish. Capture state for finishing-type-selector detection.
-        try:
-            await page.wait_for_timeout(2000)
-            await _snapshot_step(99, "final_dry_run")
-        except Exception:
-            pass
+        # ── Phase 6 (EDITABLE ONLY): --publish goes through Publish ───
+        # When the operator passes ``--publish``, we click PRIVATE on
+        # the Visibility step and then PUBLISH, then poll the page
+        # every``--interval``seconds until publishing shows a
+        # completion marker OR an error OR ``--deadline`` elapses.
+        # Default is to NOT click Publish (--publish absent) so the
+        # safe dry-run mode is preserved.
+        if getattr(args, "publish", False):
+            await _publish_and_observe(page, snap_dir, args)
 
         # If requested, leave the browser alive after exploration so
         # the operator can poke at it with DevTools / viewport /
@@ -471,6 +665,15 @@ def main() -> int:
                         help="После exploration оставить браузер открытым, "
                              "чтобы оператор мог проверить UI в DevTools. "
                              "Ctrl+C в этом терминале = закрыть.")
+    parser.add_argument("--publish", action="store_true",
+                        help="После Visibility step: кликнуть PRIVATE + "
+                             "Publish и поллить progress-text. ВНИМАНИЕ: "
+                             "видео реально публикуется (PRIVATE) на "
+                             "аккаунт. Не запускать на main-канале.")
+    parser.add_argument("--deadline", type=int, default=180,
+                        help="сколько секунд ждать завершения Publish (default 180)")
+    parser.add_argument("--interval", type=float, default=1.5,
+                        help="секунд между snapshot во время poll (default 1.5)")
     args = parser.parse_args()
     return asyncio.run(main_async(args))
 

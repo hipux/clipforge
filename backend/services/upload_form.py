@@ -130,12 +130,24 @@ SELECTORS = {
     # mid-processing redirects us to the wrong page (the pre-publish
     # Details dialog might still be on screen via cached state).
     "publish_progress":    'tp-yt-paper-progress, ytcp-video-upload-progress, [role="progressbar"]:visible',
+    # Studio's progress bar has a sibling label inside the dialog that
+    # shows the *current* stage, e.g. "Проверка нарушений" / "Checking
+    # content policy violations", "Saving metadata", "Encoding the
+    # video", "Done". It updates every few seconds; we poll it to log
+    # progress and to know when Studio has nothing left to do.
+    #
+    # Bumping timeout from bar-only to text-aware helps because some
+    # stages (large videos → encoding) can run for 30+ seconds without
+    # any visible DOM update on the bar itself — only the text changes.
+    "publish_progress_text": 'tp-yt-paper-progress + * *, ytcp-video-upload-progress + * *, ytcp-video-upload-progress span, [class*="progress"] [class*="text"], [role="status"]:visible',
     # Studio substitutes the progress bar with either a "Published"
     # status pill OR a "Video processing" verification card. We accept
     # either — both are POSITIVE signals that publishing is past the
     # irreversible step. The error text below covers the negative path.
-    "publish_success_text": 'text=/Опубликов/i, text=/опубликов/i, [aria-label*="опубл" i], [aria-label*="published" i]',
-    "publish_unavailable":  'text=/Публикация невозможна/i, text=/Ошибка публикации/i, .error-short',
+    # The Russian "Готово" / English "Done" / "Finished" / "Your video
+    # is published" marker variants all indicate the last step is done.
+    "publish_success_text": 'text=/Опубликов/i, text=/Video published/i, text=/uploaded successfully/i, text=/Published successfully/i, text=/Готово/i, text=/Завершен/i, [aria-label*="опубл" i], [aria-label*="published" i], [aria-label*="Done" i]',
+    "publish_unavailable":  'text=/Публикация невозможна/i, text=/публикация прервана/i, text=/Ошибка публикации/i, text=/Upload failed/i, text=/Failed to publish/i, .error-short',
 
     # Captcha / challenge / error surfaces. /sorry/ redirect catch:
     # in Studio there is no captcha iframe directly — when Google's
@@ -146,6 +158,24 @@ SELECTORS = {
 
 
 # ─── Public types ────────────────────────────────────────────────────────────
+
+# Keywords that mark publish as COMPLETE in any locale. Used by
+# click_publish() to decide when to stop polling the post-Publish
+# progress bar — once a visible text element contains any of these
+# substrings, we know Studio finished and we can read the published
+# URL. Lower-case match against element innerText.
+PUBLISH_DONE_KEYWORDS = (
+    "опубликов", "published", "publish complete", "publish finished",
+    "завершен", "готово", "complete", "done", "finished",
+)
+
+# Keywords that mark publish as FAILED. Surface as an explicit failure
+# rather than letting the wait-loop time out at deadline.
+PUBLISH_ERROR_KEYWORDS = (
+    "публикация невозможна", "публикация прервана", "ошибка публикации",
+    "upload failed", "failed to publish", "publish error", "publish failed",
+)
+
 
 class VisibilityMode(str, enum.Enum):
     PRIVATE = "private"
