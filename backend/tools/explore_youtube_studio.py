@@ -207,9 +207,14 @@ async def _publish_and_observe(page, snap_dir: Path, args) -> None:
 
     # Click PRIVATE radio on Visibility.
     try:
+        # Match the actual radio button — Studio's <tp-yt-paper-radio-button>
+        # puts the label inside a Polymer shadow-DOM subtree, so the
+        # generic 'text=' query that pierces shadow boundaries is
+        # more reliable than ':has-text=' which only walks light DOM.
         priv = page.locator(
-            'tp-yt-paper-radio-button:has-text("Закрыть"), '
-            'tp-yt-paper-radio-button:has-text("Private")'
+            'text="Закрыть", '
+            'text="Private", '
+            'input#private-radio-button'
         ).first
         await priv.click(timeout=4000, force=True)
         logger.info("[publish-observe] PRIVATE radio clicked")

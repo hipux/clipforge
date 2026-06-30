@@ -87,18 +87,24 @@ SELECTORS = {
 
     # ── Step 5: Visibility ──────────────────────────────────
     # The visibility radio group + final Publish button. Studio keeps
-    # the dialog open until the operator confirms, so radio buttons use
-    # their visible text labels.
+    # the dialog open until the operator confirms.
+    #
+    # IMPORTANT: Playwright's ``:has-text()`` matches text that lives
+    # in the LIGHT DOM of the matched element. In Studio 2026 each
+    # ``<tp-yt-paper-radio-button>`` has its visible label tucked
+    # INSIDE a Polymer shadow-DOM subtree (``<tp-yt-paper-radio-button-inner>
+    # <label class="label">Закрыть</label>``), where :has-text() does
+    # NOT traverse. The fix is to use ``text="..."`` (Playwright's
+    # generic text engine pierces shadow boundaries) and to also try
+    # the verb-form (Закрыть) and the actor's selector (``input[id=private-radio-button]``).
     #
     # Reliability note: in Russian locale we saw two distinct Unlisted
     # labels visible on the same dialog — "Ограниченный доступ" and
-    # "Доступ по ссылке". Playwright's :has-text() matches the FIRST
-    # visible locator; picking either works. We use the shorter one
-    # below to avoid colliding with the "Доступ" (Access) sidebar-label.
-    "visibility_private":   'tp-yt-paper-radio-button:has-text("Закрыть"), tp-yt-paper-radio-button:has-text("Private")',
-    "visibility_unlisted":  'tp-yt-paper-radio-button:has-text("Ограниченный доступ"), tp-yt-paper-radio-button:has-text("Доступ по ссылке"), tp-yt-paper-radio-button:has-text("Unlisted")',
-    "visibility_public":    'tp-yt-paper-radio-button:has-text("Открытый доступ"), tp-yt-paper-radio-button:has-text("Public")',
-    "visibility_schedule":  'tp-yt-paper-radio-button:has-text("Назначить премьеру"), tp-yt-paper-radio-button:has-text("Запланировать"), tp-yt-paper-radio-button:has-text("Schedule"), tp-yt-paper-radio-button:has-text("Premiere")',
+    # "Доступ по ссылке". Picking either works.
+    "visibility_private":   'text="Закрыть", text="Private", input#private-radio-button, [name="PRIVATE"][role="radio"]',
+    "visibility_unlisted":  'text="Ограниченный доступ", text="Unlisted", input#unlisted-radio-button',
+    "visibility_public":    'text="Открытый доступ", text="Public", input#public-radio-button',
+    "visibility_schedule":  'text="Назначить премьеру", text="Запланировать", text="Schedule", text="Premiere", input#schedule-radio-button',
 
     # Schedule date+time. Newer Studio uses <input type="datetime-local">;
     # older versions split into date + time inputs.
@@ -383,8 +389,11 @@ async def select_visibility(
         VisibilityMode.SCHEDULED: SELECTORS["visibility_schedule"],
     }
     radio = page.locator(radio_map[mode]).first
-    await _wait_until_enabled(radio, timeout_ms=10_000)
-    await radio.click()
+    # `force=True` lets us skip the actionability check (which Studio
+    # sometimes trips because the radio's click target is a label
+    # inside the Polymer Paper shadow-DOM that Playwright's
+    # actionability scan can't see).
+    await radio.click(timeout=10_000, force=True)
 
     if mode == VisibilityMode.SCHEDULED:
         if scheduled_at is None:
