@@ -234,6 +234,13 @@ class PublisherOptions:
           can flip it via env ``CLIPFORGE_PUBLISHER_HEADLESS=0``.
         * ``user_agent`` overrides the OS-default UA. Pick a stable
           Chrome UA string and stick with it — Google tracks UA drift.
+        * ``user_data_dir`` — when None (default) we generate a fresh
+          temporary directory per session, so each launch starts with
+          a completely empty Chromium profile. Set to a real path if
+          you want to reuse cookies + cache between runs (NOT
+          recommended on Windows — Windows often shares the user's
+          actual Chrome profile when no override is given, which can
+          leak a personal login session into the playwright browser).
     """
     browser: str = _DEFAULT_BROWSER
     locale: str = _DEFAULT_LOCALE
@@ -241,6 +248,7 @@ class PublisherOptions:
     headless: bool = True
     user_agent: str = _USER_AGENTS[0]
     proxy: Optional[str] = None      # "socks5://..." or "http://..." or None
+    user_data_dir: Optional[str] = None  # None = fresh per-session profile
 
 
 def _default_options() -> PublisherOptions:
@@ -327,9 +335,25 @@ class YoutubePublisher:
             launcher = getattr(self._pw, self.options.browser, None)
             if launcher is None:
                 raise RuntimeError(f"unknown browser: {self.options.browser}")
+
+            # Per-session isolated Chrome profile. We pass an explicit
+            # ``--user-data-dir=`` via Chromium's command-line so the
+            # browser instance never accidentally picks up the user's
+            # real Chrome profile state (cookies, extensions, sync).
+            # When ``PublisherOptions.user_data_dir`` is None we
+            # manufacture a fresh per-session tmp dir; when it's set
+            # we respect the caller's choice (mostly for tests).
+            import tempfile
+            profile_dir = self.options.user_data_dir or tempfile.mkdtemp(
+                prefix=f"clipforge-publisher-{os.getpid()}-"
+            )
+
             kwargs = {
                 "headless": self.options.headless,
-                "args": ["--disable-blink-features=AutomationControlled"],
+                "args": [
+                    "--disable-blink-features=AutomationControlled",
+                    f"--user-data-dir={profile_dir}",
+                ],
             }
             if self.options.proxy:
                 kwargs["proxy"] = {"server": self.options.proxy}
