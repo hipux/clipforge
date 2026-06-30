@@ -331,39 +331,49 @@ class YoutubePublisher:
         else:
             # Real mode. Use Playwright-async inside same coroutine.
             from playwright.async_api import async_playwright
+            import tempfile
+
             self._pw = await async_playwright().start()
             launcher = getattr(self._pw, self.options.browser, None)
             if launcher is None:
                 raise RuntimeError(f"unknown browser: {self.options.browser}")
 
-            # Per-session isolated Chrome profile. We pass an explicit
-            # ``--user-data-dir=`` via Chromium's command-line so the
-            # browser instance never accidentally picks up the user's
-            # real Chrome profile state (cookies, extensions, sync).
-            # When ``PublisherOptions.user_data_dir`` is None we
-            # manufacture a fresh per-session tmp dir; when it's set
-            # we respect the caller's choice (mostly for tests).
-            import tempfile
+            # Per-session isolated Chrome profile. Chromium triples down
+            # on isolation when we use ``launch_persistent_context`` —
+            # the persistent context IS the BrowserContext AND the
+            # Browser, and it owns the per-session ``--user-data-dir``
+            # directory. We get a clean profile every run; the user's
+            # real Chrome state cannot leak in because Playwright refuses
+            # ``--user-data-dir=`` as a command-line arg on plain
+            # ``launch()`` ("Pass user_data_dir parameter to
+            # 'browser_type.launch_persistent_context' instead of
+            # specifying '--user-data-dir' argument").
             profile_dir = self.options.user_data_dir or tempfile.mkdtemp(
                 prefix=f"clipforge-publisher-{os.getpid()}-"
             )
 
-            kwargs = {
+            common_kwargs = {
                 "headless": self.options.headless,
-                "args": [
-                    "--disable-blink-features=AutomationControlled",
-                    f"--user-data-dir={profile_dir}",
-                ],
+                "locale":   self.options.locale,
+                "timezone_id": self.options.timezone_id,
+                "viewport": {"width": 1280, "height": 800},
+                "user_agent": self.options.user_agent,
+                "args": ["--disable-blink-features=AutomationControlled"],
             }
             if self.options.proxy:
-                kwargs["proxy"] = {"server": self.options.proxy}
-            self._browser = await launcher.launch(**kwargs)
-            self._context = await self._browser.new_context(
-                locale=self.options.locale,
-                timezone_id=self.options.timezone_id,
-                viewport={"width": 1280, "height": 800},
-                user_agent=self.options.user_agent,
+                common_kwargs["proxy"] = {"server": self.options.proxy}
+
+            # launch_persistent_context returns a BrowserContext directly
+            # (NOT a Browser). We expose ``self._context`` and store the
+            # same instance at ``self._browser`` so legacy ``_close()``
+            # checks (which closed browser first then context) still
+            # close something. Closing the persistent context closes
+            # the underlying Browser automatically.
+            self._context = await launcher.launch_persistent_context(
+                user_data_dir=profile_dir,
+                **common_kwargs,
             )
+            self._browser = self._context
             self._page = await self._context.new_page()
 
         # Cookie loading happens AFTER context exists, regardless of
