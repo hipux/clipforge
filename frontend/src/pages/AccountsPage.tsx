@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import { Account, useAppStore } from '../store/useAppStore'
 import IconByName from '../components/IconByName'
-import Select from '../components/Select'
+import CustomSelect from '../components/CustomSelect'
 
 interface PresetSummary {
   id: string; name: string; icon: string; description: string
@@ -410,14 +410,26 @@ function AccountEditor({
             </Field>
 
             <Field label="Platform">
-              <Select
+              <CustomSelect
                 value={platform}
-                onChange={(e) => setPlatform(e.target.value)}
-                disabled={initial?.id === 'default' /* can't change default-row platform */}
-              >
-                <option value="youtube">YouTube</option>
-                <option value="tiktok" disabled>TikTok (planned)</option>
-              </Select>
+                onChange={(v) => setPlatform(v)}
+                disabled={initial?.id === 'default'}
+                options={[
+                  {
+                    value: 'youtube',
+                    label: 'YouTube',
+                    icon: <Tv size={14} className="text-rose-500" />,
+                    description: 'Channel via ytb-up cookies',
+                  },
+                  {
+                    value: 'tiktok',
+                    label: 'TikTok',
+                    icon: <Video size={14} />,
+                    description: 'planned — not yet wired',
+                    disabled: true,
+                  },
+                ]}
+              />
             </Field>
           </div>
 
@@ -470,35 +482,24 @@ function AccountEditor({
             </Field>
           )}
 
-          <Field label="Preferred content preset">
-            <div className="grid grid-cols-2 gap-1.5">
-              {presets.map((p) => {
-                const sel = p.id === preferredPreset
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => setPreferredPreset(p.id)}
-                    className={`px-3 py-2 rounded-xl border text-left text-[12px] transition-colors ${
-                      sel
-                        ? 'border-accent bg-accent/5 text-slate-900 shadow-sm'
-                        : 'border-slate-200 hover:border-slate-300 text-slate-500'
-                    }`}
-                  >
-                    <span className="inline-flex items-center gap-1.5 font-semibold">
-                      <IconByName
-                        name={p.icon} size={13}
-                        className={sel ? 'text-accent' : 'text-slate-400'}
-                      />
-                      {p.name}
-                    </span>
-                    <div className="text-[10px] mt-0.5 leading-snug text-slate-500 line-clamp-2">
-                      {p.description}
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
+          <Field
+            label="Preferred content preset"
+            hint="Picked auto-applies on the Moments page next time you run detection."
+          >
+            <CustomSelect
+              value={preferredPreset}
+              onChange={(v) => setPreferredPreset(v)}
+              options={presets.map((p) => ({
+                value: p.id,
+                label: p.name,
+                description: p.description,
+                icon: (
+                  <IconByName name={p.icon} size={14} className="text-slate-500" />
+                ),
+              }))}
+              searchableThreshold={1}
+              multi={false}
+            />
           </Field>
 
           {error && (
