@@ -433,6 +433,23 @@ async def main_async(args) -> int:
         except Exception:
             pass
 
+        # If requested, leave the browser alive after exploration so
+        # the operator can poke at it with DevTools / viewport /
+        # click patterns we tried. Block until they Ctrl+C in the
+        # terminal (or close the browser window — Playwright will
+        # raise on next interaction and the asyncio.wait will
+        # unblock on cancellation).
+        if getattr(args, "keep_open", False):
+            logger.info(
+                "\n\n*** --keep-open active: browser kept open after exploration. ***\n"
+                "*** Click around in Chrome to inspect. Press Ctrl+C here to exit. ***\n"
+            )
+            try:
+                # Block forever. Event is never set; only Ctrl+C ends us.
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                pass
+
     logger.info(f"exploration complete. snapshots → {snap_dir}")
     logger.info("dry-run — НЕ отправлял publish.")
     return 0
@@ -450,6 +467,10 @@ def main() -> int:
                         help="chromium|firefox (default chromium)")
     parser.add_argument("--headed", type=int, default=1,
                         help="1 = headed (видимый браузер), 0 = headless")
+    parser.add_argument("--keep-open", action="store_true",
+                        help="После exploration оставить браузер открытым, "
+                             "чтобы оператор мог проверить UI в DevTools. "
+                             "Ctrl+C в этом терминале = закрыть.")
     args = parser.parse_args()
     return asyncio.run(main_async(args))
 

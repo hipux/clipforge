@@ -122,6 +122,21 @@ SELECTORS = {
     "upload_complete":      '[aria-label*="название" i], [aria-label*="title" i]',
     "video_url_link":       '#video-url a, a.video-url-fadeable, a[href*="youtu.be"], a[href*="youtube.com/watch"]',
 
+    # ── Post-publish status surfaces ────────────────────────
+    # After the operator clicks "Опубликовать"/"Publish", Studio shows
+    # a progress bar (left-bottom corner) running through several
+    # sub-stages before the upload is committed. We MUST wait for this
+    # to finish before reading the published URL — finding `video_url_link`
+    # mid-processing redirects us to the wrong page (the pre-publish
+    # Details dialog might still be on screen via cached state).
+    "publish_progress":    'tp-yt-paper-progress, ytcp-video-upload-progress, [role="progressbar"]:visible',
+    # Studio substitutes the progress bar with either a "Published"
+    # status pill OR a "Video processing" verification card. We accept
+    # either — both are POSITIVE signals that publishing is past the
+    # irreversible step. The error text below covers the negative path.
+    "publish_success_text": 'text=/Опубликов/i, text=/опубликов/i, [aria-label*="опубл" i], [aria-label*="published" i]',
+    "publish_unavailable":  'text=/Публикация невозможна/i, text=/Ошибка публикации/i, .error-short',
+
     # Captcha / challenge / error surfaces. /sorry/ redirect catch:
     # in Studio there is no captcha iframe directly — when Google's
     # bot check surfaces, the page redirects to /sorry/.
@@ -341,28 +356,84 @@ async def select_visibility(
 
 
 async def click_publish(page) -> None:
-    """Step 5 final: lock the upload in. Publish → processing → redirect
-    to Video Published screen / channel list."""
+    """Step 5 final: lock the upload in.
+
+    After Publish is clicked YouTube Studio shows a progress bar (in
+    the left-bottom corner) running through several sub-stages —
+    "Saving metadata", "Encoding the video", "Checking copyright",
+    etc. Each stage takes a few seconds and the whole thing can sum
+    up to 60-90 seconds for a fresh upload. We MUST wait for the
+    progress bar to disappear OR a "Published" status to surface
+    before declaring the upload finished. Reading the published URL
+    too early risks landing on a discarded pre-publish dialog.
+
+    Implementation: poll every 2 seconds for:
+        * progress bar gone (visible progress bar count == 0)
+        * OR a success text indicator
+        * OR an error indicator (then surface it to the caller)
+        * up to 3 minutes total
+
+    The success text is the most reliable signal — Studio renders
+    "Опубликовано" / "Published" deep inside the new dialog right
+    after the bar disappears.
+    """
     btn = page.locator(SELECTORS["publish_button"]).first
     await _wait_until_enabled(btn, timeout_ms=15_000)
     await btn.click()
-    # Wait for either the success screen (video-url link visible) or
-    # any captcha / error overlay.
-    try:
-        await page.wait_for_selector(
-            SELECTORS["video_url_link"],
-            timeout=20_000,
-            state="visible",
-        )
-    except Exception:
-        # We may have been redirected to a "Video is being processed"
-        # page without a direct URL. Don't fail the upload yet — the
-        # caller will check for video_url_link and decision accordingly.
-        pass
+    logger.info("publish click registered; waiting for Studio post-processing...")
+
+    # Total wait budget = 180s (3 min). Studio is sometimes very
+    # slow on first upload of a session (classifier warm-up).
+    deadline_s = 180.0
+    interval_s = 2.0
+    elapsed = 0.0
+    last_status = "starting"
+    progress_locator = page.locator(SELECTORS["publish_progress"])
+    success_locator = page.locator(SELECTORS["publish_success_text"])
+    error_locator   = page.locator(SELECTORS["publish_unavailable"])
+
+    while elapsed < deadline_s:
+        await asyncio.sleep(interval_s)
+        elapsed += interval_s
+        try:
+            err_count = await error_locator.count()
+            if err_count > 0:
+                text = ""
+                try:
+                    text = (await error_locator.first.inner_text())[:140]
+                except Exception:
+                    pass
+                raise RuntimeError(f"publish error surfaced: {text!r}")
+            succ_count = await success_locator.count()
+            if succ_count > 0:
+                last_status = "publish_success_text_visible"
+                break
+            in_progress_count = await progress_locator.count()
+            if in_progress_count == 0:
+                last_status = "progress_bar_disappeared"
+                break
+            last_status = "still_processing"
+        except RuntimeError:
+            raise
+        except Exception:
+            # Selector glitches on transient renders. Keep polling.
+            continue
+
+    logger.info(f"post-publish wait finished: {last_status}, elapsed={elapsed:.0f}s")
 
 
 async def read_published_url(page, *, logger_extra: str = "") -> UploadResult:
-    """Read the success screen URL/link. Returns ``UploadResult``."""
+    """Read the success screen URL/link. Returns ``UploadResult``.
+
+    We only ENTER this after ``click_publish().await`` has completed
+    the post-processing wait, so a "video_url_link" surfaced at this
+    point is the FINAL published URL of the new asset.
+    """
+    # Did we land on a captcha challenge?
+    captcha = page.locator(SELECTORS["captcha_check"]).first
+    if await captcha.count() > 0:
+        return UploadResult(status="captcha", message="captcha challenge surfaced")
+
     try:
         url_link = page.locator(SELECTORS["video_url_link"]).first
         if await url_link.count() > 0:
@@ -376,10 +447,7 @@ async def read_published_url(page, *, logger_extra: str = "") -> UploadResult:
             )
     except Exception as e:
         logger.info(f"{logger_extra} no video_url_link found: {e}")
-    # Did we land on a captcha challenge?
-    captcha = page.locator(SELECTORS["captcha_check"]).first
-    if await captcha.count() > 0:
-        return UploadResult(status="captcha", message="captcha challenge surfaced")
+
     # Failing that: maybe we succeeded but the URL is the new "Library"
     # page; the operator can verify manually.
     return UploadResult(status="success", message="uploaded (link not surfaced)")
