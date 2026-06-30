@@ -89,22 +89,18 @@ SELECTORS = {
     # The visibility radio group + final Publish button. Studio keeps
     # the dialog open until the operator confirms.
     #
-    # IMPORTANT: Playwright's ``:has-text()`` matches text that lives
-    # in the LIGHT DOM of the matched element. In Studio 2026 each
-    # ``<tp-yt-paper-radio-button>`` has its visible label tucked
-    # INSIDE a Polymer shadow-DOM subtree (``<tp-yt-paper-radio-button-inner>
-    # <label class="label">Закрыть</label>``), where :has-text() does
-    # NOT traverse. The fix is to use ``text="..."`` (Playwright's
-    # generic text engine pierces shadow boundaries) and to also try
-    # the verb-form (Закрыть) and the actor's selector (``input[id=private-radio-button]``).
-    #
-    # Reliability note: in Russian locale we saw two distinct Unlisted
-    # labels visible on the same dialog — "Ограниченный доступ" and
-    # "Доступ по ссылке". Picking either works.
-    "visibility_private":   'text="Закрыть", text="Private", input#private-radio-button, [name="PRIVATE"][role="radio"]',
-    "visibility_unlisted":  'text="Ограниченный доступ", text="Unlisted", input#unlisted-radio-button',
-    "visibility_public":    'text="Открытый доступ", text="Public", input#public-radio-button',
-    "visibility_schedule":  'text="Назначить премьеру", text="Запланировать", text="Schedule", text="Premiere", input#schedule-radio-button',
+    # Selectors here use the Polymer ``name="PRIVATE"|"UNLISTED"|"PUBLIC"|
+    # "SCHEDULE"`` attribute on each ``<tp-yt-paper-radio-button>`` —
+    # these are stable, locale-independent, and DO NOT collide with
+    # other "Закрыть"/"Done" buttons that Studio renders in the same
+    # dialog area (the top-right close button is also localised as
+    # "Закрыть" in Russian, so any ``text="Закрыть"`` matching picks
+    # the wrong element AND clicks the close button instead of the
+    # PRIVATE radio). The name attribute is unambiguous.
+    "visibility_private":   'tp-yt-paper-radio-button[name="PRIVATE"]',
+    "visibility_unlisted":  'tp-yt-paper-radio-button[name="UNLISTED"]',
+    "visibility_public":    'tp-yt-paper-radio-button[name="PUBLIC"]',
+    "visibility_schedule":  'tp-yt-paper-radio-button[name="SCHEDULE"]',
 
     # Schedule date+time. Newer Studio uses <input type="datetime-local">;
     # older versions split into date + time inputs.
