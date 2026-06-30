@@ -40,7 +40,13 @@ def test_absolute_clip_path_relative(monkeypatch, tmp_path):
 def test_publish_via_browser_dispatches_to_youtube_browser(
     monkeypatch, clip, tmp_path
 ):
+    # The tests below were written for the legacy ytb-up path: they
+    # patch `upload_with_cookies` and assert it's called. Now that we
+    # have two engines, we explicitly opt into the legacy fork so
+    # the assumption still holds. The new playwright engine is
+    # covered separately in test_publish_dispatch_playwright_below.
     from backend.api import publish as pub_api
+    monkeypatch.setattr(pub_api, "PUBLISHER_BACKEND", "ytb_up")
     cookies = tmp_path / "cookies.json"
     cookies.write_text(json.dumps([
         {"name": "SID", "value": "x", "domain": ".youtube.com",
@@ -83,6 +89,7 @@ def test_publish_via_browser_dispatches_to_youtube_browser(
 def test_publish_via_browser_clip_missing_raises_404(monkeypatch, clip, tmp_path):
     """The function raises HTTPException(404) when the clip file is gone."""
     from backend.api import publish as pub_api
+    monkeypatch.setattr(pub_api, "PUBLISHER_BACKEND", "ytb_up")
     monkeypatch.setattr(pub_api, "WORKSPACE_DIR", tmp_path)
     monkeypatch.setattr(pub_api, "COOKIES_DIR", tmp_path / "accounts")
     (tmp_path / "accounts" / "default").mkdir(parents=True)
@@ -96,8 +103,10 @@ def test_publish_via_browser_clip_missing_raises_404(monkeypatch, clip, tmp_path
 
 
 def test_publish_via_browser_logs_method_browser(monkeypatch, clip, tmp_path):
-    """save_publish_log is called with method='browser' on success."""
+    """save_publish_log is called with method='browser' on success.
+    Targets the legacy ytb_up path under explicit env opt-in."""
     from backend.api import publish as pub_api
+    monkeypatch.setattr(pub_api, "PUBLISHER_BACKEND", "ytb_up")
     cookies = tmp_path / "cookies.json"
     cookies.write_text(json.dumps([{"name": "A", "value": "1"}]))
     video = tmp_path / "clip.mp4"
@@ -119,3 +128,40 @@ def test_publish_via_browser_logs_method_browser(monkeypatch, clip, tmp_path):
 
     _run(pub_api._publish_via_browser(clip, _StubReq()))
     assert seen_log.get("method") == "browser"
+
+
+def test_publish_via_browser_playwright_engine_dispatches(monkeypatch, clip, tmp_path):
+    """When CLIPFORGE_PUBLISHER_BACKEND=playwright (the new default),
+    the dispatch goes through `_publish_via_playwright` instead of
+    the legacy ytb_up wrapper. We patch the new entry point and
+    verify the dispatch picks the correct branch."""
+    from backend.api import publish as pub_api
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"\x00" * 64)
+    cookies = tmp_path / "cookies.json"
+    cookies.write_text(json.dumps([]))     # empty is fine; path exists
+    monkeypatch.setattr(pub_api, "WORKSPACE_DIR", tmp_path)
+    monkeypatch.setattr(pub_api, "COOKIES_DIR", tmp_path / "accounts")
+    (tmp_path / "accounts" / "default").mkdir(parents=True)
+
+    seen = {}                       # flip-flop: after entering and exiting
+    async def fake_pw(video_path, cookies_path, request, proxy):
+        seen["called"] = True
+        seen["video_path"] = str(video_path)
+        seen["title"] = request.title
+        return pub_api.PublishResponse(
+            youtube_url="https://youtu.be/pw-upload",
+            status="success",
+            message="uploaded-by-pw",
+        )
+    monkeypatch.setattr(pub_api, "_publish_via_playwright", fake_pw)
+
+    class _StubReq:
+        clip_id = "clip-1"; title = "t-pw"; description = "d"; tags = []
+        cookies_path = str(cookies); account_id = "default"
+
+    res = _run(pub_api._publish_via_browser(clip, _StubReq()))
+    assert res.status == "success"
+    assert res.message == "uploaded-by-pw"
+    assert seen["called"], "_publish_via_playwright was never called"
+    assert seen["title"] == "t-pw"

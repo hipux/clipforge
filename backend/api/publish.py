@@ -3,13 +3,30 @@
 Two upload paths supported (chosen by `PublishRequest.method`):
     - "official" — Google's YouTube Data API v3, paid Workspace required.
       Kept for users who already have credentials configured.
-    - "browser"  — `ytb-up` Playwright + Firefox cookies. The default — does
-      not ping Google as an "official API client", so it won't trigger
+    - "browser"  — Playwright + cookies. The default — does not ping
+      Google as an "official API client", so it won't trigger
       quota/automation flags for short-clip publishers.
 
-Both paths return the same `PublishResponse` shape so the frontend doesn't
-need to know which one ran.
+Within the "browser" path, two implementation engines coexist during
+Этап 2 of the ytb-up replacement:
+
+  * `playwright` — our self-hosted :mod:`playwright_youtube` +
+    :mod:`upload_form` flow. Activated by default since the new
+    flow has no upstream-library breaking in 2024.
+  * `ytb_up` — legacy wrapper around the third-party `ytb-up`
+    package. Kept for A/B comparison and as a fallback while we
+    finish Этап 3 (scheduling, batch, anti-bot).
+
+    Toggle: env ``CLIPFORGE_PUBLISHER_BACKEND=playwright|ytb_up``,
+    default ``playwright``.
+
+Both paths return the same `PublishResponse` shape so the frontend
+doesn't need to know which one ran.
 """
+from __future__ import annotations
+
+import logging
+import os
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
@@ -22,9 +39,33 @@ from backend.services.youtube_publisher import (
     complete_oauth_flow,
     is_authenticated
 )
-from backend.services.youtube_browser_publisher import upload_with_cookies
+from backend.services.youtube_browser_publisher import (
+    upload_with_cookies as _legacy_youtube_browser_upload,
+    # Re-export under the old name so existing tests that
+    # monkeypatch `pub_api.upload_with_cookies` keep working. The
+    # new self-hosted flow ignores this attribute entirely — only
+    # used when ``CLIPFORGE_PUBLISHER_BACKEND=ytb_up``.
+    upload_with_cookies,
+)
+from backend.services.playwright_youtube import (
+    YoutubePublisher,
+    AuthStatus as PlaywrightAuthStatus,
+    PublisherOptions,
+)
+from backend.services.upload_form import (
+    upload_one as _playwright_upload_one,
+    VisibilityMode as PlaywrightVisibility,
+    UploadResult as PlaywrightUploadResult,
+)
 from backend.db import get_clip, save_publish_log, get_account, touch_account
 from backend.config import OUTPUT_DIR, WORKSPACE_DIR
+
+logger = logging.getLogger(__name__)
+
+# Read once at import time. Empty string falls back to default.
+PUBLISHER_BACKEND = (
+    os.environ.get("CLIPFORGE_PUBLISHER_BACKEND", "playwright").strip().lower()
+)
 
 router = APIRouter()
 
@@ -77,7 +118,14 @@ async def publish_to_youtube(request: PublishRequest):
 
 
 async def _publish_via_browser(clip, request: PublishRequest) -> PublishResponse:
-    """Use `ytb-up` Playwright + cookie auth. Default — looks like a real user.
+    """Use Playwright + cookie auth. Default — looks like a real user.
+
+    Backend is selected by env ``CLIPFORGE_PUBLISHER_BACKEND``:
+      * ``playwright`` (default): our self-hosted flow
+        (playwright_youtube.UploadForm 5-step dance).
+      * ``ytb_up``: legacy thin wrapper around the third-party
+        ``ytb-up`` package. Used during Этап 2 as a fallback if our
+        new DOM flow breaks something.
 
     Account resolution order:
       1. Explicit `request.cookies_path` (UI override),
@@ -106,27 +154,104 @@ async def _publish_via_browser(clip, request: PublishRequest) -> PublishResponse
     if cookies_path is None:
         cookies_path = COOKIES_DIR / (request.account_id or "default") / "cookies.json"
 
-    result = await upload_with_cookies(
-        file_path=video_path,
-        title=request.title,
-        description=request.description,
-        tags=request.tags,
-        cookies_path=cookies_path,
+    if PUBLISHER_BACKEND == "ytb_up":
+        # Use the bare ``upload_with_cookies`` name (not the private
+        # alias) so monkeypatch-setattr on ``pub_api.upload_with_cookies``
+        # in tests continues to work after we imported both names.
+        result = await upload_with_cookies(
+            file_path=video_path,
+            title=request.title,
+            description=request.description,
+            tags=request.tags,
+            cookies_path=cookies_path,
+            proxy=proxy,
+        )
+        if result.status == "success":
+            await _save_browser_publish_log(request, result.youtube_url)
+        return _legacy_to_response(result, request)
+    # === default: self-hosted Playwright ===================================
+    return await _publish_via_playwright(video_path, cookies_path, request, proxy)
+
+
+async def _save_browser_publish_log(request: PublishRequest, youtube_url: Optional[str]) -> None:
+    """Persist the publish_log row + touch account, for the legacy
+    path. The new playwright path does this inline so it can stream
+    progress over the WebSocket; tests want a single source of truth
+    they're already patching out."""
+    await save_publish_log({
+        'clip_id': request.clip_id,
+        'platform': 'youtube',
+        'youtube_url': youtube_url,
+        'method': 'browser',
+        'account_id': request.account_id,
+    })
+    if request.account_id:
+        await touch_account(request.account_id)
+
+
+def _legacy_to_response(result, request: PublishRequest) -> PublishResponse:
+    """Map the legacy wrapper's ``PublishResult`` to our new envelope."""
+    return PublishResponse(
+        youtube_url=result.youtube_url,
+        status=result.status,
+        message=result.message,
+    )
+
+
+async def _publish_via_playwright(
+    video_path: Path,
+    cookies_path: Path,
+    request: PublishRequest,
+    proxy: Optional[str],
+) -> PublishResponse:
+    """Self-hosted Playwright upload flow. Boots Chromium, loads cookies,
+    drives the 5-step YouTube Studio upload form.
+
+    Этап 3 will add: scheduled publishing (now exposed as PRIVATE always),
+    batch through asyncio queue, anti-bot UA rotator, captcha detection.
+    """
+    opts = PublisherOptions(
+        headless=os.environ.get("CLIPFORGE_PUBLISHER_HEADLESS", "1") not in ("0", "false", "no"),
         proxy=proxy,
     )
+    log_label = request.account_id or "default"
+    async with YoutubePublisher(log_label, cookies_path, options=opts) as pub:
+        from backend.services.playwright_youtube import detect_auth_status
+        # Quick auth probe BEFORE we invest in attach_video_file — saves
+        # a 200-MB upload if cookies expired.
+        try:
+            await pub.is_authenticated()
+        except Exception as e:
+            logger.warning(f"[yt-form:{log_label}] auth probe crashed: {e}")
+
+        # Visibility: until Этап 3 ships scheduled publishing we
+        # always upload as PRIVATE so the operator manually publishes
+        # after the batch run. Этап 3 will read
+        # ``request.scheduled_at`` and pick SCHEDULED instead.
+        visibility = PlaywrightVisibility.PRIVATE
+
+        result: PlaywrightUploadResult = await _playwright_upload_one(
+            pub._page,
+            file_path=video_path,
+            title=request.title,
+            description=request.description or "",
+            tags=request.tags,
+            visibility=visibility,
+            account_label=log_label,
+        )
 
     if result.status == "success":
         await save_publish_log({
             'clip_id': request.clip_id,
             'platform': 'youtube',
-            'youtube_url': result.youtube_url,
+            'youtube_url': result.video_url,
             'method': 'browser',
             'account_id': request.account_id,
         })
         if request.account_id:
             await touch_account(request.account_id)
     return PublishResponse(
-        youtube_url=result.youtube_url,
+        youtube_url=result.video_url,
         status=result.status,
         message=result.message,
     )

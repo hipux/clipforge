@@ -151,6 +151,9 @@ def _stub_clip():
 
 
 def test_publish_via_browser_account_id_loads_cookies_path(monkeypatch, tmp_path):
+    # These tests cover the legacy ytb_up fork; we opt in via env
+    # so monkeypatching pub_api.upload_with_cookies still applies.
+    monkeypatch.setattr(pub_api, "PUBLISHER_BACKEND", "ytb_up")
     cookies = tmp_path / "ch1_cookies.json"
     cookies.write_text(json.dumps([
         {"name": "A", "value": "1", "domain": ".yt.com",
@@ -194,6 +197,7 @@ def test_publish_via_browser_account_id_unknown_404(monkeypatch, tmp_path):
 
 
 def test_publish_via_browser_touches_account_on_success(monkeypatch, tmp_path):
+    monkeypatch.setattr(pub_api, "PUBLISHER_BACKEND", "ytb_up")
     cookies = tmp_path / "acc_a.json"
     cookies.write_text(json.dumps([
         {"name": "A", "value": "1", "domain": ".yt.com", "sameSite": "Lax"},
@@ -224,6 +228,7 @@ def test_publish_via_browser_explicit_cookies_path_overrides_account(
     monkeypatch, tmp_path
 ):
     """`request.cookies_path` bypasses the account lookup entirely."""
+    monkeypatch.setattr(pub_api, "PUBLISHER_BACKEND", "ytb_up")
     account_cookies = tmp_path / "account.json"
     account_cookies.write_text(json.dumps([]))
     user_override = tmp_path / "override.json"
