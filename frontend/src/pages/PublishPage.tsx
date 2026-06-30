@@ -1,8 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import axios from 'axios'
 import { useAppStore, ProcessedClip } from '../store/useAppStore'
+import type { Account } from '../store/useAppStore'
 import ProgressBar from '../components/ProgressBar'
 import ScoreBreakdown from '../components/ScoreBreakdown'
+import CustomSelect from '../components/CustomSelect'
+import IconByName from '../components/IconByName'
 import {
   Upload,
   Play,
@@ -43,6 +46,17 @@ export default function PublishPage() {
   const [publishStates, setPublishStates] = useState<Record<string, ClipPublishState>>({})
   const [folderNotification, setFolderNotification] = useState<string | null>(null)
   const [expandedClip, setExpandedClip] = useState<ProcessedClip | null>(null)
+  const [accounts, setAccounts] = useState<Account[]>([])
+
+  // Load the published-channel accounts list. Each clip will start with
+  // the per-user "active" account (the one they explicitly activated on
+  // /accounts) but the operator can override it per-clip via the inline
+  // CustomSelect — that's the whole point of #5 multi-accounting.
+  useEffect(() => {
+    axios.get('/api/accounts')
+      .then((r) => setAccounts(r.data))
+      .catch(() => setAccounts([]))
+  }, [])
 
   useEffect(() => {
     setCurrentStep(5)
@@ -59,11 +73,16 @@ export default function PublishPage() {
         error: null,
         copyStatus: 'idle',
         method: 'browser',            // default: ytb-up cookies (looks human)
-        account_id: null,
+        // Pre-fill with the globally "active" account — operator can
+        // override beneath each clip in the inline CustomSelect.
+        account_id: activeAccountId || null,
         cookies_path: null,
       }
     })
     setPublishStates(states)
+    // We intentionally ignore activeAccountId here so we don't tear
+    // down user-chosen per-clip accounts when the global toggle moves.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [processedClips])
 
   useEffect(() => {
@@ -354,6 +373,60 @@ export default function PublishPage() {
               <div className="mb-4">
                 <ScoreBreakdown score={clip.score} />
               </div>
+
+              {/* Per-clip "Publish to" picker — operator chooses which
+                  account actually posts THIS clip. The earlier global
+                  "Activate" model set one channel for all clips; #5
+                  multi-accounting replaced that with a per-clip override
+                  so a 12-clip batch can mix channels. The CustomSelect
+                  pre-fills with the operator's last "active" account so
+                  they don't have to pick from scratch for every clip. */}
+              {accounts.length > 0 && (
+                <div className="mb-4">
+                  <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+                    Publish to
+                  </label>
+                  <CustomSelect
+                    value={state.account_id ?? 'default'}
+                    onChange={(v) => updateState(clip.id, { account_id: v })}
+                    options={[
+                      ...(state.account_id && !accounts.some((a) => a.id === state.account_id)
+                        ? [{ value: state.account_id, label: 'Unknown account', disabled: true }]
+                        : []),
+                      ...accounts.map((acc) => ({
+                        value: acc.id,
+                        // Append a short hint to the label when cookies are
+                        // missing so the operator understands why the row is
+                        // non-selectable without us having to make the
+                        // CustomSelect's `disabled` prop accept strings.
+                        label: !acc.cookies_path && acc.id !== 'default'
+                          ? `${acc.name} · no cookies`
+                          : acc.name,
+                        icon: (
+                          <IconByName
+                            name={acc.id === 'default' ? 'Clapperboard'
+                                  : acc.preferred_preset === 'films_anime' ? 'Sparkles'
+                                  : 'Tv'}
+                            size={13}
+                            className={
+                              !acc.cookies_path && acc.id !== 'default'
+                                ? 'text-slate-300'
+                                : acc.id === 'default'
+                                  ? 'text-slate-400'
+                                  : 'text-accent'
+                            }
+                          />
+                        ),
+                        description: acc.last_used_at
+                          ? `last used ${acc.last_used_at}`
+                          : 'never used',
+                        disabled: !acc.cookies_path && acc.id !== 'default',
+                      })),
+                    ]}
+                    disabled={state.uploading || state.success}
+                  />
+                </div>
+              )}
 
               {/* Form */}
               <div className="space-y-2.5">

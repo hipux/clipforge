@@ -121,24 +121,52 @@ export default function AccountsPage() {
         </div>
       )}
 
-      {/* List — single vertical stack of AccountRow lines. Each row is
-          a flat list-item with its own bottom border; the active row gets
-          a left accent border. The default 'system default' row is
-          always pinned first as a non-deletable fallback. */}
+      {/* List — semantic HTML <table>. Each row is a <tr> with one column
+          per logical piece (status+name, platform, preset, last-used,
+          status pill, actions). Visual density matches the rest of the
+          dashboard — no card shadows, just hairline separators. The
+          'default' row is always pinned first as a non-deletable
+          fallback. */}
       {accounts.length > 0 && (
-        <div className="card overflow-hidden p-0">
-          {accounts.map((acc, i) => (
-            <AccountRow
-              key={acc.id}
-              acc={acc}
-              badge={badge(acc.preferred_preset)}
-              isActive={acc.id === activeAccountId}
-              isDefault={acc.id === 'default'}
-              onActivate={() => setActiveAccountId(acc.id)}
-              onEdit={() => setEditingId(acc.id)}
-              onDelete={() => _delete(acc.id, refresh)}
-            />
-          ))}
+        <div className="rounded-lg border border-slate-200 overflow-hidden bg-bg-elev">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-50/60">
+                <th className="py-2.5 pl-4 pr-3 text-left text-[10px] uppercase tracking-wider font-semibold text-slate-500">
+                  Account
+                </th>
+                <th className="py-2.5 px-3 text-left text-[10px] uppercase tracking-wider font-semibold text-slate-500">
+                  Platform
+                </th>
+                <th className="py-2.5 px-3 text-left text-[10px] uppercase tracking-wider font-semibold text-slate-500">
+                  Content preset
+                </th>
+                <th className="py-2.5 px-3 text-left text-[10px] uppercase tracking-wider font-semibold text-slate-500">
+                  Last used
+                </th>
+                <th className="py-2.5 px-3 text-left text-[10px] uppercase tracking-wider font-semibold text-slate-500">
+                  Status
+                </th>
+                <th className="py-2.5 pr-4 pl-3 text-right text-[10px] uppercase tracking-wider font-semibold text-slate-500">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {accounts.map((acc) => (
+                <AccountRow
+                  key={acc.id}
+                  acc={acc}
+                  badge={badge(acc.preferred_preset)}
+                  isActive={acc.id === activeAccountId}
+                  isDefault={acc.id === 'default'}
+                  onActivate={() => setActiveAccountId(acc.id)}
+                  onEdit={() => setEditingId(acc.id)}
+                  onDelete={() => _delete(acc.id, refresh)}
+                />
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
@@ -193,74 +221,106 @@ function AccountRow({
 }) {
   const st = statusFor(acc)
   return (
-    // List-style row (not card-style). border-b between rows gives the
-    // same visual separation as cards but keeps the page MUCH calmer —
-    // no box-per-item density. The active row is accented with a left
-    // border instead of a full ring so the page rhythm isn't broken.
-    <div className={`relative px-4 py-3 flex items-center gap-3 transition-colors ${
-      isActive
-        ? 'bg-accent/5 border-l-2 border-l-accent'
-        : 'hover:bg-slate-50 border-l-2 border-l-transparent'
-    } border-b border-slate-100`}>
-      {/* Status dot — small but unmistakable from corner of eye */}
-      <span className={`shrink-0 w-2 h-2 rounded-full ${
-        st.tone === 'ok' ? 'bg-emerald-500' :
-        st.tone === 'warn' ? 'bg-amber-400' : 'bg-slate-300'
-      }`} title={st.label} />
+    // Proper <tr> — semantic table-row, the whole row is the list-item.
+    // The active row is accented with a coloured left border + bg tint so
+    // the page rhythm isn't broken. Hover changes the row background so
+    // operators can scan a long list of channels fast.
+    <tr className={`border-b border-slate-100 transition-colors ${
+      isActive ? 'bg-accent/5' : 'hover:bg-slate-50/60'
+    }`}>
+      {/* Status dot + name combined for first column readability */}
+      <td className="py-2.5 pl-4 pr-3 align-middle">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span
+            className={`shrink-0 w-2 h-2 rounded-full ${
+              st.tone === 'ok' ? 'bg-emerald-500' :
+              st.tone === 'warn' ? 'bg-amber-400' : 'bg-slate-300'
+            }`}
+            title={st.label}
+          />
+          <div className="min-w-0">
+            <div className="text-[14px] font-semibold text-slate-900 truncate flex items-center gap-1.5">
+              {acc.name}
+              {isDefault && (
+                <span className="text-[10px] text-slate-400 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded-md font-normal">
+                  default
+                </span>
+              )}
+              {isActive && !isDefault && (
+                <span className="text-[10px] text-accent bg-accent/10 border border-accent/30 px-1.5 py-0.5 rounded-md font-medium uppercase tracking-wider">
+                  active
+                </span>
+              )}
+            </div>
+            <div className="text-[10px] text-slate-400 mt-0.5 truncate" title={acc.cookies_path ?? ''}>
+              {acc.cookies_path
+                ? acc.cookies_path.split(/[\\/]/).slice(-1)[0]
+                : <span className="italic">no cookies</span>}
+            </div>
+          </div>
+        </div>
+      </td>
 
-      {/* Identity column: name + meta inline */}
-      <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
-        <span className="text-[14px] font-semibold text-slate-900 truncate">
-          {acc.name}
+      <td className="py-2.5 px-3 align-middle whitespace-nowrap">
+        <span className="inline-flex items-center gap-1 text-[11px] text-slate-600">
+          <PlatformIcon platform={acc.platform} size={11} />
+          <span className="capitalize">{acc.platform}</span>
         </span>
-        <span className="text-[10px] px-1.5 py-0.5 rounded border border-slate-200 text-slate-500 bg-white">
-          <PlatformIcon platform={acc.platform} size={9} className="inline mr-0.5 -mt-0.5" />
-          {acc.platform}
-        </span>
-        <span className="inline-flex items-center gap-1 text-xs text-slate-500 truncate max-w-[260px]">
-          <IconByName name={badge.icon} size={11} className="text-slate-400 shrink-0" />
-          <span className="truncate">{badge.name}</span>
-        </span>
-        {isDefault && (
-          <span className="text-[10px] text-slate-400 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded-md">
-            system default
-          </span>
-        )}
-        {acc.last_used_at && (
-          <span className="text-[10px] text-slate-400 inline-flex items-center gap-1">
-            <Clock size={9} /> {acc.last_used_at}
-          </span>
-        )}
-      </div>
+      </td>
 
-      {/* Action column */}
-      <div className="flex gap-1 shrink-0">
-        {!isActive && !isDefault && (
+      <td className="py-2.5 px-3 align-middle whitespace-nowrap">
+        <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-700">
+          <IconByName name={badge.icon} size={12} className="text-slate-500" />
+          <span>{badge.name}</span>
+        </span>
+      </td>
+
+      <td className="py-2.5 px-3 align-middle whitespace-nowrap text-[11px] text-slate-500">
+        {acc.last_used_at
+          ? <span className="inline-flex items-center gap-1"><Clock size={10} /> {acc.last_used_at}</span>
+          : <span className="text-slate-400 italic">never</span>}
+      </td>
+
+      <td className="py-2.5 px-3 align-middle whitespace-nowrap">
+        <span className={`inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-medium px-1.5 py-0.5 rounded-md border ${
+          st.tone === 'ok'   ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+        : st.tone === 'warn' ? 'bg-amber-50 text-amber-700 border-amber-200'
+                            : 'bg-slate-100 text-slate-500 border-slate-200'
+        }`}>
+          {st.label}
+        </span>
+      </td>
+
+      <td className="py-2.5 pr-4 pl-3 align-middle whitespace-nowrap">
+        <div className="flex items-center justify-end gap-1">
+          {!isActive && !isDefault && (
+            <button
+              onClick={onActivate}
+              className="btn btn-primary text-[11px] py-1 px-2"
+              title="Make this the default for new publications"
+            >
+              <Check size={12} /> Activate
+            </button>
+          )}
           <button
-            onClick={onActivate}
-            className="btn btn-primary text-[11px] py-1 px-2"
+            onClick={onEdit}
+            className="btn btn-secondary text-[11px] py-1 px-2"
+            title="Edit"
           >
-            <Check size={12} /> Activate
+            <Edit2 size={12} />
           </button>
-        )}
-        <button
-          onClick={onEdit}
-          className="btn btn-secondary text-[11px] py-1 px-2"
-          title="Edit"
-        >
-          <Edit2 size={12} />
-        </button>
-        {!isDefault && (
-          <button
-            onClick={onDelete}
-            className="btn btn-secondary text-[11px] py-1 px-2 text-danger hover:bg-danger/10 border-danger/30"
-            title="Delete"
-          >
-            <Trash2 size={12} />
-          </button>
-        )}
-      </div>
-    </div>
+          {!isDefault && (
+            <button
+              onClick={onDelete}
+              className="btn btn-secondary text-[11px] py-1 px-2 text-danger hover:bg-danger/10 border-danger/30"
+              title="Delete"
+            >
+              <Trash2 size={12} />
+            </button>
+          )}
+        </div>
+      </td>
+    </tr>
   )
 }
 
