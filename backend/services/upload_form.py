@@ -154,21 +154,46 @@ SELECTORS = {
 
 # ─── Public types ────────────────────────────────────────────────────────────
 
-# Keywords that mark publish as COMPLETE in any locale. Used by
-# click_publish() to decide when to stop polling the post-Publish
-# progress bar — once a visible text element contains any of these
-# substrings, we know Studio finished and we can read the published
-# URL. Lower-case match against element innerText.
+# Post-publish completion-detection keywords. These are SUBSTRINGS
+# matched case-insensitively against the visible innerText of any
+# dialog-status element. They are used as a SECONDARY confirmation
+# signal AFTER the strict Polymer-class gate has flipped (the class
+# flip alone is sufficient, but the keywords give operators a log
+# line that lists the actual Russian/English text Studio showed on
+# success so they can verify behaviour manually on a new account).
 PUBLISH_DONE_KEYWORDS = (
-    "опубликов", "published", "publish complete", "publish finished",
-    "завершен", "готово", "complete", "done", "finished",
+    # Russian — the canonical Studio 2026 cascade (from manually
+    # observed runs on the operator's danny_test account):
+    "нарушений не найдено",       # "no violations found"  ← terminal marker
+    "нарушения не найдены",       # alternate inflection
+    "проверка завершена",          # "check completed"      ← terminal marker
+    "видео опубликовано",          # "video published"
+    "опубликован",                 # "published"
+    "опубликовано",                # "published (past tense)"
+    "успешно опубликовано",        # "published successfully"
+    "готово",                      # "done"
+    # English fallbacks:
+    "no violations found",
+    "no issues found",
+    "check complete", "check completed",
+    "video published",
+    "published successfully",
+    "publish complete", "publish completed",
 )
 
-# Keywords that mark publish as FAILED. Surface as an explicit failure
-# rather than letting the wait-loop time out at deadline.
+# Keywords that mark publish as FAILED. Best-effort detection
+# — if Studio renders a red pill, we surface it as RuntimeError
+# instead of running out the wait-loop's deadline.
 PUBLISH_ERROR_KEYWORDS = (
-    "публикация невозможна", "публикация прервана", "ошибка публикации",
-    "upload failed", "failed to publish", "publish error", "publish failed",
+    # Russian error variants:
+    "публикация невозможна",      # "publishing impossible"
+    "публикация прервана",         # "publishing interrupted"
+    "ошибка публикации",           # "publish error"
+    "нарушения найдены",           # "violations found" (negative outcome)
+    "контент заблокирован",        # "content blocked"
+    # English error variants:
+    "upload failed", "publish failed", "failed to publish",
+    "publish error",
 )
 
 
@@ -384,29 +409,38 @@ async def click_publish(page) -> None:
     """Step 5 final: lock the upload in.
 
     After Publish is clicked YouTube Studio shows a progress panel
-    (left-bottom corner) running through several sub-stages —
-    "Saving metadata", "Encoding the video", "Checking copyright
-    violations", etc. Each stage takes a few seconds and the whole
-    thing can sum up to 60-180 seconds for a large clip.
+    (left-bottom corner) running through several sub-stages — the
+    canonical Russian cascade, observed on the operator's danny_test
+    account:
 
-    Completion detection — STRICT rule, no exceptions:
-        The element ``<ytcp-video-upload-progress class="style-scope
-        ytcp-uploads-still-processing-dialog">`` exists WHILE Studio is
-        still processing and is REMOVED when processing finishes.
-        We poll for that class's absence every 2 seconds and only then
-        declare success. We DO NOT trust text matching for completion
-        because Studio flashes several intermediate-text states
-        ("Загрузка видео завершена. Скоро начнется обработка.",
-        "Сохранение метаданных", "Проверка нарушений") that are
-        confusingly close to "Done" but actually intermediate.
+        1. "Загрузка видео завершена. ... Скоро начнется обработка."
+           (Upload done, processing will begin soon)
+        2. "Обработка в HD" with time estimate (Encoding HD)
+        3. "Проверка X%" with time estimate (Compliance check)
+        4. "Проверка завершена. Нарушений не найдено"
+           (Check completed, no violations — terminal success marker)
+
+    Each stage takes a few seconds and the whole thing can sum up to
+    60-180 seconds.
+
+    Completion detection — TWO-gate rule:
+        PRIMARY (strict): the element
+        ``<ytcp-video-upload-progress class="style-scope
+        ytcp-uploads-still-processing-dialog">`` exists WHILE Studio
+        is still processing and is REMOVED when the actual post
+        including-rejection-checks finishes. We poll for that
+        class's absence as the only exit signal.
+
+        SECONDARY (cosmetic): after the strict gate flips, we log
+        any visible text that matches PUBLISH_DONE_KEYWORDS so the
+        operator can see in the log which terminal marker Studio
+        rendered (Russian OR English variant).
 
     Failure detection — explicit error text inside the dialog.
-        Studio renders a red pill text="Ошибка публикации" / "Upload
-        failed" / "Публикация невозможна" when publishing is rejected;
-        we surface it as RuntimeError so the caller sees the reason
-        instead of a generic timeout.
-
-    Implementation: poll every 2 seconds for up to 3 minutes.
+        Studio renders a red pill text="Ошибка публикации" /
+        "Нарушения найдены" / "Upload failed" when publishing is
+        rejected; we surface it as RuntimeError so the caller sees
+        the reason instead of a generic timeout.
     """
     btn = page.locator(SELECTORS["publish_button"]).first
     await _wait_until_enabled(btn, timeout_ms=15_000)
@@ -417,8 +451,8 @@ async def click_publish(page) -> None:
     interval_s = 2.0
     elapsed = 0.0
     status = "starting"
+    last_stage_text = None
     in_progress_locator = page.locator(SELECTORS["publish_in_progress"])
-    success_locator     = page.locator(SELECTORS["publish_success_text"])
     error_locator       = page.locator(SELECTORS["publish_unavailable"])
     progress_text_locator = page.locator(SELECTORS["publish_progress_text"])
 
@@ -439,25 +473,28 @@ async def click_publish(page) -> None:
             if in_progress_count == 0:
                 status = "still_processing_marker_gone"
                 logger.info(
-                    f"publish progress: in-progress marker disappeared at "
-                    f"elapsed={elapsed:.0f}s; poll completed."
+                    f"publish progress: in-progress dialog cleared at "
+                    f"elapsed={elapsed:.0f}s; primary exit signal."
                 )
                 break
-            # Log current stage text every 8 seconds if we have one.
+            # Surface the current stage label every 8 seconds so the
+            # operator can see Studio's progress caption changes.
             if int(elapsed) % 8 == 0:
+                cur_text = None
                 try:
                     if await progress_text_locator.count() > 0:
-                        txt = (await progress_text_locator.first.inner_text())[:120]
-                        logger.info(
-                            f"publish progress (elapsed {elapsed:.0f}s): {txt!r}"
-                        )
+                        cur_text = (await progress_text_locator.first.inner_text())[:140]
                 except Exception:
                     pass
+                if cur_text and cur_text != last_stage_text:
+                    logger.info(
+                        f"publish progress (elapsed {elapsed:.0f}s): {cur_text!r}"
+                    )
+                    last_stage_text = cur_text
             status = "still_processing"
         except RuntimeError:
             raise
         except Exception:
-            # Selector glitches on transient renders. Keep polling.
             continue
 
     if status == "still_processing":
@@ -465,10 +502,58 @@ async def click_publish(page) -> None:
             f"publish deadline {deadline_s}s reached with in-progress marker "
             f"STILL visible — proceeding to read URL anyway (best-effort)."
         )
-    # We deliberately do NOT break on publish_success_text alone:
-    # that text can appear briefly while still-processing is also
-    # visible. The strict signal is the still-processing class
-    # disappearing. After that, we read the URL.
+
+    # SECONDARY confirmation: after the class flipped, scan the DOM
+    # once for one of our terminal markers. We do NOT block on this —
+    # class flip is sufficient — but we log the actual terminal
+    # text so the operator can verify Studio sent the expected
+    # Russian "Нарушений не найдено" or the English equivalent.
+    try:
+        await asyncio.sleep(1.0)   # let the final text settle
+        all_status = await page.evaluate(
+            """() => {
+                const els = Array.from(document.querySelectorAll(
+                    '[role="status"], ytcp-uploads-dialog, [class*="processed"], [class*="finished"]'
+                ));
+                return els.map(e => (e.innerText || '').trim()).filter(Boolean);
+            }"""
+        )
+        confirmed = None
+        for t in all_status:
+            low = t.lower()
+            for kw in PUBLISH_DONE_KEYWORDS:
+                if kw in low:
+                    confirmed = t
+                    break
+            if confirmed:
+                break
+        if confirmed:
+            logger.info(f"publish completion text confirmed: {confirmed[:140]!r}")
+        else:
+            # Also check for explicit error (Studio can flash both
+            # success AND error on retry scenarios).
+            err_text = None
+            for t in all_status:
+                low = t.lower()
+                for kw in PUBLISH_ERROR_KEYWORDS:
+                    if kw in low:
+                        err_text = t
+                        break
+                if err_text:
+                    break
+            if err_text:
+                logger.warning(
+                    f"publish completion text ambiguous: failure-shaped marker "
+                    f"visible ({err_text[:140]!r}). Re-read the URL anyway."
+                )
+            else:
+                logger.info(
+                    "publish completion: primary class-flip signal used; "
+                    "no terminal-success text observed in the rendered DOM."
+                )
+    except Exception as e:
+        logger.debug(f"completion-text scan failed (non-fatal): {e!s}")
+
     logger.info(f"post-publish wait finished: {status}, elapsed={elapsed:.0f}s")
 
 
