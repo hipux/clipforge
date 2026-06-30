@@ -122,3 +122,17 @@
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.18); cursor: pointer;
 }
 .range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 6px rgba(79, 70, 229, 0.2); }
+
+/* ── View-swap crossfade ───────────────────────────────────── */
+/* Used by /accounts when the user flips between layout modes
+   (Table ↔ Cards). The trigger is a `key` on the wrapper that
+   matches the viewMode value, so React unmounts on switch and
+   the keyframe runs on every fresh mount. Short and gentle — too
+   much motion makes long lists feel jumpy. */
+@keyframes clipforgeViewSwap {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.view-swap {
+  animation: clipforgeViewSwap 220ms ease-out;
+}

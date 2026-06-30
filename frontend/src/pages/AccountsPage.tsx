@@ -130,39 +130,61 @@ export default function AccountsPage() {
 
       {/* List — choose view-mode. Both share the same data and the
           same Edit/Delete actions; only the layout differs.
-            • 'table' : semantic <table>; <thead> stays sticky so columns
-              don't vanish while you scroll a long list of channels.
+            • 'table' : semantic <table>.
             • 'cards' : 1–2 column tile grid; with 3 channels the tiles
               breathe and feel like an overview, whereas a table of 3
-              rows looks thin and lonely. */}
-      {accounts.length > 0 && accountViewMode === 'table' && (
-        <div className="rounded-lg border border-slate-200 overflow-hidden bg-bg-elev">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50/80 border-b border-slate-200">
-              <tr>
-                <th className="py-2.5 pl-4 pr-3 text-left text-[10px] uppercase tracking-wider font-semibold text-slate-500">
-                  Account
-                </th>
-                <th className="py-2.5 px-3 text-left text-[10px] uppercase tracking-wider font-semibold text-slate-500">
-                  Platform
-                </th>
-                <th className="py-2.5 px-3 text-left text-[10px] uppercase tracking-wider font-semibold text-slate-500">
-                  Content preset
-                </th>
-                <th className="py-2.5 px-3 text-left text-[10px] uppercase tracking-wider font-semibold text-slate-500">
-                  Last used
-                </th>
-                <th className="py-2.5 px-3 text-left text-[10px] uppercase tracking-wider font-semibold text-slate-500">
-                  Status
-                </th>
-                <th className="py-2.5 pr-4 pl-3 text-right text-[10px] uppercase tracking-wider font-semibold text-slate-500">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
+              rows looks thin and lonely.
+          Both views are wrapped in a single <div> with a `key` bound
+          to accountViewMode. The key forces React to unmount on view
+          switch, which re-runs the `.view-swap` keyframe for a gentle
+          crossfade (220ms ease-out, 4px slide-in). On the toggle
+          itself: hover/active state has a 150ms color transition so
+          the active option feels like it lights up rather than pops. */}
+      {accounts.length > 0 && (
+        <div key={accountViewMode} className="view-swap">
+          {accountViewMode === 'table' ? (
+            <div className="rounded-lg border border-slate-200 overflow-hidden bg-bg-elev">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50/80 border-b border-slate-200">
+                  <tr>
+                    <th className="py-2.5 pl-4 pr-3 text-left text-[10px] uppercase tracking-wider font-semibold text-slate-500">
+                      Account
+                    </th>
+                    <th className="py-2.5 px-3 text-left text-[10px] uppercase tracking-wider font-semibold text-slate-500">
+                      Platform
+                    </th>
+                    <th className="py-2.5 px-3 text-left text-[10px] uppercase tracking-wider font-semibold text-slate-500">
+                      Content preset
+                    </th>
+                    <th className="py-2.5 px-3 text-left text-[10px] uppercase tracking-wider font-semibold text-slate-500">
+                      Last used
+                    </th>
+                    <th className="py-2.5 px-3 text-left text-[10px] uppercase tracking-wider font-semibold text-slate-500">
+                      Status
+                    </th>
+                    <th className="py-2.5 pr-4 pl-3 text-right text-[10px] uppercase tracking-wider font-semibold text-slate-500">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {accounts.map((acc) => (
+                    <AccountRow
+                      key={acc.id}
+                      acc={acc}
+                      badge={badge(acc.preferred_preset)}
+                      isDefault={acc.id === 'default'}
+                      onEdit={() => setEditingId(acc.id)}
+                      onDelete={() => _delete(acc.id, refresh)}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {accounts.map((acc) => (
-                <AccountRow
+                <AccountCard
                   key={acc.id}
                   acc={acc}
                   badge={badge(acc.preferred_preset)}
@@ -171,23 +193,8 @@ export default function AccountsPage() {
                   onDelete={() => _delete(acc.id, refresh)}
                 />
               ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {accounts.length > 0 && accountViewMode === 'cards' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {accounts.map((acc) => (
-            <AccountCard
-              key={acc.id}
-              acc={acc}
-              badge={badge(acc.preferred_preset)}
-              isDefault={acc.id === 'default'}
-              onEdit={() => setEditingId(acc.id)}
-              onDelete={() => _delete(acc.id, refresh)}
-            />
-          ))}
+            </div>
+          )}
         </div>
       )}
 
