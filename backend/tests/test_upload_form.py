@@ -232,34 +232,19 @@ def test_upload_one_happy_path_uses_all_5_steps(tmp_path):
     fake_video.write_bytes(b"\x00" * 1024)
     page = _make_page()
 
-    # Pre-set counts so each FakeLocator behaves like the real DOM:
-    # selectors we expect to find return non-zero; selectors we expect
-    # NOT to find (publish_unavailable) return 0; the publish-progress
-    # bar starts visible, then disappears (the second iteration returns 0).
-    progress_bar_visible_count = [1]
-
     async def body():
-        # Mark the publish_progress indicators clearly:
-        #   visible progress bar (one iteration)  -> progress disappears on 2nd poll
-        progress_loc = page.locator(SELECTORS["publish_progress"])
-        progress_loc.count_value = 1
-        # 2nd iteration: progress bar is gone
-        async def fake_count_only_zero():
-            return 0
-        original_count = progress_loc.count
+        # The in-progress marker (class ytcp-uploads-still-processing-dialog)
+        # is present at the FIRST poll, gone at the SECOND poll = the wait
+        # loop sees it disappear and exits cleanly.
+        in_progress_loc = page.locator(SELECTORS["publish_in_progress"])
+        # We override .count() so it returns 1 on the first await and 0 after.
+        original_count = in_progress_loc.count
+        call_state = {"calls": 0}
 
-        async def smart_count():
-            # First poll: visible (1), then we patch it to 0 so the
-            # loop sees "progress_bar_disappeared" and exits cleanly.
-            cur = await original_count()
-            return cur
-
-        async def fake_count():
-            result = await smart_count()
-            # Flip after the first call so the next polling sees 0
-            progress_loc.count_value = 0
-            return result
-        progress_loc.count = fake_count
+        async def one_shot_count():
+            call_state["calls"] += 1
+            return 1 if call_state["calls"] == 1 else 0
+        in_progress_loc.count = one_shot_count
 
         return await upload_one(
             page,
@@ -281,8 +266,8 @@ def test_upload_one_happy_path_uses_all_5_steps(tmp_path):
     assert SELECTORS["made_for_kids_not"] in called
     assert SELECTORS["visibility_private"] in called
     assert SELECTORS["publish_button"] in called
-    # Post-publish indicators must be queried.
-    assert SELECTORS["publish_progress"] in called
+    # Post-publish indicator is queried.
+    assert SELECTORS["publish_in_progress"] in called
 
 
 def test_upload_one_returns_failed_when_file_missing(tmp_path):

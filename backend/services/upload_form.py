@@ -124,30 +124,25 @@ SELECTORS = {
 
     # ── Post-publish status surfaces ────────────────────────
     # After the operator clicks "Опубликовать"/"Publish", Studio shows
-    # a progress bar (left-bottom corner) running through several
-    # sub-stages before the upload is committed. We MUST wait for this
-    # to finish before reading the published URL — finding `video_url_link`
-    # mid-processing redirects us to the wrong page (the pre-publish
-    # Details dialog might still be on screen via cached state).
-    "publish_progress":    'tp-yt-paper-progress, ytcp-video-upload-progress, [role="progressbar"]:visible',
-    # Studio's progress bar has a sibling label inside the dialog that
-    # shows the *current* stage, e.g. "Проверка нарушений" / "Checking
-    # content policy violations", "Saving metadata", "Encoding the
-    # video", "Done". It updates every few seconds; we poll it to log
-    # progress and to know when Studio has nothing left to do.
-    #
-    # Bumping timeout from bar-only to text-aware helps because some
-    # stages (large videos → encoding) can run for 30+ seconds without
-    # any visible DOM update on the bar itself — only the text changes.
-    "publish_progress_text": 'tp-yt-paper-progress + * *, ytcp-video-upload-progress + * *, ytcp-video-upload-progress span, [class*="progress"] [class*="text"], [role="status"]:visible',
-    # Studio substitutes the progress bar with either a "Published"
-    # status pill OR a "Video processing" verification card. We accept
-    # either — both are POSITIVE signals that publishing is past the
-    # irreversible step. The error text below covers the negative path.
-    # The Russian "Готово" / English "Done" / "Finished" / "Your video
-    # is published" marker variants all indicate the last step is done.
-    "publish_success_text": 'text=/Опубликов/i, text=/Video published/i, text=/uploaded successfully/i, text=/Published successfully/i, text=/Готово/i, text=/Завершен/i, [aria-label*="опубл" i], [aria-label*="published" i], [aria-label*="Done" i]',
-    "publish_unavailable":  'text=/Публикация невозможна/i, text=/публикация прервана/i, text=/Ошибка публикации/i, text=/Upload failed/i, text=/Failed to publish/i, .error-short',
+    # a progress panel. The CRITICAL element is `YTCP-VIDEO-UPLOAD-PROGRESS`
+    # with the class `ytcp-uploads-still-processing-dialog` — this class
+    # is present while Studio is still encoding / checking / re-encoding
+    # the video, and gets REMOVED when the upload has truly completed.
+    # We watch for the absence of that class — NOT for any text — because
+    # the visible text during the wait oscillates between
+    # "Загрузка видео завершена. Скоро начнется обработка." (intermediate),
+    # "Сохранение метаданных", "Проверка нарушений", etc. — none of which
+    # would be safe to treat as a completion signal.
+    "publish_in_progress":  'ytcp-video-upload-progress.style-scope.ytcp-uploads-still-processing-dialog',
+    # Studio's progress-bar text label shows the *current* stage (e.g.
+    # "Проверка нарушений" / "Encoding the video"). We poll it as
+    # informational logging only — the deterministic completion signal
+    # is the in-progress marker above, not any text.
+    "publish_progress_text": 'ytcp-video-upload-progress.style-scope.ytcp-uploads-dialog, [role="status"]:visible',
+    # Optional success markers — surfaced as POLITE confirmation AFTER
+    # the in-progress marker went away.
+    "publish_success_text":  'text=/Опубликов/i, text=/Video published/i, text=/Published successfully/i, text=/Готово/i, text=/Завершен/i, [aria-label*="опубл" i], [aria-label*="published" i], [aria-label*="Done" i]',
+    "publish_unavailable":   'text=/Публикация невозможна/i, text=/публикация прервана/i, text=/Ошибка публикации/i, text=/Upload failed/i, text=/Failed to publish/i, .error-short',
 
     # Captcha / challenge / error surfaces. /sorry/ redirect catch:
     # in Studio there is no captcha iframe directly — when Google's
@@ -388,39 +383,44 @@ async def select_visibility(
 async def click_publish(page) -> None:
     """Step 5 final: lock the upload in.
 
-    After Publish is clicked YouTube Studio shows a progress bar (in
-    the left-bottom corner) running through several sub-stages —
-    "Saving metadata", "Encoding the video", "Checking copyright",
-    etc. Each stage takes a few seconds and the whole thing can sum
-    up to 60-90 seconds for a fresh upload. We MUST wait for the
-    progress bar to disappear OR a "Published" status to surface
-    before declaring the upload finished. Reading the published URL
-    too early risks landing on a discarded pre-publish dialog.
+    After Publish is clicked YouTube Studio shows a progress panel
+    (left-bottom corner) running through several sub-stages —
+    "Saving metadata", "Encoding the video", "Checking copyright
+    violations", etc. Each stage takes a few seconds and the whole
+    thing can sum up to 60-180 seconds for a large clip.
 
-    Implementation: poll every 2 seconds for:
-        * progress bar gone (visible progress bar count == 0)
-        * OR a success text indicator
-        * OR an error indicator (then surface it to the caller)
-        * up to 3 minutes total
+    Completion detection — STRICT rule, no exceptions:
+        The element ``<ytcp-video-upload-progress class="style-scope
+        ytcp-uploads-still-processing-dialog">`` exists WHILE Studio is
+        still processing and is REMOVED when processing finishes.
+        We poll for that class's absence every 2 seconds and only then
+        declare success. We DO NOT trust text matching for completion
+        because Studio flashes several intermediate-text states
+        ("Загрузка видео завершена. Скоро начнется обработка.",
+        "Сохранение метаданных", "Проверка нарушений") that are
+        confusingly close to "Done" but actually intermediate.
 
-    The success text is the most reliable signal — Studio renders
-    "Опубликовано" / "Published" deep inside the new dialog right
-    after the bar disappears.
+    Failure detection — explicit error text inside the dialog.
+        Studio renders a red pill text="Ошибка публикации" / "Upload
+        failed" / "Публикация невозможна" when publishing is rejected;
+        we surface it as RuntimeError so the caller sees the reason
+        instead of a generic timeout.
+
+    Implementation: poll every 2 seconds for up to 3 minutes.
     """
     btn = page.locator(SELECTORS["publish_button"]).first
     await _wait_until_enabled(btn, timeout_ms=15_000)
     await btn.click()
     logger.info("publish click registered; waiting for Studio post-processing...")
 
-    # Total wait budget = 180s (3 min). Studio is sometimes very
-    # slow on first upload of a session (classifier warm-up).
     deadline_s = 180.0
     interval_s = 2.0
     elapsed = 0.0
-    last_status = "starting"
-    progress_locator = page.locator(SELECTORS["publish_progress"])
-    success_locator = page.locator(SELECTORS["publish_success_text"])
-    error_locator   = page.locator(SELECTORS["publish_unavailable"])
+    status = "starting"
+    in_progress_locator = page.locator(SELECTORS["publish_in_progress"])
+    success_locator     = page.locator(SELECTORS["publish_success_text"])
+    error_locator       = page.locator(SELECTORS["publish_unavailable"])
+    progress_text_locator = page.locator(SELECTORS["publish_progress_text"])
 
     while elapsed < deadline_s:
         await asyncio.sleep(interval_s)
@@ -434,22 +434,42 @@ async def click_publish(page) -> None:
                 except Exception:
                     pass
                 raise RuntimeError(f"publish error surfaced: {text!r}")
-            succ_count = await success_locator.count()
-            if succ_count > 0:
-                last_status = "publish_success_text_visible"
-                break
-            in_progress_count = await progress_locator.count()
+
+            in_progress_count = await in_progress_locator.count()
             if in_progress_count == 0:
-                last_status = "progress_bar_disappeared"
+                status = "still_processing_marker_gone"
+                logger.info(
+                    f"publish progress: in-progress marker disappeared at "
+                    f"elapsed={elapsed:.0f}s; poll completed."
+                )
                 break
-            last_status = "still_processing"
+            # Log current stage text every 8 seconds if we have one.
+            if int(elapsed) % 8 == 0:
+                try:
+                    if await progress_text_locator.count() > 0:
+                        txt = (await progress_text_locator.first.inner_text())[:120]
+                        logger.info(
+                            f"publish progress (elapsed {elapsed:.0f}s): {txt!r}"
+                        )
+                except Exception:
+                    pass
+            status = "still_processing"
         except RuntimeError:
             raise
         except Exception:
             # Selector glitches on transient renders. Keep polling.
             continue
 
-    logger.info(f"post-publish wait finished: {last_status}, elapsed={elapsed:.0f}s")
+    if status == "still_processing":
+        logger.warning(
+            f"publish deadline {deadline_s}s reached with in-progress marker "
+            f"STILL visible — proceeding to read URL anyway (best-effort)."
+        )
+    # We deliberately do NOT break on publish_success_text alone:
+    # that text can appear briefly while still-processing is also
+    # visible. The strict signal is the still-processing class
+    # disappearing. After that, we read the URL.
+    logger.info(f"post-publish wait finished: {status}, elapsed={elapsed:.0f}s")
 
 
 async def read_published_url(page, *, logger_extra: str = "") -> UploadResult:
