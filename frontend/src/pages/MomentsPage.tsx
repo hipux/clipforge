@@ -207,9 +207,13 @@ function formatTime(seconds: number): string {
 
 export default function MomentsPage() {
   const navigate = useNavigate()
-  const { currentVideo, moments, setMoments, selectedMomentIds, toggleMoment, setSelectedMoments, llmInstructions, setLlmInstructions, detectionSettings, updateDetectionSettings, activeDetectionVideoId, setActiveDetectionVideoId } = useAppStore()
+  const { currentVideo, moments, setMoments, selectedMomentIds, toggleMoment, setSelectedMoments, llmInstructions, setLlmInstructions, detectionSettings, updateDetectionSettings, activeDetectionVideoId, setActiveDetectionVideoId, detectionStartedAt, setDetectionStartedAt } = useAppStore()
 
-  const [view, setView] = useState<'setup' | 'detecting' | 'results' | 'error'>('setup')
+  // `null` means "haven't checked yet" — rendering nothing prevents the
+  // setup form flashing on-screen for ~150ms before the resume effect
+  // re-attaches to an in-flight detection job. Helps when the user tabs
+  // away from /moments and back during a long detection.
+  const [view, setView] = useState<'setup' | 'detecting' | 'results' | 'error' | null>(null)
   const [progressState, setProgressState] = useState<ProgressState>({
     stage: 1, step: '', progress: 0
   })
@@ -258,6 +262,10 @@ export default function MomentsPage() {
     if (moments.length > 0 && view === 'setup') setView('results')
   }, [])
 
+  // No-op guarantee: if view was reset to null (initial render after a
+  // tab-switch back), the resume effect below will set it to 'detecting'
+  // before we paint the setup card. Nothing to render until then.
+
   // Resume an in-flight (or just-finished) detection after a page reload by
   // asking the server. The detection WebSocket is keyed by video_id, so simply
   // reconnecting re-attaches to the live job or replays the persisted result.
@@ -276,9 +284,19 @@ export default function MomentsPage() {
           setView('detecting')
           setProgressState({ stage: data.stage || 1, step: data.step || '', progress: data.progress || 0.02 })
           completedRef.current = false
+          // Re-anchor the elapsed-time timer on the ORIGINAL start timestamp
+          // (kept in the store across navigations). If we don't have one,
+          // fall back to "now" — the timer would start from 0 in that case,
+          // which is still better than double-counting.
+          if (detectionStartedAt == null) {
+            setDetectionStartedAt(Date.now())
+          }
+          startTimeRef.current = detectionStartedAt ?? Date.now()
+          startTimer()
           connectWs()
         } else {
           setActiveDetectionVideoId(null)
+          setView('setup')  // server says idle — fall back to setup form
         }
       } catch {
         if (!cancelled) setActiveDetectionVideoId(null)
@@ -310,10 +328,11 @@ export default function MomentsPage() {
   }, [progressState.stage, stagesDone, view])
 
   const startTimer = () => {
-    startTimeRef.current = Date.now()
-    timerRef.current = setInterval(() => {
-      setElapsedSeconds(Math.floor((Date.now() - startTimeRef.current) / 1000))
-    }, 1000)
+    if (!timerRef.current) {
+      timerRef.current = setInterval(() => {
+        setElapsedSeconds(Math.floor((Date.now() - startTimeRef.current) / 1000))
+      }, 1000)
+    }
   }
 
   const stopTimer = () => {
@@ -322,7 +341,7 @@ export default function MomentsPage() {
 
   const startDetection = () => {
     if (!currentVideo) return
-    
+
     // Update detection settings in store
     updateDetectionSettings({ minDuration, maxDuration, maxMoments, presetId })
 
@@ -334,7 +353,12 @@ export default function MomentsPage() {
     setChunkInfo('')
     setElapsedSeconds(0)
     setStageDurations({})
-    stageStartRef.current = { 1: Date.now() }
+    // Pin the start time in BOTH the local ref AND the persisted store, so
+    // navigating away and back doesn't reset the elapsed counter.
+    const now = Date.now()
+    startTimeRef.current = now
+    setDetectionStartedAt(now)
+    stageStartRef.current = { 1: now }
     completedRef.current = false
     reconnectAttemptsRef.current = 0
     startTimer()
@@ -445,6 +469,7 @@ export default function MomentsPage() {
     setSubstepDetails({})
     setChunkInfo('')
     setElapsedSeconds(0)
+    setDetectionStartedAt(null)  // clear the persisted timer anchor
     setStageDurations({})
     stageStartRef.current = {}
     setActiveDetectionVideoId(null)
@@ -679,6 +704,21 @@ export default function MomentsPage() {
             <RotateCcw size={14} />
             Try Again
           </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ── BOOTSTRAP: view === null means the resume effect hasn't completed
+  //    yet (asking the backend whether a detection is in flight). Render
+  //    nothing instead of the setup form to avoid the flash where the
+  //    user briefly sees settings before being switched to the running view.
+  if (view === null) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="text-slate-400 text-sm flex items-center gap-2">
+          <span className="w-3 h-3 rounded-full border-2 border-slate-300 border-t-transparent animate-spin" />
+          Resuming…
         </div>
       </div>
     )

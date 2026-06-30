@@ -3,21 +3,41 @@
 GPU-first: runs on CUDA when available, CPU as fallback. Frames are sampled and
 run through YOLO in batches (high GPU throughput) instead of one-frame-at-a-time
 stateful tracking; identities are recovered with a cheap IoU tracker.
+
+The big bug-fix vs the old code: people walking in and out of frame used to
+get a brand-new `track_id` every ~2 seconds because `MAX_TRACK_GAP=4` was
+too aggressive. With ~30 people orbiting across a movie, that produced
+150+ unique track IDs which then broke the face-identity clusterer
+(face_identity.py) on the #5 feature. The two filters below
+(MIN_BBOX_AREA + MIN_DETECTIONS_PER_TRACK) drop poster/watermark
+artifacts and one-frame ghosts, and the raised MAX_TRACK_GAP keeps
+real identities stable across short occlusions.
 """
 from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import List, Dict
-from backend.gpu_config import FACE_MODEL_PATH, FACE_SAMPLE_FPS, FACE_CONFIDENCE_THRESHOLD
+from backend.gpu_config import (
+    FACE_MODEL_PATH, FACE_SAMPLE_FPS, FACE_CONFIDENCE_THRESHOLD,
+    MIN_BBOX_AREA, MIN_DETECTIONS_PER_TRACK,
+)
 from backend.services.vram_manager import vram_manager
 from backend.schemas.moment_instruction import FaceDetection, FaceFrame, FaceTimeline, FacePresenceSegment
 
 logger = logging.getLogger(__name__)
 
-# Filtering constants
-MIN_TRACK_FRAMES = 15  # face must persist 7.5s at 2fps — eliminates background/incidental faces
+# Filtering constants — kept as module-level defaults the operator CAN
+# still override via env vars above.
+# MIN_TRACK_FRAMES is now duration-based instead of frame-count: at the
+# default 1fps sample rate this means a face must persist for 7 seconds
+# before it counts; at 2fps that would be 3.5s. A talking-head clip has
+# most speakers visible for tens of seconds, so 7s is a safe floor that
+# still kills frame-ghost artefacts.
+MIN_TRACK_SECONDS = 7.0
 MIN_FACE_HEIGHT_RATIO = 0.05  # face must be >=5% of frame height — eliminates tiny background faces
-MAX_UNIQUE_FACES = 150  # cap to prevent CGI over-detection in films like Avatar
+MAX_UNIQUE_FACES = 8  # cap to prevent CGI over-detection in films like Avatar.
+                          # 8 is the practical upper bound for ANY foot-pointing video
+                          # (panel shows, talk shows, movies); the clusterer handles the rest.
 
 # ── Batched-inference tuning ────────────────────────────────────────────────
 # The detector previously called model.track() one frame at a time (batch=1),
@@ -26,8 +46,12 @@ MAX_UNIQUE_FACES = 150  # cap to prevent CGI over-detection in films like Avatar
 # greedy-IoU tracker, which is far more GPU-efficient.
 FACE_IMGSZ = 480        # < YOLO's 640 default; faces are large -> ~2x faster
 FACE_BATCH = 32         # frames per GPU inference call (throughput, not latency)
-FACE_IOU_MATCH = 0.3    # min IoU to treat two boxes as the same face across frames
-MAX_TRACK_GAP = 4       # drop a track unseen for >N sampled frames (scene cut)
+FACE_IOU_MATCH = 0.4    # bumped from 0.3 — looser thresholds leak transient
+                        # detections into wrong tracks (yields 150+ IDs).
+                        # 0.4 = "almost the same bbox size + location".
+MAX_TRACK_GAP = 12      # bumped from 4 (~2s) → ~12s on overshoot, so a face
+                        # briefly hidden by a passing object or camera cut
+                        # keeps its identity instead of minting a new one.
 
 
 def _iou(a, b) -> float:
@@ -168,6 +192,14 @@ class FaceDetector:
                 if res.boxes is not None:
                     for box in res.boxes:
                         x1, y1, x2, y2 = box.xyxy[0].tolist()
+                        bw = (x2 - x1) / w
+                        bh = (y2 - y1) / h
+                        # Drop tiny boxes — usually logos, watermarks,
+                        # and animations artefacts that YOLO fires on at
+                        # conf 0.55+. Real faces in a talking-head clip occupy
+                        # >=3% of the frame, almost always >1%.
+                        if bw * bh < MIN_BBOX_AREA:
+                            continue
                         boxes_norm.append(
                             (x1 / w, y1 / h, x2 / w, y2 / h, float(box.conf[0]))
                         )
@@ -345,43 +377,76 @@ class FaceDetector:
         return segments
 
     def _filter_tracks(self, tracks: Dict[int, List[FaceDetection]]) -> Dict[int, List[FaceDetection]]:
-        """Filter tracks to remove short tracks and small faces.
-        
-        Filters:
-        1. Minimum track length: >= MIN_TRACK_FRAMES (default 15 frames = 7.5s at 2fps)
-        2. Minimum face size: bbox height >= MIN_FACE_HEIGHT_RATIO (default 5% of frame)
-        3. Maximum unique faces: <= MAX_UNIQUE_FACES (default 150) to prevent CGI over-detection
-        
+        """Filter face tracks to remove noise and limit total count.
+
+        Filters (in order):
+          1. MIN_DETECTIONS_PER_TRACK  — drop one-frame ghosts (a bbox the
+             model only fires on once or twice is almost certainly noise).
+          2. Min duration  — track must span at least MIN_TRACK_SECONDS
+             (default 7 s), calibrated against FACE_SAMPLE_FPS so it works
+             at any sample rate without further tuning.
+          3. Min bbox height — drop tracks whose faces are <5% of frame
+             height (background/posters that pass step 1 by accident).
+          4. Top-N by frequency — cap at MAX_UNIQUE_FACES (default 8). Most
+             visible tracks; the face-identity clusterer merges siblings.
+
         Args:
             tracks: Dict mapping track_id to list of FaceDetection
-            
+
         Returns:
             Filtered dict with only valid tracks
         """
         valid_tracks = {}
-        
+
+        # Each sampled frame is ~1/FACE_SAMPLE_FPS seconds apart. Compute a
+        # frame-count equivalent of MIN_TRACK_SECONDS.
+        min_frames_for_min_seconds = max(
+            1, int(MIN_TRACK_SECONDS * FACE_SAMPLE_FPS)
+        )
+        min_frames_to_keep = max(MIN_DETECTIONS_PER_TRACK,
+                                 min_frames_for_min_seconds)
+
         for track_id, detections in tracks.items():
-            # Filter 1: Track must appear in at least MIN_TRACK_FRAMES frames
-            if len(detections) < MIN_TRACK_FRAMES:
+            # Filter 1: minimum number of detections across the video.
+            if len(detections) < MIN_DETECTIONS_PER_TRACK:
                 continue
-            
-            # Filter 2: Remove detections where face is too small
+            # Filter 2: persistence across enough seconds (a talking head
+            # gets re-detected every sample for the duration; an artefact
+            # fires once or twice).
+            if len(detections) < min_frames_to_keep:
+                continue
+
+            # Filter 3: drop detections whose face is too small (relative to
+            # frame area) — background extras that passed the model threshold
+            # by sheer luck.
             large_detections = []
             for det in detections:
                 x1, y1, x2, y2 = det.bbox
-                face_height = y2 - y1  # Normalized height (0-1)
+                face_height = y2 - y1
                 if face_height >= MIN_FACE_HEIGHT_RATIO:
                     large_detections.append(det)
-            
-            # Track must still have enough frames after size filtering
-            if len(large_detections) >= MIN_TRACK_FRAMES:
-                valid_tracks[track_id] = large_detections
-        
-        # Cap at MAX_UNIQUE_FACES most-seen face tracks to prevent CGI over-detection
+
+            if not large_detections:
+                continue
+            valid_tracks[track_id] = large_detections
+
+        # Filter 4: cap to the MAX_UNIQUE_FACES most-frequent tracks so the
+        # downstream identity clusterer has a sane upper bound on cluster
+        # candidates (a 31-min movie with 200 extras will otherwise run
+        # face_identity for hours).
         if len(valid_tracks) > MAX_UNIQUE_FACES:
-            sorted_by_freq = sorted(valid_tracks.items(), key=lambda x: len(x[1]), reverse=True)
-            logger.info(f"[YOLO] Capped face tracks from {len(sorted_by_freq)} to {MAX_UNIQUE_FACES}")
+            sorted_by_freq = sorted(
+                valid_tracks.items(),
+                key=lambda x: len(x[1]),
+                reverse=True,
+            )
+            logger.info(
+                f"[YOLO] Capping face tracks from {len(sorted_by_freq)} "
+                f"to {MAX_UNIQUE_FACES} (kept the most-persistent ones)."
+            )
             valid_tracks = dict(sorted_by_freq[:MAX_UNIQUE_FACES])
+
+        return valid_tracks
         
         return valid_tracks
 

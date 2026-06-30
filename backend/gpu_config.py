@@ -23,8 +23,19 @@ WHISPER_GPU_COMPUTE = os.getenv("CLIPFORGE_WHISPER_COMPUTE", "float16")
 
 # ─── Face Detection Configuration ──────────────────────────────────────────
 FACE_MODEL_PATH = MODELS_DIR / "yolov8n-face.pt"
-FACE_SAMPLE_FPS = float(os.getenv("CLIPFORGE_FACE_SAMPLE_FPS", "2.0"))
-FACE_CONFIDENCE_THRESHOLD = float(os.getenv("CLIPFORGE_FACE_CONF", "0.72"))
+FACE_SAMPLE_FPS = float(os.getenv("CLIPFORGE_FACE_SAMPLE_FPS", "1.0"))
+# Confidence threshold for YOLO detection. 0.55 catches real faces on busy
+# frames without flooding the timeline with poster/logo false positives.
+FACE_CONFIDENCE_THRESHOLD = float(os.getenv("CLIPFORGE_FACE_CONF", "0.55"))
+# Min relative bbox area kept (0..1, normalised by frame). Bboxes smaller
+# than this are dropped as likely artifacts (posters, watermarks).
+# 0.01 = 1% of the frame; below this YOLO is usually wrong.
+MIN_BBOX_AREA = float(os.getenv("CLIPFORGE_FACE_MIN_AREA", "0.012"))
+# Tracks must contain at least N individual detections across the video to
+# survive post-process. Each frame's track keeps adding detections, so a
+# real face orbiting across the frame produces 10+. A poster flickering in
+# SOS noise produces 1-3; drop them.
+MIN_DETECTIONS_PER_TRACK = int(os.getenv("CLIPFORGE_FACE_MIN_DETECTIONS", "3"))
 
 # ─── YamNet Audio-Event Classifier (ONNX) ─────────────────────────────────
 # Semantic audio events (laughter, applause, cheering...) — stronger virality

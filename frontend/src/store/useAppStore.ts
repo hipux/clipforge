@@ -106,6 +106,13 @@ interface AppState {
   // seeded row (legacy behaviour).
   activeAccountId: string
   setActiveAccountId: (id: string) => void
+
+  // Detection-in-flight state. Persisted across page navigations so the
+  // elapsed timer and active-detection indicator survive navigating away
+  // from /moments and back (the backend job keeps running — only the UI
+  // state is scoped to the lifetime of this component).
+  detectionStartedAt: number | null
+  setDetectionStartedAt: (ms: number | null) => void
   
   // LLM Instructions
   llmInstructions: string
@@ -156,6 +163,7 @@ export const useAppStore = create<AppState>()(persist((set) => ({
   activeDetectionVideoId: null,
   activeProcessingJobId: null,
   activeAccountId: 'default',
+  detectionStartedAt: null,
   
   // Actions
   setVideo: (video) => set({ currentVideo: video }),
@@ -191,6 +199,7 @@ export const useAppStore = create<AppState>()(persist((set) => ({
   setActiveDetectionVideoId: (v) => set({ activeDetectionVideoId: v }),
   setActiveProcessingJobId: (v) => set({ activeProcessingJobId: v }),
   setActiveAccountId: (id) => set({ activeAccountId: id }),
+  setDetectionStartedAt: (ms) => set({ detectionStartedAt: ms }),
 }), {
   name: 'clipforge-session',
   // localStorage: state survives page refresh AND tab/window close.
