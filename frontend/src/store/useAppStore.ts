@@ -101,11 +101,11 @@ interface AppState {
   detectionSettings: DetectionSettings
   updateDetectionSettings: (settings: Partial<DetectionSettings>) => void
 
-  // Active publishing account (#5 multi-account). Persisted so the same
-  // account is used across page reloads. 'default' falls back to the
-  // seeded row (legacy behaviour).
-  activeAccountId: string
-  setActiveAccountId: (id: string) => void
+  // Account list view mode on /accounts. With ~3 channels the cards feel
+  // roomier — with 12+ channels the table compresses nicely. Persisted
+  // so the user's choice sticks across page reloads.
+  accountViewMode: 'table' | 'cards'
+  setAccountViewMode: (m: 'table' | 'cards') => void
 
   // Detection-in-flight state. Persisted across page navigations so the
   // elapsed timer and active-detection indicator survive navigating away
@@ -162,7 +162,7 @@ export const useAppStore = create<AppState>()(persist((set) => ({
   activeDownload: null,
   activeDetectionVideoId: null,
   activeProcessingJobId: null,
-  activeAccountId: 'default',
+  accountViewMode: 'table',
   detectionStartedAt: null,
   
   // Actions
@@ -198,7 +198,7 @@ export const useAppStore = create<AppState>()(persist((set) => ({
   setActiveDownload: (v) => set({ activeDownload: v }),
   setActiveDetectionVideoId: (v) => set({ activeDetectionVideoId: v }),
   setActiveProcessingJobId: (v) => set({ activeProcessingJobId: v }),
-  setActiveAccountId: (id) => set({ activeAccountId: id }),
+  setAccountViewMode: (m) => set({ accountViewMode: m }),
   setDetectionStartedAt: (ms) => set({ detectionStartedAt: ms }),
 }), {
   name: 'clipforge-session',
@@ -218,5 +218,6 @@ export const useAppStore = create<AppState>()(persist((set) => ({
     activeDownload: state.activeDownload,
     activeDetectionVideoId: state.activeDetectionVideoId,
     activeProcessingJobId: state.activeProcessingJobId,
+    accountViewMode: state.accountViewMode,
   }),
 }))

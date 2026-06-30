@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
 import {
-  Plus, Trash2, Edit2, X, Check, CheckCircle2,
+  Plus, Trash2, Edit2, X,
   Users as UsersIcon, Clock,
   Video, Sparkles, Tv,
+  LayoutGrid, Rows3,
 } from 'lucide-react'
 import { Account, useAppStore } from '../store/useAppStore'
 import IconByName from '../components/IconByName'
@@ -19,7 +20,7 @@ export default function AccountsPage() {
   const [error, setError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
-  const { activeAccountId, setActiveAccountId } = useAppStore()
+  const { accountViewMode, setAccountViewMode } = useAppStore()
 
   const refresh = async () => {
     try {
@@ -43,12 +44,11 @@ export default function AccountsPage() {
       id, name: id, icon: 'Clapperboard', description: ''
     }
 
-  const active = accounts.find((a) => a.id === activeAccountId)
-  const otherCount = accounts.filter((a) => a.id !== activeAccountId).length
-
   return (
     <div className="max-w-5xl mx-auto p-8">
-      {/* Header — one tight row with actionable "New account" on the right */}
+      {/* Header — one tight row with view-mode toggle + actionable
+          "New account" on the right. The toggle lives at the top because
+          it changes how the entire list below is rendered. */}
       <div className="mb-6 flex items-end justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
@@ -58,47 +58,48 @@ export default function AccountsPage() {
           <p className="text-slate-500 text-sm mt-1">
             {accounts.length === 0
               ? 'No accounts yet — create one to start publishing.'
-              : <>{active && <span className="text-slate-700 font-medium">{active.name}</span>}
-                 {active && <span className="mx-1.5 text-slate-300">·</span>}
-                 <span>{otherCount} other{otherCount === 1 ? '' : 's'}</span></>}
+              : `${accounts.length} channel${accounts.length === 1 ? '' : 's'} configured`}
           </p>
         </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="btn btn-primary text-sm shrink-0"
-        >
-          <Plus size={14} /> New account
-        </button>
-      </div>
-
-      {/* Active-account banner — only shown if a non-default account is selected */}
-      {activeAccountId !== 'default' && active && (
-        <div className="card mb-4 border-accent/30 bg-accent/5 flex items-center gap-3">
-          <CheckCircle2 size={18} className="text-accent shrink-0" />
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium text-slate-800">
-              Publishing to <span className="font-semibold">{active.name}</span>
-            </div>
-            <div className="text-xs text-slate-500 flex items-center gap-2 mt-0.5">
-              <IconByName name={badge(active.preferred_preset).icon} size={10} className="text-slate-400" />
-              <span>{badge(active.preferred_preset).name}</span>
-              {active.last_used_at && (
-                <>
-                  <span className="text-slate-300">·</span>
-                  <Clock size={10} className="text-slate-400" />
-                  <span>last used {active.last_used_at}</span>
-                </>
-              )}
-            </div>
+        <div className="flex items-center gap-3">
+          {/* View-mode toggle — segmented control. Table compresses a
+              dozen accounts into scannable rows; cards breathe when
+              you only have a handful. The choice persists across
+              page reloads through the localStorage-backed store. */}
+          <div className="inline-flex rounded-md border border-slate-200 bg-bg-elev p-0.5">
+            <button
+              type="button"
+              onClick={() => setAccountViewMode('table')}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded transition-colors ${
+                accountViewMode === 'table'
+                  ? 'bg-accent text-white'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+              title="Table view — best for many accounts"
+            >
+              <Rows3 size={13} /> Table
+            </button>
+            <button
+              type="button"
+              onClick={() => setAccountViewMode('cards')}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded transition-colors ${
+                accountViewMode === 'cards'
+                  ? 'bg-accent text-white'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+              title="Card view — best for a handful of accounts"
+            >
+              <LayoutGrid size={13} /> Cards
+            </button>
           </div>
           <button
-            onClick={() => setActiveAccountId('default')}
-            className="text-xs text-slate-500 underline hover:no-underline shrink-0"
+            onClick={() => setShowCreate(true)}
+            className="btn btn-primary text-sm shrink-0"
           >
-            use default
+            <Plus size={14} /> New account
           </button>
         </div>
-      )}
+      </div>
 
       {/* Error toast */}
       {error && (
@@ -121,17 +122,18 @@ export default function AccountsPage() {
         </div>
       )}
 
-      {/* List — semantic HTML <table>. Each row is a <tr> with one column
-          per logical piece (status+name, platform, preset, last-used,
-          status pill, actions). Visual density matches the rest of the
-          dashboard — no card shadows, just hairline separators. The
-          'default' row is always pinned first as a non-deletable
-          fallback. */}
-      {accounts.length > 0 && (
+      {/* List — choose view-mode. Both share the same data and the
+          same Edit/Delete actions; only the layout differs.
+            • 'table' : semantic <table>; <thead> stays sticky so columns
+              don't vanish while you scroll a long list of channels.
+            • 'cards' : 1–2 column tile grid; with 3 channels the tiles
+              breathe and feel like an overview, whereas a table of 3
+              rows looks thin and lonely. */}
+      {accounts.length > 0 && accountViewMode === 'table' && (
         <div className="rounded-lg border border-slate-200 overflow-hidden bg-bg-elev">
           <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-50/60">
+            <thead className="bg-slate-50/80 border-b border-slate-200">
+              <tr>
                 <th className="py-2.5 pl-4 pr-3 text-left text-[10px] uppercase tracking-wider font-semibold text-slate-500">
                   Account
                 </th>
@@ -158,15 +160,28 @@ export default function AccountsPage() {
                   key={acc.id}
                   acc={acc}
                   badge={badge(acc.preferred_preset)}
-                  isActive={acc.id === activeAccountId}
                   isDefault={acc.id === 'default'}
-                  onActivate={() => setActiveAccountId(acc.id)}
                   onEdit={() => setEditingId(acc.id)}
                   onDelete={() => _delete(acc.id, refresh)}
                 />
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {accounts.length > 0 && accountViewMode === 'cards' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {accounts.map((acc) => (
+            <AccountCard
+              key={acc.id}
+              acc={acc}
+              badge={badge(acc.preferred_preset)}
+              isDefault={acc.id === 'default'}
+              onEdit={() => setEditingId(acc.id)}
+              onDelete={() => _delete(acc.id, refresh)}
+            />
+          ))}
         </div>
       )}
 
@@ -209,25 +224,20 @@ function statusFor(acc: Account): { label: string; tone: 'ok' | 'warn' | 'idle' 
 }
 
 function AccountRow({
-  acc, badge, isActive, isDefault, onActivate, onEdit, onDelete,
+  acc, badge, isDefault, onEdit, onDelete,
 }: {
   acc: Account
   badge: PresetSummary
-  isActive: boolean
   isDefault: boolean
-  onActivate: () => void
   onEdit: () => void
   onDelete: () => void
 }) {
   const st = statusFor(acc)
   return (
     // Proper <tr> — semantic table-row, the whole row is the list-item.
-    // The active row is accented with a coloured left border + bg tint so
-    // the page rhythm isn't broken. Hover changes the row background so
-    // operators can scan a long list of channels fast.
-    <tr className={`border-b border-slate-100 transition-colors ${
-      isActive ? 'bg-accent/5' : 'hover:bg-slate-50/60'
-    }`}>
+    // Hover changes the row background so operators can scan a long
+    // list of channels fast.
+    <tr className="border-b border-slate-100 transition-colors hover:bg-slate-50/60">
       {/* Status dot + name combined for first column readability */}
       <td className="py-2.5 pl-4 pr-3 align-middle">
         <div className="flex items-center gap-2.5 min-w-0">
@@ -244,11 +254,6 @@ function AccountRow({
               {isDefault && (
                 <span className="text-[10px] text-slate-400 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded-md font-normal">
                   default
-                </span>
-              )}
-              {isActive && !isDefault && (
-                <span className="text-[10px] text-accent bg-accent/10 border border-accent/30 px-1.5 py-0.5 rounded-md font-medium uppercase tracking-wider">
-                  active
                 </span>
               )}
             </div>
@@ -293,15 +298,6 @@ function AccountRow({
 
       <td className="py-2.5 pr-4 pl-3 align-middle whitespace-nowrap">
         <div className="flex items-center justify-end gap-1">
-          {!isActive && !isDefault && (
-            <button
-              onClick={onActivate}
-              className="btn btn-primary text-[11px] py-1 px-2"
-              title="Make this the default for new publications"
-            >
-              <Check size={12} /> Activate
-            </button>
-          )}
           <button
             onClick={onEdit}
             className="btn btn-secondary text-[11px] py-1 px-2"
@@ -321,6 +317,98 @@ function AccountRow({
         </div>
       </td>
     </tr>
+  )
+}
+
+// ─── Card view ───────────────────────────────────────────────────────────────
+//
+// Per-account tile. Used when accountViewMode === 'cards'. Two-column
+// grid on tablet+, single column on mobile. Each tile is a self-contained
+// card with status dot, name, platform+preset hint, cookies path preview,
+// last-used, and the same Edit/Delete actions as the row view.
+
+function AccountCard({
+  acc, badge, isDefault, onEdit, onDelete,
+}: {
+  acc: Account
+  badge: PresetSummary
+  isDefault: boolean
+  onEdit: () => void
+  onDelete: () => void
+}) {
+  const st = statusFor(acc)
+  return (
+    <div className="card relative flex flex-col gap-2.5">
+      {/* First row — status dot + name + platform + default chip */}
+      <div className="flex items-start gap-2.5">
+        <span
+          className={`shrink-0 mt-1.5 w-2 h-2 rounded-full ${
+            st.tone === 'ok' ? 'bg-emerald-500' :
+            st.tone === 'warn' ? 'bg-amber-400' : 'bg-slate-300'
+          }`}
+          title={st.label}
+        />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="font-semibold text-slate-900 text-[15px] truncate">{acc.name}</span>
+            {isDefault && (
+              <span className="text-[10px] text-slate-400 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded-md font-normal">
+                default
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-slate-500">
+            <PlatformIcon platform={acc.platform} size={11} />
+            <span className="capitalize">{acc.platform}</span>
+            <span className="text-slate-300">·</span>
+            <IconByName name={badge.icon} size={11} className="text-slate-400" />
+            <span>{badge.name}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Cookies path preview */}
+      <div className="text-[11px] font-mono text-slate-500 bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 truncate"
+           title={acc.cookies_path ?? ''}>
+        {acc.cookies_path
+          ? acc.cookies_path
+          : <span className="italic font-sans">no cookies set yet</span>}
+      </div>
+
+      {/* Footer — last-used + status pill + actions */}
+      <div className="flex items-center justify-between gap-2 flex-wrap text-[11px]">
+        <div className="flex items-center gap-2 text-slate-500">
+          {acc.last_used_at
+            ? <span className="inline-flex items-center gap-1"><Clock size={10} /> last used {acc.last_used_at}</span>
+            : <span className="italic text-slate-400">never used</span>}
+          <span className={`inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-medium px-1.5 py-0.5 rounded-md border ${
+            st.tone === 'ok'   ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+          : st.tone === 'warn' ? 'bg-amber-50 text-amber-700 border-amber-200'
+                              : 'bg-slate-100 text-slate-500 border-slate-200'
+          }`}>
+            {st.label}
+          </span>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={onEdit}
+            className="btn btn-secondary text-[11px] py-1 px-2"
+            title="Edit"
+          >
+            <Edit2 size={12} />
+          </button>
+          {!isDefault && (
+            <button
+              onClick={onDelete}
+              className="btn btn-secondary text-[11px] py-1 px-2 text-danger hover:bg-danger/10 border-danger/30"
+              title="Delete"
+            >
+              <Trash2 size={12} />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
 

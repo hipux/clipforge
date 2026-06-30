@@ -38,7 +38,7 @@ interface ClipPublishState {
 }
 
 export default function PublishPage() {
-  const { processedClips, setCurrentStep, activeAccountId } = useAppStore()
+  const { processedClips, setCurrentStep } = useAppStore()
   const [authenticated, setAuthenticated] = useState(false)
   const [authUrl, setAuthUrl] = useState('')
   const [authCode, setAuthCode] = useState('')
@@ -63,6 +63,14 @@ export default function PublishPage() {
     checkAuth()
     const states: Record<string, ClipPublishState> = {}
     processedClips.forEach(clip => {
+      // Pick a sensible default account for this new clip. We prefer the
+      // first account that actually has a cookies file (otherwise the
+      // browser upload becomes a no-op), and fall back to 'default' so
+      // the backend's legacy workspace cookie path still works. Operator
+      // can override beneath each clip via the inline CustomSelect.
+      const firstCookied = accounts.find((a) => a.cookies_path)
+      const fallback = accounts[0]?.id ?? 'default'
+      const initialAccountId = firstCookied?.id ?? fallback
       states[clip.id] = {
         title: 'My Clip #Shorts',
         description: 'Created with ClipForge',
@@ -73,17 +81,12 @@ export default function PublishPage() {
         error: null,
         copyStatus: 'idle',
         method: 'browser',            // default: ytb-up cookies (looks human)
-        // Pre-fill with the globally "active" account — operator can
-        // override beneath each clip in the inline CustomSelect.
-        account_id: activeAccountId || null,
+        account_id: initialAccountId,
         cookies_path: null,
       }
     })
     setPublishStates(states)
-    // We intentionally ignore activeAccountId here so we don't tear
-    // down user-chosen per-clip accounts when the global toggle moves.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [processedClips])
+  }, [processedClips, accounts])
 
   useEffect(() => {
     if (folderNotification) {
@@ -135,7 +138,7 @@ export default function PublishPage() {
         method: state.method,                      // 'browser' (default) | 'official'
         cookies_path: state.cookies_path || undefined,
         // Use the global active account — per-clip override falls back to it.
-        account_id: state.account_id || activeAccountId || undefined,
+        account_id: state.account_id || undefined,
       })
       updateState(clip.id, {
         uploading: false,
