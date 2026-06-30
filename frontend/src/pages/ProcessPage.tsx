@@ -182,6 +182,7 @@ export default function ProcessPage() {
             <ProgressBar
               progress={overallProgress}
               message={`Overall — ${currentClip} of ${totalClips} clips`}
+              tone="accent"
             />
           </div>
 
@@ -192,7 +193,7 @@ export default function ProcessPage() {
                 <Clock size={13} className="text-slate-500" />
                 <span className="text-xs text-slate-500 font-medium">Current clip</span>
               </div>
-              <ProgressBar progress={clipProgress} message={clipMessage} />
+              <ProgressBar progress={clipProgress} message={clipMessage} tone="accent" />
             </div>
           )}
         </div>

@@ -182,7 +182,7 @@ export default function DownloadPage() {
         </div>
 
         {/* Platform badges */}
-        <div className="flex items-center gap-4 mt-4 pt-4 border-t border-slate-800">
+        <div className="flex items-center gap-4 mt-4 pt-4 border-t border-slate-200">
           <span className="text-[11px] text-slate-600 uppercase tracking-wider font-semibold">Supported</span>
           <div className="flex items-center gap-3">
             <span className="flex items-center gap-1.5 text-xs text-slate-500 bg-surface-2 px-2.5 py-1 rounded-md border border-slate-200/50">
@@ -204,11 +204,11 @@ export default function DownloadPage() {
       {/* Progress */}
       {loading && (
         <div className="card mb-5">
-          <ProgressBar progress={progress} message={status} />
+          <ProgressBar progress={progress} message={status} tone="accent" />
           
           {/* Rich Progress Stats */}
           {(speed || eta || totalBytes > 0 || fragmentCount) && (
-            <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-slate-800">
+            <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-slate-200">
               {/* Speed */}
               {speed && (
                 <div className="flex items-center gap-2.5">

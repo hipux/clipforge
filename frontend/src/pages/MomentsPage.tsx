@@ -266,13 +266,34 @@ export default function MomentsPage() {
   // tab-switch back), the resume effect below will set it to 'detecting'
   // before we paint the setup card. Nothing to render until then.
 
-  // Resume an in-flight (or just-finished) detection after a page reload by
-  // asking the server. The detection WebSocket is keyed by video_id, so simply
-  // reconnecting re-attaches to the live job or replays the persisted result.
+  // Bootstrap the view once on mount. The component initialises
+  // `view = null` so this single effect gets to decide whether we're
+  // looking at a setup form, a live detection, or already-fetched
+  // results, instead of having separate effects race each other and
+  // leave `view === null` forever (which is what produced the
+  // "Resuming…" infinite-spinner bug).
+  //
+  // Order of checks:
+  //   1. No video loaded              → 'setup'
+  //   2. Moments already in store     → 'results'
+  //   3. Detection pinned in store,
+  //      and server says it's running → 'detecting' (attach WS)
+  //   4. Otherwise                    → 'setup'
   useEffect(() => {
-    if (!currentVideo) return
-    if (activeDetectionVideoId !== currentVideo.id) return
-    if (moments.length > 0 || view !== 'setup') return
+    if (view !== null) return
+    if (!currentVideo) {
+      setView('setup')
+      return
+    }
+    if (moments.length > 0) {
+      setView('results')
+      return
+    }
+    if (activeDetectionVideoId !== currentVideo.id) {
+      setActiveDetectionVideoId(null)
+      setView('setup')
+      return
+    }
     let cancelled = false
     ;(async () => {
       try {
@@ -284,22 +305,19 @@ export default function MomentsPage() {
           setView('detecting')
           setProgressState({ stage: data.stage || 1, step: data.step || '', progress: data.progress || 0.02 })
           completedRef.current = false
-          // Re-anchor the elapsed-time timer on the ORIGINAL start timestamp
-          // (kept in the store across navigations). If we don't have one,
-          // fall back to "now" — the timer would start from 0 in that case,
-          // which is still better than double-counting.
-          if (detectionStartedAt == null) {
-            setDetectionStartedAt(Date.now())
-          }
+          if (detectionStartedAt == null) setDetectionStartedAt(Date.now())
           startTimeRef.current = detectionStartedAt ?? Date.now()
           startTimer()
           connectWs()
         } else {
           setActiveDetectionVideoId(null)
-          setView('setup')  // server says idle — fall back to setup form
+          setView('setup')
         }
       } catch {
-        if (!cancelled) setActiveDetectionVideoId(null)
+        if (!cancelled) {
+          setActiveDetectionVideoId(null)
+          setView('setup')
+        }
       }
     })()
     return () => { cancelled = true }
