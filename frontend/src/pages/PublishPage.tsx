@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import axios from 'axios'
 import { useAppStore, ProcessedClip } from '../store/useAppStore'
 import ProgressBar from '../components/ProgressBar'
+import ScoreBreakdown from '../components/ScoreBreakdown'
 import {
   Upload,
   Play,
@@ -26,10 +27,13 @@ interface ClipPublishState {
   youtubeUrl: string | null
   error: string | null
   copyStatus: 'idle' | 'copied' | 'error'
+  method: 'browser' | 'official'  // browser = ytb-up cookies (default), official = OAuth API
+  account_id: string | null       // future multi-account (#5) hook
+  cookies_path: string | null     // override per-clip cookies.json
 }
 
 export default function PublishPage() {
-  const { processedClips, setCurrentStep } = useAppStore()
+  const { processedClips, setCurrentStep, activeAccountId } = useAppStore()
   const [authenticated, setAuthenticated] = useState(false)
   const [authUrl, setAuthUrl] = useState('')
   const [authCode, setAuthCode] = useState('')
@@ -52,6 +56,9 @@ export default function PublishPage() {
         youtubeUrl: null,
         error: null,
         copyStatus: 'idle',
+        method: 'browser',            // default: ytb-up cookies (looks human)
+        account_id: null,
+        cookies_path: null,
       }
     })
     setPublishStates(states)
@@ -104,6 +111,10 @@ export default function PublishPage() {
         clip_id: clip.id,
         title: state.title,
         description: state.description,
+        method: state.method,                      // 'browser' (default) | 'official'
+        cookies_path: state.cookies_path || undefined,
+        // Use the global active account — per-clip override falls back to it.
+        account_id: state.account_id || activeAccountId || undefined,
       })
       updateState(clip.id, {
         uploading: false,
@@ -197,6 +208,65 @@ export default function PublishPage() {
         </div>
       )}
 
+      {/* Upload method picker — ytb-up cookies (default) vs OAuth API.
+          Affects ALL clips at once via the per-clip state default. */}
+      <div className="card mb-3 border-slate-200">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+            Upload method
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <button
+            onClick={() => {
+              const next: Record<string, Partial<ClipPublishState>> = {}
+              Object.keys(publishStates).forEach((k) => { next[k] = { method: 'browser' } })
+              setPublishStates((prev) => {
+                const cp = { ...prev }
+                Object.entries(next).forEach(([k, v]) => { cp[k] = { ...cp[k], ...v } })
+                return cp
+              })
+            }}
+            className={`px-3 py-2 rounded-xl border text-left transition-colors ${
+              Object.values(publishStates).every((s) => s.method === 'browser')
+                ? 'border-accent bg-accent/5 text-slate-800'
+                : 'border-slate-200 hover:border-slate-300 text-slate-500'
+            }`}
+          >
+            <div className="font-semibold flex items-center gap-1">
+              🦊 Browser (ytb-up)
+              <span className="ml-auto text-success">recommended</span>
+            </div>
+            <div className="text-[11px] mt-1 leading-snug text-slate-500">
+              Cookie auth + headless Playwright. Looks like a real uploader,
+              no Workspace account needed.
+            </div>
+          </button>
+          <button
+            onClick={() => {
+              const next: Record<string, Partial<ClipPublishState>> = {}
+              Object.keys(publishStates).forEach((k) => { next[k] = { method: 'official' } })
+              setPublishStates((prev) => {
+                const cp = { ...prev }
+                Object.entries(next).forEach(([k, v]) => { cp[k] = { ...cp[k], ...v } })
+                return cp
+              })
+            }}
+            className={`px-3 py-2 rounded-xl border text-left transition-colors ${
+              Object.values(publishStates).some((s) => s.method === 'official')
+                ? 'border-accent bg-accent/5 text-slate-800'
+                : 'border-slate-200 hover:border-slate-300 text-slate-500'
+            }`}
+          >
+            <div className="font-semibold">🔌 OAuth Data API</div>
+            <div className="text-[11px] mt-1 leading-snug text-slate-500">
+              Official Google API. Requires client_secrets.json + Workspace.
+              Connection status below.
+            </div>
+          </button>
+        </div>
+      </div>
+
       {/* YouTube Auth */}
       {!checkingAuth && (
         <div className={`card mb-6 ${authenticated ? 'border-success/30 bg-success/5' : 'border-slate-200'}`}>
@@ -272,6 +342,11 @@ export default function PublishPage() {
                     <Maximize2 size={15} />
                   </button>
                 </div>
+              </div>
+
+              {/* AI score breakdown — explains why we picked this clip */}
+              <div className="mb-4">
+                <ScoreBreakdown score={clip.score} />
               </div>
 
               {/* Form */}

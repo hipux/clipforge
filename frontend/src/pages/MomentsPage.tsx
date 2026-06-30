@@ -4,6 +4,8 @@ import { useAppStore } from '../store/useAppStore'
 import { GPUStatusIndicator } from '../components/GPUStatusIndicator'
 import VideoCard from '../components/VideoCard'
 import MomentCard from '../components/MomentCard'
+import MomentPreviewModal from '../components/MomentPreviewModal'
+import type { MomentCandidate } from '../store/useAppStore'
 import {
   Play, SlidersHorizontal, Sparkles,
   CheckCircle2, Circle, Loader2,
@@ -221,6 +223,22 @@ export default function MomentsPage() {
   const [minDuration, setMinDuration] = useState(detectionSettings.minDuration)
   const [maxDuration, setMaxDuration] = useState(detectionSettings.maxDuration)
   const [maxMoments, setMaxMoments] = useState(Math.min(20, detectionSettings.maxMoments))
+  const [presetId, setPresetId] = useState(detectionSettings.presetId)
+  const [presets, setPresets] = useState<Array<{
+    id: string; name: string; emoji: string;
+    description: string; min_duration: number; max_duration: number;
+  }>>([])
+
+  // Fetch the preset catalog once on mount so the UI can render the cards.
+  useEffect(() => {
+    fetch('/api/moments/presets')
+      .then(r => r.ok ? r.json() : [])
+      .then(setPresets)
+      .catch(() => setPresets([]))
+  }, [])
+
+  // Moment currently open in the preview modal (null = closed).
+  const [previewMoment, setPreviewMoment] = useState<MomentCandidate | null>(null)
 
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -305,7 +323,7 @@ export default function MomentsPage() {
     if (!currentVideo) return
     
     // Update detection settings in store
-    updateDetectionSettings({ minDuration, maxDuration, maxMoments })
+    updateDetectionSettings({ minDuration, maxDuration, maxMoments, presetId })
 
     setActiveDetectionVideoId(currentVideo.id)
     setView('detecting')
@@ -332,7 +350,7 @@ export default function MomentsPage() {
     const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
     const wsHost = window.location.hostname
     const ws = new WebSocket(
-      `${wsProtocol}://${wsHost}:8000/api/moments/detect_ws?video_id=${currentVideo.id}&min_duration=${minDuration}&max_duration=${maxDuration}&max_moments=${maxMoments}&user_instructions=${encodeURIComponent(llmInstructions || '')}`
+      `${wsProtocol}://${wsHost}:8000/api/moments/detect_ws?video_id=${currentVideo.id}&min_duration=${minDuration}&max_duration=${maxDuration}&max_moments=${maxMoments}&user_instructions=${encodeURIComponent(llmInstructions || '')}&preset_id=${encodeURIComponent(presetId)}`
     )
     wsRef.current = ws
 
@@ -500,6 +518,38 @@ export default function MomentsPage() {
                 <input type="range" min={3} max={20} value={maxMoments}
                   onChange={e => setMaxMoments(Number(e.target.value))}
                   className="range w-full" />
+              </div>
+
+              {/* Content preset (#4) — picks which scoring rules the LLM
+                  follows: hook-heavy (youtube_cuts), audio-event heavy
+                  (streams), or action/emotional (films_anime).           */}
+              <div>
+                <div className="flex justify-between items-baseline mb-2">
+                  <label className="text-sm font-medium text-slate-700">Content type</label>
+                  <span className="text-xs text-indigo-600 font-semibold tabular-nums bg-indigo-50 px-2 py-0.5 rounded-full">
+                    {presets.find((p) => p.id === presetId)?.emoji ?? '🎬'}{' '}
+                    {presets.find((p) => p.id === presetId)?.name ?? 'Universal'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {presets.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => setPresetId(p.id)}
+                      title={p.description}
+                      className={`px-2.5 py-1.5 rounded-lg border text-left text-[12px] transition-colors ${
+                        presetId === p.id
+                          ? 'border-accent bg-accent/5 text-slate-800'
+                          : 'border-slate-200 hover:border-slate-300 text-slate-500'
+                      }`}
+                    >
+                      <span className="font-semibold">{p.emoji} {p.name}</span>
+                      <div className="text-[10px] mt-0.5 leading-snug text-slate-500 line-clamp-2">
+                        {p.description}
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
@@ -670,6 +720,7 @@ export default function MomentsPage() {
                 moment={moment}
                 isSelected={selectedMomentIds.includes(moment.id)}
                 onToggle={() => toggleMoment(moment.id)}
+                onPreview={() => setPreviewMoment(moment)}
               />
             ))}
           </div>
@@ -697,6 +748,15 @@ export default function MomentsPage() {
           </div>
         </div>
       </div>
+
+      {previewMoment && (
+        <MomentPreviewModal
+          moment={previewMoment}
+          isSelected={selectedMomentIds.includes(previewMoment.id)}
+          onToggle={() => toggleMoment(previewMoment.id)}
+          onClose={() => setPreviewMoment(null)}
+        />
+      )}
     </div>
   )
 }

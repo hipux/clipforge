@@ -37,18 +37,42 @@ export interface EffectSettings {
   }
 }
 
+export interface ScoreBreakdown {
+  overall: number         // 0-100
+  hook: number            // 0-1
+  self_contained: number  // 0-1
+  pacing: number          // 0-1
+  content_type: string
+  content_emoji: string
+  reason: string
+  speakers: string[]
+}
+
 export interface ProcessedClip {
   id: string
   moment_id: string
   file_path: string
   status: string
   effects?: EffectSettings
+  score?: ScoreBreakdown  // null-safe, present for clips created after #2
+}
+
+export interface Account {
+  id: string
+  name: string
+  platform: string
+  cookies_path: string | null
+  proxy: string | null
+  preferred_preset: string
+  last_used_at: string | null
+  created_at: string | null
 }
 
 export interface DetectionSettings {
   minDuration: number
   maxDuration: number
   maxMoments: number
+  presetId: string            // #4 — content preset id (default|films_anime|streams|youtube_cuts)
 }
 
 interface AppState {
@@ -76,6 +100,12 @@ interface AppState {
   // Detection settings
   detectionSettings: DetectionSettings
   updateDetectionSettings: (settings: Partial<DetectionSettings>) => void
+
+  // Active publishing account (#5 multi-account). Persisted so the same
+  // account is used across page reloads. 'default' falls back to the
+  // seeded row (legacy behaviour).
+  activeAccountId: string
+  setActiveAccountId: (id: string) => void
   
   // LLM Instructions
   llmInstructions: string
@@ -118,12 +148,14 @@ export const useAppStore = create<AppState>()(persist((set) => ({
     minDuration: 30,
     maxDuration: 90,
     maxMoments: 15,
+    presetId: 'default',
   },
   llmInstructions: '',
   currentStep: 1,
   activeDownload: null,
   activeDetectionVideoId: null,
   activeProcessingJobId: null,
+  activeAccountId: 'default',
   
   // Actions
   setVideo: (video) => set({ currentVideo: video }),
@@ -158,6 +190,7 @@ export const useAppStore = create<AppState>()(persist((set) => ({
   setActiveDownload: (v) => set({ activeDownload: v }),
   setActiveDetectionVideoId: (v) => set({ activeDetectionVideoId: v }),
   setActiveProcessingJobId: (v) => set({ activeProcessingJobId: v }),
+  setActiveAccountId: (id) => set({ activeAccountId: id }),
 }), {
   name: 'clipforge-session',
   // localStorage: state survives page refresh AND tab/window close.

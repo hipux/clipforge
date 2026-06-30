@@ -5,11 +5,34 @@ import asyncio
 import json
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 from typing import List
-from backend.models import ProcessRequest, ProcessedClip
+from backend.models import ProcessRequest, ProcessedClip, ScoreBreakdown
 from backend.services.video_processor import process_moment_clip
+from backend.services.score_breakdown import build_score_breakdown
 from backend.db import get_video, get_moments, save_clip, get_clips, get_clip
 
 logger = logging.getLogger(__name__)
+
+
+def _safe(moment: dict, key: str):
+    """Return moment[key] or None if missing/empty (for legacy rows)."""
+    val = moment.get(key) if isinstance(moment, dict) else None
+    return val if val not in (None, "") else None
+
+
+def _safe_list(moment: dict, key: str):
+    val = moment.get(key) if isinstance(moment, dict) else None
+    return val if isinstance(val, list) else None
+
+
+async def _load_score(score_json):
+    """Parse score_json back to ScoreBreakdown. Returns None on bad/missing."""
+    if not score_json:
+        return None
+    try:
+        return ScoreBreakdown(**json.loads(score_json))
+    except Exception:
+        return None
+
 
 router = APIRouter()
 
@@ -102,10 +125,23 @@ async def run_processing(job_id: str):
             )
             
             if clip_data:
+                # Build score breakdown from the moment so the Publish UI can
+                # render "why this clip" without re-running the model. Fail
+                # silently (None) for legacy moments that don't have these
+                # fields yet — older clips stay score-less, never crash.
+                score_dict = build_score_breakdown(
+                    virality_score=_safe(moment, 'virality_score'),
+                    hook_strength=_safe(moment, 'hook_strength'),
+                    self_contained=_safe(moment, 'self_contained'),
+                    content_type=_safe(moment, 'content_type'),
+                    reasoning=_safe(moment, 'reasoning'),
+                    speakers=_safe_list(moment, 'speakers'),
+                )
                 # Save to database
                 await save_clip({
                     **clip_data,
                     'effects_json': effects.model_dump_json(),
+                    'score_json': json.dumps(score_dict) if score_dict else None,
                 })
                 job['clips'].append(clip_data)
             else:
@@ -216,7 +252,8 @@ async def list_clips():
             moment_id=c['moment_id'],
             file_path=c['file_path'],
             status=c['status'],
-            effects=json.loads(c['effects_json']) if c.get('effects_json') else {}
+            effects=json.loads(c['effects_json']) if c.get('effects_json') else {},
+            score=await _load_score(c.get('score_json')),
         )
         for c in clips
     ]
@@ -235,5 +272,6 @@ async def get_clip_endpoint(clip_id: str):
         moment_id=clip['moment_id'],
         file_path=clip['file_path'],
         status=clip['status'],
-        effects=json.loads(clip['effects_json']) if clip.get('effects_json') else {}
+        effects=json.loads(clip['effects_json']) if clip.get('effects_json') else {},
+        score=await _load_score(clip.get('score_json')),
     )

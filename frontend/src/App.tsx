@@ -7,6 +7,7 @@ import MomentsPage from './pages/MomentsPage'
 import EffectsPage from './pages/EffectsPage'
 import ProcessPage from './pages/ProcessPage'
 import PublishPage from './pages/PublishPage'
+import AccountsPage from './pages/AccountsPage'
 
 function App() {
   return (
@@ -21,6 +22,7 @@ function App() {
           <Route path="effects" element={<EffectsPage />} />
           <Route path="process" element={<ProcessPage />} />
           <Route path="publish" element={<PublishPage />} />
+          <Route path="accounts" element={<AccountsPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

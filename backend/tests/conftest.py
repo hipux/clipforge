@@ -76,3 +76,41 @@ if _missing("scipy"):
     sp = _stub("scipy")
     sig = _stub("scipy.signal", {"find_peaks": lambda *a, **k: ([], {})})
     sp.signal = sig
+
+
+# --- shared pytest fixtures -------------------------------------------------
+import pytest
+
+
+# IDs that we use as test fixtures in `test_accounts.py`. Anything
+# outside this list is treated as production data and preserved.
+TEST_ACCOUNT_IDS = (
+    "anime-ch", "u1", "delme", "ch1", "a", "t1", "ovr-acc",
+)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _purge_test_accounts_at_session_start():
+    """Wipe stale `accounts` rows the test suite creates. Runs once per
+    `pytest` invocation so cross-test pollution can't break a re-run.
+
+    We never touch the seeded 'default' row — that's a system fallback
+    relied on by #3 paths that pass account_id=None.
+    """
+    import asyncio
+    from backend.db import get_db, init_db
+    async def _cleanup():
+        await init_db()                  # ensure schema/seed exists
+        placeholders = ",".join("?" for _ in TEST_ACCOUNT_IDS)
+        async with get_db() as db:
+            await db.execute(
+                f"DELETE FROM accounts WHERE id != 'default' "
+                f"AND id IN ({placeholders})",
+                TEST_ACCOUNT_IDS,
+            )
+            await db.commit()
+    try:
+        asyncio.run(_cleanup())
+    except Exception:
+        pass
+    yield

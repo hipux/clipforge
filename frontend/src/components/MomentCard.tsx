@@ -1,10 +1,11 @@
-import { Check, Clock, TrendingUp, Film } from 'lucide-react'
+import { Check, Clock, TrendingUp, Film, Play } from 'lucide-react'
 import { MomentCandidate } from '../store/useAppStore'
 
 interface MomentCardProps {
   moment: MomentCandidate
   isSelected: boolean
   onToggle: () => void
+  onPreview?: () => void
 }
 
 function formatTime(seconds: number): string {
@@ -19,7 +20,7 @@ function scoreColor(pct: number) {
   return 'text-slate-600 bg-slate-50 border-slate-200'
 }
 
-export default function MomentCard({ moment, isSelected, onToggle }: MomentCardProps) {
+export default function MomentCard({ moment, isSelected, onToggle, onPreview }: MomentCardProps) {
   const duration = moment.end - moment.start
   const pct = moment.score <= 1 ? Math.round(moment.score * 100) : Math.round(moment.score)
 
@@ -42,6 +43,19 @@ export default function MomentCard({ moment, isSelected, onToggle }: MomentCardP
           </div>
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-black/15" />
+
+        {/* Preview (play) button */}
+        {onPreview && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onPreview() }}
+            className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+            aria-label="Preview moment"
+          >
+            <span className="w-11 h-11 rounded-full bg-white/90 backdrop-blur flex items-center justify-center shadow-lg hover:scale-105 transition-transform">
+              <Play size={20} className="text-slate-900 ml-0.5" fill="currentColor" />
+            </span>
+          </button>
+        )}
 
         {/* Select check */}
         <div className={`absolute top-2 left-2 w-6 h-6 rounded-full flex items-center justify-center border transition-all duration-150

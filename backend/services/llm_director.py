@@ -16,6 +16,7 @@ from backend.gpu_config import (
 from backend.services.vram_manager import vram_manager
 from backend.schemas.moment_instruction import DirectorOutput
 from backend.services.context_builder import build_system_prompt
+from backend.services.content_presets import apply_to_prompt, get_preset
 
 # Try to import huggingface_hub for robust model downloads (handles auth, resumable, case-sensitive filenames)
 try:
@@ -147,16 +148,19 @@ class LLMDirector:
         min_duration: int = 60,
         max_duration: int = 90,
         max_moments: int = 15,
+        preset_id: str = "default",
     ) -> DirectorOutput:
         """Analyze video context and generate moment instructions.
-        
+
         Supports both single context string and chunked analysis for long videos.
-        
+
         Args:
             context_log_or_chunks: Either a single context string or list of chunk strings
             user_instructions: Optional user instructions for the LLM
             on_progress: Optional callback(chunk_i, total, phase) for progress updates
-            
+            preset_id: Content preset (#4). 'default' is no-op; others inject
+                targeted LLM rules for anime/films/streams/YouTube-cuts.
+
         Returns:
             DirectorOutput with moment candidates
         """
@@ -212,9 +216,9 @@ class LLMDirector:
         
         # Handle chunked vs single analysis
         if isinstance(context_log_or_chunks, list):
-            return self._analyze_chunked(create_fn, context_log_or_chunks, user_instructions, on_progress=on_progress, min_duration=min_duration, max_duration=max_duration, max_moments=max_moments)
+            return self._analyze_chunked(create_fn, context_log_or_chunks, user_instructions, on_progress=on_progress, min_duration=min_duration, max_duration=max_duration, max_moments=max_moments, preset_id=preset_id)
         else:
-            return self._analyze_single(create_fn, context_log_or_chunks, user_instructions, min_duration=min_duration, max_duration=max_duration, max_moments=max_moments)
+            return self._analyze_single(create_fn, context_log_or_chunks, user_instructions, min_duration=min_duration, max_duration=max_duration, max_moments=max_moments, preset_id=preset_id)
 
     def _analyze_single(
         self,
@@ -224,13 +228,19 @@ class LLMDirector:
         min_duration: int = 60,
         max_duration: int = 90,
         max_moments: int = 15,
+        preset_id: str = "default",
     ) -> DirectorOutput:
         """Single-pass LLM analysis for videos that fit in context window."""
         logger.info(f"🧠 [Qwen3] Анализирую контекст ({len(context_log)} символов)...")
-        
+        if preset_id and preset_id != "default":
+            logger.info(f"🎯 [Qwen3] Content preset: {preset_id}")
+
         analyze_start = time.time()
-        
-        system_prompt_filled = build_system_prompt(min_duration, max_duration, max_moments, user_instructions)
+
+        system_prompt_filled = apply_to_prompt(
+            build_system_prompt(min_duration, max_duration, max_moments, user_instructions),
+            get_preset(preset_id),
+        )
         
         try:
             result = self._call_with_thinking(create_fn,
@@ -270,6 +280,7 @@ class LLMDirector:
         min_duration: int = 60,
         max_duration: int = 90,
         max_moments: int = 15,
+        preset_id: str = "default",
     ) -> DirectorOutput:
         """Multi-pass analysis for long videos split into chunks.
         
@@ -283,7 +294,10 @@ class LLMDirector:
             logger.info(f"🧠 [Qwen3] Обрабатываю chunk {i+1}/{len(chunks)} ({len(chunk)} символов)...")
             
             chunk_start = time.time()
-            system_prompt = build_system_prompt(min_duration, max_duration, max_moments, user_instructions)
+            system_prompt = apply_to_prompt(
+                build_system_prompt(min_duration, max_duration, max_moments, user_instructions),
+                get_preset(preset_id),
+            )
             
             try:
                 chunk_result = self._call_with_thinking(create_fn,
@@ -363,7 +377,10 @@ class LLMDirector:
                  f"- Return AT MOST {max_moments} indices (fewer is better than padding with weak ones).",
                  "- Drop near-duplicates and moments covering the same idea (keep the best one).",
                  "- Prefer moments with a strong self-contained hook that make sense without prior context.",
+                 "- HARD RULE: any moment with self_contained < 0.4 is incoherent (a cold viewer would not understand it). "
+                 "Never select it unless there is genuinely nothing better; rank it last.",
                  "- Favor variety of content_type.",
+                 "- For reaction/commentary content, prefer moments flagged reaction_focus=true.",
                  "",
                  "Respond with ONLY a JSON object: {\"keep\": [list of integer indices, best first]}.",
                  "",
@@ -372,6 +389,7 @@ class LLMDirector:
             reason = (getattr(m, "reasoning", "") or "")[:160]
             lines.append(
                 f"[{i}] {m.start:.0f}-{m.end:.0f}s | score={getattr(m, 'virality_score', 0):.0f} "
+                f"| hook={getattr(m, 'hook_strength', 0):.2f} | sc={getattr(m, 'self_contained', 0.5):.2f} "
                 f"| type={getattr(m, 'content_type', '?')} | hook=\"{getattr(m, 'hook', '')}\" | why={reason}"
             )
         prompt = "\n".join(lines)

@@ -6,6 +6,7 @@ import json
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 from typing import List
 from backend.models import DetectMomentsRequest, MomentCandidate, UpdateMomentRequest, MomentCandidateGPU
+from backend.services.content_presets import get_preset, list_presets
 from backend.services.detection_pipeline import detection_pipeline
 from backend.db import get_video, save_moments, get_moments, update_moment
 
@@ -66,6 +67,7 @@ async def _run_detection_session(session: "DetectionSession", video: dict, reque
             min_duration=request.min_duration,
             max_duration=request.max_duration,
             progress_callback=progress_callback,
+            preset_id=request.preset_id,
         )
 
         # Convert DirectorOutput to MomentCandidateGPU rows for the database.
@@ -112,6 +114,23 @@ async def _run_detection_session(session: "DetectionSession", video: dict, reque
         # Keep the finished session briefly so reconnecting clients still get the
         # final message, then drop it.
         active_detections.pop(session.video_id, None)
+
+
+@router.get("/moments/presets")
+async def list_detection_presets():
+    """List all available detection presets so the UI can render a picker."""
+    return [
+        {
+            "id": p.id,
+            "name": p.name,
+            "description": p.description,
+            "emoji": p.emoji,
+            "min_duration": p.min_duration,
+            "max_duration": p.max_duration,
+            "content_types": p.content_types,
+        }
+        for p in list_presets()
+    ]
 
 
 @router.get("/moments/detect-status/{video_id}")
@@ -213,6 +232,7 @@ async def run_moment_detection(job_id: str, video: dict, min_duration: int = 30,
             min_duration=min_duration,
             max_duration=max_duration,
             progress_callback=progress_cb,
+            preset_id="default",
         )
         
         # Convert DirectorOutput to MomentCandidate format for database
@@ -305,7 +325,8 @@ async def detect_moments_websocket(
     min_duration: int = 30,
     max_duration: int = 90,
     max_moments: int = 15,
-    user_instructions: str = ""
+    user_instructions: str = "",
+    preset_id: str = "default",
 ):
     """WebSocket endpoint for real-time moment detection progress.
     
@@ -361,6 +382,7 @@ async def detect_moments_websocket(
             max_duration=max_duration,
             max_moments=max_moments,
             user_instructions=user_instructions,
+            preset_id=preset_id,
         )
         session = active_detections.get(video_id)
         if session is None:

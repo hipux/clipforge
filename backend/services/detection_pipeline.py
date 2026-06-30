@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import os
 import asyncio
+import subprocess
 from typing import AsyncGenerator, Optional, Callable
 from backend.services.vram_manager import vram_manager
 from backend.services.whisper_gpu import whisper_gpu
@@ -15,9 +16,35 @@ from backend.services.face_detector import face_detector
 from backend.services.audio_analyzer import audio_analyzer
 from backend.services.context_builder import context_builder
 from backend.services.llm_director import llm_director
+from backend.services.gemini_director import gemini_director
+from backend.gpu_config import gemini_is_configured, GEMINI_MODEL
 from backend.schemas.moment_instruction import Stage1Context, DirectorOutput
 
 logger = logging.getLogger(__name__)
+
+
+def _ffmpeg_to_wav(video_path: str, out_wav_path: str) -> None:
+    """Extract mono 16 kHz PCM float from `video_path` to `out_wav_path`.
+
+    Uses ffmpeg via subprocess — same tool Whisper already uses for audio.
+    Pulled into a single helper because we only need the raw audio for
+    pyannote-audio diarization; we don't need transcripts or timestamps
+    from this pass.
+    """
+    cmd = [
+        "ffmpeg", "-v", "error", "-y",
+        "-i", video_path,
+        "-ac", "1",            # mono
+        "-ar", "16000",        # 16 kHz (pyannote.audio 4.x requirement)
+        "-sample_fmt", "s16le",
+        "-f", "wav",
+        out_wav_path,
+    ]
+    r = subprocess.run(cmd, capture_output=True)
+    if r.returncode != 0:
+        raise RuntimeError(
+            f"_ffmpeg_to_wav failed: rc={r.returncode}, stderr={r.stderr.decode(errors='replace')[:300]}"
+        )
 
 
 def _signal_for_window(ctx, start, end):
@@ -109,6 +136,71 @@ def _refine_start(sentences, start, lookback=6.0, pause_threshold=0.45):
     return max(0.0, best)
 
 
+def _global_stats(ctx, video_duration):
+    """Absolute statistics over the WHOLE video (not just candidates).
+
+    Absolute scoring needs a global baseline so a weak clip in a weak video
+    does not score 100 just by being the loudest among the candidates.
+    Aggregates the whole-timeline signals Stage 1 already produced:
+      rms values, peak magnitudes, speech density (chars/sec), event scores.
+    Returns a stats dict, or None if there is no audio analysis.
+    """
+    if ctx is None or video_duration <= 0:
+        return None
+    aa = getattr(ctx, "audio_analysis", None)
+    if aa is None:
+        return None
+    rms_vals, peak_vals, ev_vals = [], [], []
+    for r in (getattr(aa, "rms_timeline", None) or []):
+        v = r.get("rms") if isinstance(r, dict) else getattr(r, "rms", None)
+        if v is not None:
+            rms_vals.append(float(v))
+    for p in (getattr(aa, "peaks", None) or []):
+        mag = p.get("magnitude") if isinstance(p, dict) else getattr(p, "magnitude", 0.0)
+        peak_vals.append(float(mag or 0.0))
+    for ev in (getattr(aa, "events", None) or []):
+        sc = ev.get("score") if isinstance(ev, dict) else getattr(ev, "score", 0.0)
+        ev_vals.append(float(sc or 0.0))
+    # speech density: total chars / total duration
+    total_chars = 0.0
+    for seg in (getattr(ctx, "transcript", None) or []):
+        txt = seg.get("text") if isinstance(seg, dict) else getattr(seg, "text", "")
+        total_chars += len(txt or "")
+    speech_rate = total_chars / max(video_duration, 1.0)  # chars/sec global
+    import statistics
+    def _safe(vals, fn):
+        return fn(vals) if vals else 0.0
+    return {
+        "rms_mean": _safe(rms_vals, statistics.mean),
+        "rms_p85": _safe(sorted(rms_vals), lambda v: v[int(len(v) * 0.85)] if v else 0.0),
+        "peak_p85": _safe(sorted(peak_vals), lambda v: v[int(len(v) * 0.85)] if v else 0.0),
+        "speech_rate": speech_rate,
+        "event_total": sum(ev_vals),
+        "has_events": len(ev_vals) > 0,
+    }
+
+
+def _abs_components(sig, gstats):
+    """Map a window's raw signals to 0..1 using ABSOLUTE global thresholds.
+
+    Unlike min-max over candidates, this is bounded by the whole video: a
+    window only scores high if it is genuinely strong relative to the entire
+    timeline, not merely the strongest of a weak bunch.
+    """
+    avg_rms, peak_energy, chars, event_energy = sig
+    # energy: above the 85th percentile of the whole video is "strong" (->1)
+    rms_thr = max(gstats["rms_p85"], gstats["rms_mean"] * 1.4, 1e-6)
+    peak_thr = max(gstats["peak_p85"], 1e-6)
+    e_rms = min(1.0, avg_rms / rms_thr)
+    e_peak = min(1.0, peak_energy / peak_thr) if peak_thr > 1e-9 else 0.0
+    # speech density: relative to the global chars/sec rate
+    s_thr = max(gstats["speech_rate"], 1.0)
+    e_speech = min(1.0, chars / (s_thr * 30.0))  # ~30s window baseline
+    # semantic events: absolute (sum of YamNet scores in window)
+    e_event = min(1.0, event_energy / 1.5)
+    return e_rms, e_peak, e_speech, e_event
+
+
 def _enforce_constraints(moments, min_duration, max_duration, max_moments, video_duration, ctx=None):
     """Deterministically enforce the user's Detection Settings on LLM output.
 
@@ -134,12 +226,12 @@ def _enforce_constraints(moments, min_duration, max_duration, max_moments, video
         we = max(end, min(start + min_duration, video_duration))
         raw.append(_signal_for_window(ctx, start, we))
 
-    def _normalizer(idx):
-        vals = [r[idx] for r in raw if r]
-        lo, hi = (min(vals), max(vals)) if vals else (0.0, 0.0)
-        rng = hi - lo
-        return lambda v: ((v - lo) / rng) if rng > 1e-9 else 0.5
-    n_rms, n_peak, n_chars, n_event = _normalizer(0), _normalizer(1), _normalizer(2), _normalizer(3)
+    # ── ABSOLUTE SCORING ─────────────────────────────────────────────────────
+    # Old code normalized min-max OVER THE CANDIDATES, which meant the loudest
+    # candidate always scored ~95 even in a totally weak video. Now we compare
+    # each window against the WHOLE VIDEO's statistics, so a weak clip can only
+    # score high if it is genuinely strong relative to the entire timeline.
+    gstats = _global_stats(ctx, video_duration)
 
     sentences = _sentences(ctx)
 
@@ -150,11 +242,13 @@ def _enforce_constraints(moments, min_duration, max_duration, max_moments, video
     n_events_total = len(getattr(getattr(ctx, "audio_analysis", None), "events", None) or [])
     model_hooks_in = [float(getattr(m, "hook_strength", 0.0) or 0.0) for m in moments]
     n_model_hooks = sum(1 for h in model_hooks_in if h > 0.0)
+    model_sc_in = [float(getattr(m, "self_contained", 0.5) or 0.5) for m in moments]
     logger.info(
         f"⚙️  [Ограничения] Вход: {len(moments)} кандидатов | "
         f"score модели {'РАЗНЫЙ' if model_has_variance else 'плоский→пересчёт'} "
         f"(min={min(model_scores) if model_scores else 0:.0f}, max={max(model_scores) if model_scores else 0:.0f}) | "
-        f"hook от модели: {n_model_hooks}/{len(moments)} заполнено | "
+        f"hook от модели: {n_model_hooks}/{len(moments)} | "
+        f"self_contained: {min(model_sc_in):.2f}/{max(model_sc_in):.2f} | "
         f"YamNet-событий всего: {n_events_total}"
     )
 
@@ -168,16 +262,21 @@ def _enforce_constraints(moments, min_duration, max_duration, max_moments, video
         if r is None:
             continue
         start = max(0.0, float(mo.start))
-        # Composite signal strength 0..1. Semantic audio events (laughter,
-        # applause, cheering from YamNet) are the strongest single signal, then
-        # energy peaks, loudness and speech density.
+        # Absolute composite signal 0..1 (vs whole video). Semantic audio events
+        # (laughter/applause/cheering) are the strongest signal, then energy
+        # peaks, loudness and speech density.
         has_event = len(r) > 3 and r[3] > 1e-9
         if has_event:
             n_with_event += 1
-        if has_event:
-            comp = 0.35 * n_event(r[3]) + 0.30 * n_peak(r[1]) + 0.20 * n_rms(r[0]) + 0.15 * n_chars(r[2])
+        if gstats is not None:
+            e_rms, e_peak, e_speech, e_event = _abs_components(r, gstats)
+            if has_event:
+                comp = 0.35 * e_event + 0.30 * e_peak + 0.20 * e_rms + 0.15 * e_speech
+            else:
+                comp = 0.45 * e_peak + 0.35 * e_rms + 0.20 * e_speech
         else:
-            comp = 0.45 * n_peak(r[1]) + 0.35 * n_rms(r[0]) + 0.20 * n_chars(r[2])
+            # No global stats (no audio analysis): fall back to neutral.
+            comp = 0.5
         # Target length scales with signal: strong moments get longer clips.
         target = min_duration + (max_duration - min_duration) * comp
         # Anchor on a clean, context-giving START (the hook); the END is secondary
@@ -198,44 +297,89 @@ def _enforce_constraints(moments, min_duration, max_duration, max_moments, video
         mo.start = round(start, 2)
         mo.end = round(end, 2)
 
-        # ── HOOK STRENGTH ────────────────────────────────────────────────────
-        # Retention is decided in the first seconds, so we score the OPENING
-        # separately and fold it into the moment. Two sources:
-        #   (a) the model's self-reported hook_strength (0..1), and
-        #   (b) a deterministic signal: how active the FIRST 3s of the (refined)
-        #       clip are vs the whole clip — a clip that opens on energy / a
-        #       YamNet event / dense speech hooks a cold viewer faster than one
-        #       that opens on a lull.
+        # ── SELF-CONTAINED GATE (hard) ─────────────────────────────────────
+        # A clip that "starts without a hook and nothing makes sense" must never
+        # score high, no matter how loud. The model now reports self_contained;
+        # we also derive a deterministic signal: is the OPENING speech present
+        # and complete (not a fragment dropped in mid-sentence)?
+        model_sc = float(getattr(mo, "self_contained", 0.5) or 0.5)
+        # Deterministic self-containment proxy: speech present in the first 3s.
         hook_window = 3.0
         sr3 = _signal_for_window(ctx, mo.start, min(mo.start + hook_window, mo.end))
-        # density per second in the opening vs the whole clip (peaks+events+speech)
+        open_chars = sr3[2]  # speech chars in the opening window
+        # If there is essentially no speech at the very start, the clip opens on
+        # a lull/fragment -> not self-contained. Penalize, but keep the model's
+        # read dominant when it is confident.
+        speech_present = open_chars >= 8.0  # ~a short clause
+        signal_sc = 0.6 if speech_present else 0.25
+        self_contained = round(max(model_sc, 0.5 * model_sc + 0.5 * signal_sc), 3)
+        mo.self_contained = self_contained
+
+        # ── HOOK STRENGTH ────────────────────────────────────────────────────
+        # Retention is decided in the first seconds. The model's read is the
+        # primary source; the deterministic part now rewards a clip whose opening
+        # has real ACTIVITY (event/speech), not merely a loud spike — a spike
+        # alone is not a hook (it can be a fragment or a jump-scare).
         open_sig = (sr3[1] + sr3[3]) + 0.01 * sr3[2]
         full_sig = (r[1] + r[3]) + 0.01 * r[2]
         open_dur = max(min(mo.start + hook_window, mo.end) - mo.start, 0.1)
         full_dur = max(mo.end - mo.start, 0.1)
         open_density = open_sig / open_dur
         full_density = full_sig / full_dur
-        # ratio>1 means the opening is more active than average -> strong start
         signal_hook = open_density / full_density if full_density > 1e-9 else 0.5
         signal_hook = max(0.0, min(1.0, signal_hook / 2.0))  # ~2x avg -> 1.0
+        # A clip with no speech at the start cannot have a great hook: cap it.
+        if not speech_present:
+            signal_hook = min(signal_hook, 0.4)
         model_hook = float(getattr(mo, "hook_strength", 0.0) or 0.0)
-        # combine: trust the model's read but never let a dead opening pass.
         hook = round(max(model_hook, 0.5 * model_hook + 0.5 * signal_hook), 3)
         mo.hook_strength = hook
 
-        # Score: trust the model only if it actually differentiated; otherwise
-        # derive a varied, meaningful score from the signals (45..95). Either way
-        # the opening hook nudges the score (a great clip with a weak start is
-        # worth less; +/- up to ~8 points).
+        # ── SCORE (absolute + hard gates) ────────────────────────────────────
+        # Two paths:
+        #   1. model_has_variance → trust the model. Take its virality_score
+        #      VERBATIM (no hook/component bonus — the model already factors
+        #      them in), then apply the hard caps (sc, hook, det).
+        #      Historical lesson: adding (hook - 0.5) · 16 to a model that
+        #      ALREADY scored hook 0.95 → base jumps by +8 regardless of
+        #      model score. Two Gemini moments at model score 95 and 98,
+        #      both with hook 0.95, become 103 and 106 → both capped at 95.
+        #      The whole point of `variance is signal` collapses. Fix: don't
+        #      double-count.
+        #   2. !model_has_variance → deterministic rescoring (no model trust):
+        #      compute from comp + (hook - 0.5) · 16 as before, capped at 85.
         if model_has_variance:
             base = float(getattr(mo, "virality_score", 0) or 50)
         else:
-            base = 45 + 50 * comp
-        base += (hook - 0.5) * 16.0  # hook 1.0 -> +8, hook 0.0 -> -8
+            base = 40 + 45 * comp  # 40..85 absolute
+            # Fold hook in (a great clip with a weak start is worth less).
+            base += (hook - 0.5) * 16.0  # hook 1.0 -> +8, hook 0.0 -> -8
+
+        # Hard cap on the deterministic band:
+        #   * No variance + no event     → 85  (deterministic takes over)
+        #   * Variance + no event        → 95  (preserve model ranking)
+        #   * Variance + high + event    → 100 (full trust)
+        det_cap = 85
+        model_high = base >= 70 and float(getattr(mo, "virality_score", 0) or 0) >= 80
+        if model_high and has_event:
+            det_cap = 100
+        elif model_has_variance and not has_event:
+            # Real differentiation but our local cues don't see an event. Trust
+            # the model up to 95 — never pin to 100 without an audio event.
+            det_cap = 95
+        base = min(base, det_cap)
+
+        # HARD GATES: self_contained / hook_strength absolutely clamp the score,
+        # regardless of energy. This is the fix for "incoherent clip scores 100".
+        sc_cap = 45 if self_contained < 0.4 else (62 if self_contained < 0.55 else 100)
+        hook_cap = 60 if hook < 0.3 else (75 if hook < 0.5 else 100)
+        base = min(base, sc_cap, hook_cap)
+
         mo.virality_score = int(round(max(1, min(100, base))))
         logger.debug(
             f"⚖️  [Constraints] {mo.start:.1f}-{mo.end:.1f}s ({mo.end-mo.start:.0f}с) "
             f"comp={comp:.2f} hook={hook:.2f} (модель={model_hook:.2f}/сигнал={signal_hook:.2f}) "
+            f"sc={self_contained:.2f} (модель={model_sc:.2f}/сигнал={signal_sc:.2f}) "
             f"{'+событие ' if has_event else ''}→ score={mo.virality_score}"
         )
         cleaned.append(mo)
@@ -262,11 +406,13 @@ def _enforce_constraints(moments, min_duration, max_duration, max_moments, video
     if kept:
         sc = [int(m.virality_score or 0) for m in kept]
         hk = [float(getattr(m, "hook_strength", 0.0) or 0.0) for m in kept]
+        sct = [float(getattr(m, "self_contained", 0.5) or 0.5) for m in kept]
         durs = [round(m.end - m.start, 1) for m in kept]
         logger.info(
             f"⚙️  [Ограничения] Итог: {len(kept)} моментов | "
             f"score min/avg/max = {min(sc)}/{sum(sc)//len(sc)}/{max(sc)} | "
             f"hook min/avg/max = {min(hk):.2f}/{sum(hk)/len(hk):.2f}/{max(hk):.2f} | "
+            f"self_contained min/avg/max = {min(sct):.2f}/{sum(sct)/len(sct):.2f}/{max(sct):.2f} | "
             f"длительность min/max = {min(durs)}/{max(durs)}с"
         )
         logger.info(
@@ -280,6 +426,7 @@ def _enforce_constraints(moments, min_duration, max_duration, max_moments, video
             logger.info(
                 f"⚙️  [Ограничения] ТОП-{rank}: {m.start:.0f}-{m.end:.0f}с "
                 f"score={m.virality_score} hook={getattr(m, 'hook_strength', 0.0):.2f} "
+                f"sc={getattr(m, 'self_contained', 0.5):.2f} "
                 f"тип={getattr(m, 'content_type', '?')} hook_text=\"{(getattr(m, 'hook', '') or '')[:60]}\""
             )
     else:
@@ -291,6 +438,114 @@ class DetectionPipeline:
     
     GPU-first: uses GPU when CUDA available, falls back to legacy CPU pipeline otherwise.
     """
+
+    async def _run_cross_modal(
+        self, ctx: "Stage1Context", video_path: str, progress_callback: Optional[Callable] = None
+    ) -> None:
+        """Stage 1.5 — populate ctx.face_clusters + ctx.speaker_segments.
+
+        Two parallel tracks:
+            A) `face_identity.cluster(face_timeline)` — DBSCAN over
+               buffalo_l embeddings, GPU hours-mine.
+            B) `speaker_diarizer.diarize(waveform_16k)` — pyannote-audio 4.x,
+               needs CLIPFORGE_HF_TOKEN.
+
+        Both modules fail gracefully (each returns [] on any error). The
+        cross-modal `anchor(...)` then joins speaker turns with face
+        clusters, producing `SpeakerSegment` rows that the LLM prompt
+        surfaces as the PEOPLE / SPEAKERS section.
+
+        VRAM sequencing: whisper + yolo are already unloaded at this point.
+        We sequentially load face_identity (~1 GB), then diarizer (~2 GB),
+        then unload both before Stage 2. We re-extract the audio waveform
+        once via a small ffmpeg pipe (no full 16 kHz re-decode of the original
+        Whisper result — pyannote wants 16 kHz mono as plain float32).
+        """
+        from backend.services import face_identity, speaker_diarization, cross_modal
+
+        # 1. face clustering
+        try:
+            if progress_callback:
+                await progress_callback({
+                    "stage": 1, "step": "face_identity_load",
+                    "progress": 0.605,
+                    "detail": "загрузка buffalo_l (insightface)",
+                })
+            clusters = await asyncio.to_thread(
+                face_identity.face_identity.cluster,
+                ctx.face_timeline,
+                video_path,
+            )
+            ctx.face_clusters = clusters
+            if progress_callback:
+                await progress_callback({
+                    "stage": 1, "step": "face_identity_done",
+                    "progress": 0.62,
+                    "detail": f"кластеров={len(clusters)} ({sum(len(c.track_ids) for c in clusters)} треков)",
+                })
+        except Exception as e:
+            logger.warning(f"👤 [FaceID] неожиданная ошибка ({e}) — без лиц")
+            ctx.face_clusters = []
+        finally:
+            vram_manager.unload_model("face_identity")
+
+        # 2. speaker diarization: re-decode audio once via ffmpeg (cheap).
+        try:
+            if progress_callback:
+                await progress_callback({
+                    "stage": 1, "step": "diarization_extract",
+                    "progress": 0.625,
+                    "detail": "ffmpeg → wav 16kHz mono",
+                })
+            import subprocess, tempfile, os
+            wav_path = tempfile.NamedTemporaryFile(
+                suffix=".wav", delete=False
+            ).name
+            try:
+                _ffmpeg_to_wav(video_path, wav_path)
+                import numpy as np
+                import soundfile as sf
+                wav, sr = sf.read(wav_path, dtype="float32", always_2d=False)
+                if wav.ndim > 1:
+                    wav = wav.mean(axis=0)
+                if progress_callback:
+                    await progress_callback({
+                        "stage": 1, "step": "diarization_run",
+                        "progress": 0.635,
+                        "detail": "pyannote-audio 4.x (если есть HF токен)",
+                    })
+                turns = speaker_diarization.speaker_diarizer.diarize(wav, sr=int(sr))
+            finally:
+                if os.path.exists(wav_path):
+                    os.unlink(wav_path)
+            if turns:
+                speaker_count = len({t.speaker_id for t in turns})
+                if progress_callback:
+                    await progress_callback({
+                        "stage": 1, "step": "cross_modal_anchor",
+                        "progress": 0.645,
+                        "detail": f"{len(turns)} turns, {speaker_count} спикеров → anchor к лицам",
+                    })
+                ctx.speaker_segments = cross_modal.anchor(
+                    speaker_turns=turns,
+                    face_timeline=ctx.face_timeline,
+                    face_clusters=ctx.face_clusters,
+                    transcript=ctx.transcript,
+                )
+            else:
+                ctx.speaker_segments = []
+        except Exception as e:
+            logger.warning(f"🤝 [CrossModal] неожиданная ошибка ({e}) — без спикеров")
+            ctx.speaker_segments = []
+        finally:
+            vram_manager.unload_model("diarization")
+
+        if progress_callback:
+            await progress_callback({
+                "stage": 1, "step": "cross_modal_done", "progress": 0.65,
+                "detail": f"кластеров={len(ctx.face_clusters)}, "
+                          f"speakers={len(ctx.speaker_segments)}",
+            })
 
     def _should_use_gpu(self) -> bool:
         """Determine if GPU pipeline should be used.
@@ -306,6 +561,133 @@ class DetectionPipeline:
         # "true" or "auto" both use GPU if CUDA available
         return vram_manager.is_gpu
 
+    async def _run_llm_director(
+        self,
+        ctx: Stage1Context,
+        user_instructions: str,
+        min_duration: int,
+        max_duration: int,
+        max_moments: int,
+        progress_callback: Optional[Callable] = None,
+        preset_id: str = "default",
+    ) -> DirectorOutput:
+        """Stage 2: pre-flight Gemini, build context shape, run director.
+
+        Extracted into its own method so the pre-flight → context-shape → director
+        flow is independently testable without spinning up the whole pipeline.
+
+        Order matters:
+          1. Pre-flight Gemini FIRST. If Gemini is configured but unreachable
+             (region block, dead proxy, missing socksio, quota) we should not
+             waste time building chunks for it.
+          2. Pick context shape according to the director:
+                * Gemini → build_single_context (whole video in one prompt).
+                * Qwen3  → build_chunks (8K context window forces chunking).
+          3. Run the actual director. If Gemini fails mid-flight after a
+             healthy pre-flight, rebuild chunks for the Qwen fallback.
+        """
+        logger.info("▶️  [Этап 2/3] Начало ИИ-анализа...")
+        logger.info("")
+
+        # ── 1. pre-flight Gemini ──────────────────────────────────────────────
+        # Gemini 2.5 Flash holds 1M input tokens / 250K TPM. A 30-min Russian
+        # video is ~5000 tokens total — it fits ONE request. Single context
+        # gives the model the whole timeline and lets it reason across it
+        # (e.g. a late payoff that references an early setup).
+        use_gemini = gemini_is_configured()
+        gemini_ok = False
+        if use_gemini:
+            if progress_callback:
+                await progress_callback({"stage": 2, "step": "gemini_preflight", "progress": 0.63})
+            logger.info(f"🛰️  [Этап 2/3] Пре-полётная проверка Gemini {GEMINI_MODEL}...")
+            gemini_ok = await asyncio.to_thread(gemini_director.check_health)
+            if gemini_ok:
+                logger.info(f"🛰️  [Gemini] Доступен → единый контекст (250K TPM, 1M токенов на запрос)")
+            else:
+                logger.warning("🛰️  [Gemini] Пре-полётная проверка не прошла → локальный Qwen3-8B")
+
+        if use_gemini and gemini_ok:
+            logger.info(f"🛰️  [Этап 2/3] Режиссёр: Gemini {GEMINI_MODEL} (single context), резерв — Qwen3-8B")
+        elif use_gemini:
+            logger.info("🧠 [Этап 2/3] Режиссёр: Qwen3-8B (локально) — Gemini недоступен")
+        else:
+            logger.info("🧠 [Этап 2/3] Режиссёр: Qwen3-8B (локально) — Gemini не настроен")
+
+        if progress_callback:
+            await progress_callback({"stage": 2, "step": "context_building", "progress": 0.65})
+
+        # ── 2. pick + build context shape ─────────────────────────────────────
+        chunk_analyze_time = 90  # ~60-120s per chunk on RTX 5060 (Qwen3-8B Q4)
+        if use_gemini and gemini_ok:
+            context_input: str | list[str] = await asyncio.to_thread(
+                context_builder.build_single_context, ctx, user_instructions
+            )
+            est_llm_time = 60  # single Gemini call (incl. reasoning overhead)
+            logger.info(f"🧠 [LLM] Ожидаемое время анализа: ~{est_llm_time}с (single Gemini call)")
+        else:
+            context_input = await asyncio.to_thread(
+                context_builder.build_chunks, ctx, user_instructions
+            )
+            est_llm_time = len(context_input) * chunk_analyze_time
+            if len(context_input) > 1:
+                est_llm_time += 20  # +20s for global re-rank pass
+            logger.info(f"🧠 [LLM] Ожидаемое время анализа: ~{est_llm_time}с ({len(context_input)} чанков)")
+
+        if progress_callback:
+            await progress_callback({"stage": 2, "step": "llm_analysis", "progress": 0.70})
+
+        # ── 3. progress callback wrapper (sync → async) ───────────────────────
+        _loop = asyncio.get_event_loop()
+        def _llm_progress(chunk_i: int, total: int, phase: str = "chunk"):
+            prog = 0.70 + (chunk_i / max(total, 1)) * 0.14
+            step_name = "llm_chunk" if phase == "chunk" else "llm_consolidate"
+            coro = progress_callback({
+                "stage": 2,
+                "step": step_name,
+                "progress": prog,
+                "detail": (
+                    "Единый контекст" if total <= 1 else f"Чанк {chunk_i}/{total}"
+                ),
+            }) if progress_callback else None
+            if coro is not None:
+                asyncio.run_coroutine_threadsafe(coro, _loop)
+
+        # ── 4. run the chosen director ────────────────────────────────────────
+        director_output = None
+        if use_gemini and gemini_ok:
+            try:
+                director_output = await asyncio.to_thread(
+                    gemini_director.analyze, context_input, user_instructions, _llm_progress,
+                    min_duration, max_duration, max_moments, preset_id
+                )
+            except Exception as e:
+                # Pre-flight said OK but real call failed (proxy hiccup,
+                # quota exhausted mid-batch). Fall back to Qwen, but Qwen
+                # needs CHUNKS — single context would blow its 8K window.
+                logger.warning(
+                    f"⚠️  [Gemini] Пре-полёт OK, но реальный вызов провалился "
+                    f"({type(e).__name__}: {e}). Перестраиваю контекст под Qwen..."
+                )
+                context_input = await asyncio.to_thread(
+                    context_builder.build_chunks, ctx, user_instructions
+                )
+                director_output = None
+
+        if director_output is None:
+            if use_gemini and gemini_ok:
+                logger.info("🧠 [Qwen3] Резервный анализ локально...")
+            director_output = await asyncio.to_thread(
+                llm_director.analyze, context_input, user_instructions, _llm_progress,
+                min_duration, max_duration, max_moments, preset_id
+            )
+
+        vram_manager.unload_all()  # Safety flush
+        if director_output is not None:
+            logger.info(
+                f"✅  [Этап 2/3] Найдено {len(director_output.moments)} моментов"
+            )
+        return director_output
+
     async def run(
         self,
         video_path: str,
@@ -314,9 +696,10 @@ class DetectionPipeline:
         min_duration: int = 30,
         max_duration: int = 90,
         progress_callback: Optional[Callable] = None,
+        preset_id: str = "default",
     ) -> DirectorOutput:
         """Run 3-stage GPU pipeline for moment detection.
-        
+
         Args:
             video_path: Path to video file
             user_instructions: Optional user analysis instructions
@@ -324,7 +707,9 @@ class DetectionPipeline:
             min_duration: Minimum moment duration in seconds
             max_duration: Maximum moment duration in seconds
             progress_callback: Optional async callback for progress updates
-            
+            preset_id: Content preset (#4). 'default' is no-op; others inject
+                targeted LLM rules for films_anime/streams/youtube_cuts.
+
         Returns:
             DirectorOutput with detected moments
         """
@@ -489,50 +874,20 @@ class DetectionPipeline:
             video_path=video_path,
         )
 
+        # ─── STAGE 1.5: Cross-modal identity (OPTIONAL) ──────────────────────
+        # Runs AFTER whisper + YOLO unload so we never exceed VRAM.
+        # Both modules have graceful degradation: missing models, missing
+        # HF token, or import errors → empty list. Nothing in Stage 2 breaks.
+        await self._run_cross_modal(ctx, video_path, progress_callback)
+
         if progress_callback:
             await progress_callback({"stage": 1, "step": "done", "progress": 0.60})
 
         # ─── STAGE 2: LLM Director ───────────────────────────────────────────
         stage2_start = time.time()
-        logger.info("▶️  [Этап 2/3] Начало ИИ-анализа...")
-        logger.info("")
-        
-        if progress_callback:
-            await progress_callback({"stage": 2, "step": "context_building", "progress": 0.65})
-
-        # Build context chunks (dynamic based on video duration)
-        context_chunks = await asyncio.to_thread(context_builder.build_chunks, ctx, user_instructions)
-        
-        # Estimate total LLM time based on number of chunks
-        chunk_analyze_time = 90  # ~60-120s per chunk on RTX 5060 (Qwen3-8B Q4, reasoning)
-        est_llm_time = len(context_chunks) * chunk_analyze_time
-        if len(context_chunks) > 1:
-            est_llm_time += 20  # +20s for consolidation pass
-        
-        logger.info(f"🧠 [LLM] Ожидаемое время анализа: ~{est_llm_time}с ({len(context_chunks)} чанков)")
-
-        if progress_callback:
-            await progress_callback({"stage": 2, "step": "llm_analysis", "progress": 0.70})
-
-        # Create asyncio-compatible LLM progress callback wrapper
-        _loop = asyncio.get_event_loop()
-        def _llm_progress(chunk_i: int, total: int, phase: str = "chunk"):
-            prog = 0.70 + (chunk_i / max(total, 1)) * 0.14
-            step_name = "llm_chunk" if phase == "chunk" else "llm_consolidate"
-            coro = progress_callback({
-                "stage": 2,
-                "step": step_name,
-                "progress": prog,
-                "detail": f"Чанк {chunk_i}/{total}"
-            })
-            asyncio.run_coroutine_threadsafe(coro, _loop)
-
-        director_output = await asyncio.to_thread(
-            llm_director.analyze, context_chunks, user_instructions, _llm_progress,
-            min_duration, max_duration, max_moments
+        director_output = await self._run_llm_director(
+            ctx, user_instructions, min_duration, max_duration, max_moments, progress_callback, preset_id=preset_id,
         )
-        vram_manager.unload_all()  # Safety flush
-        
         stage2_time = time.time() - stage2_start
         logger.info("")
         logger.info(f"✅  [Этап 2/3] Завершён за {stage2_time:.1f}с")
@@ -555,6 +910,18 @@ class DetectionPipeline:
         director_output.moments = _enforce_constraints(
             director_output.moments, min_duration, max_duration, max_moments, video_duration, ctx,
         )
+
+        # Populate `MomentInstruction.speakers` from Stage 1.5 cross-modal
+        # output. Populating AFTER _enforce_constraints because that step
+        # resnaps moments' start/end times; using the post-reflow times
+        # means the speaker list reflects the final moment, not the raw
+        # LLM-suggested one. Empty list when cross-modal produced nothing.
+        if ctx.speaker_segments:
+            from backend.services import cross_modal
+            for mo in director_output.moments:
+                mo.speakers = cross_modal.speakers_in_range(
+                    ctx.speaker_segments, mo.start, mo.end,
+                )
 
         logger.info("="*60)
         logger.info(f"🎉 [Детекция] Готово! Найдено {len(director_output.moments)} моментов за {total_time:.1f}с")

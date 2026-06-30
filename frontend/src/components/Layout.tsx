@@ -11,6 +11,7 @@ import {
   Clapperboard,
   Zap,
   BarChart3,
+  Users as UsersIcon,
 } from 'lucide-react'
 
 const steps = [
@@ -105,14 +106,23 @@ export default function Layout() {
           })}
         </nav>
 
-        {/* Analytics tab */}
-        <button
-          onClick={() => navigate('/analytics')}
-          className={'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all justify-self-end ' + (location.pathname === '/analytics' ? 'bg-indigo-600 text-white shadow-btn' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800 border border-slate-200')}
-        >
-          <BarChart3 size={15} />
-          <span className="hidden md:block">Analytics</span>
-        </button>
+        {/* Right-side utility buttons: Accounts (multi-channel #5) + Analytics */}
+        <div className="flex items-center gap-2 justify-self-end">
+          <button
+            onClick={() => navigate('/accounts')}
+            className={'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all ' + (location.pathname === '/accounts' ? 'bg-indigo-600 text-white shadow-btn' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800 border border-slate-200')}
+          >
+            <UsersIcon size={15} />
+            <span className="hidden md:block">Accounts</span>
+          </button>
+          <button
+            onClick={() => navigate('/analytics')}
+            className={'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all ' + (location.pathname === '/analytics' ? 'bg-indigo-600 text-white shadow-btn' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800 border border-slate-200')}
+          >
+            <BarChart3 size={15} />
+            <span className="hidden md:block">Analytics</span>
+          </button>
+        </div>
       </header>
 
       {/* Main Content */}

@@ -4,8 +4,18 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
+
+# Load .env FIRST, before any module that reads CLIPFORGE_* env vars at import
+# time (gpu_config reads GEMINI_* / QWEN_* on import). python-dotenv does not
+# override variables already set in the real environment.
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from backend.db import init_db
-from backend.api import download, moments, process, publish, session, upload
+from backend.api import download, moments, process, publish, session, upload, preview, accounts
 from backend.api import moments_gpu
 from backend.config import OUTPUT_DIR, DOWNLOADS_DIR, BANNERS_DIR
 
@@ -55,6 +65,8 @@ app.include_router(process.router, prefix="/api", tags=["process"])
 app.include_router(publish.router, prefix="/api", tags=["publish"])
 app.include_router(session.router, prefix="/api", tags=["session"])
 app.include_router(upload.router, prefix="/api", tags=["upload"])
+app.include_router(preview.router, prefix="/api", tags=["preview"])
+app.include_router(accounts.router, prefix="/api", tags=["accounts"])
 
 # Static file serving
 try:

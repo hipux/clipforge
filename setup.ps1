@@ -129,12 +129,25 @@ if ($gpuAvailable) {
 Write-Host "[OK] llama-cpp-python installed" -ForegroundColor Green
 }
 
-# -- 7. Python dependencies (torch/llama already handled above) --
+# -- 7. SOCKS proxy support for Gemini (region-block bypass) -----
+# NOTE: `httpx[socks]` extra was REMOVED in httpx >=0.28, so we MUST install
+# socksio separately. Without it, any Gemini call through a socks5:// proxy
+# fails with ImportError BEFORE the first byte is sent and falls back to Qwen.
+Write-Host ""
+Write-Host "[+] Installing SOCKS proxy support (Gemini region bypass)..." -ForegroundColor Yellow
+& $pip install "socksio>=1.0.0" --quiet
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "[OK] socksio installed" -ForegroundColor Green
+} else {
+    Write-Host "[!] socksio install failed - Gemini via SOCKS proxy will be unavailable" -ForegroundColor Yellow
+}
+
+# -- 8. Python dependencies (torch/llama already handled above) --
 Write-Host ""
 Write-Host "[+] Installing Python dependencies..." -ForegroundColor Yellow
 & $pip install -r requirements.txt
 
-# -- 7b. YamNet audio-event model (laughter/applause/cheering) ----
+# -- 8b. YamNet audio-event model (laughter/applause/cheering) ----
 Write-Host ""
 Write-Host "[+] Checking YamNet audio-event classifier..." -ForegroundColor Yellow
 
@@ -167,7 +180,7 @@ if ((Test-Path $yamnetModel) -and (Test-Path $yamnetMap)) {
     }
 }
 
-# -- 8. Node.js + frontend ---------------------------------------
+# -- 9. Node.js + frontend ---------------------------------------
 Write-Host ""
 Write-Host "[+] Checking Node.js..." -ForegroundColor Yellow
 try {
@@ -186,7 +199,35 @@ if (Test-Path (Join-Path $ScriptDir "frontend\node_modules")) {
     Set-Location $ScriptDir
 }
 
-# -- 9. Directories ----------------------------------------------
+# -- 9b. YouTube browser upload (ytb-up + Firefox binary) ---------
+# `ytb-up` drives a headless Playwright + Firefox profile to look like a real
+# user when uploading to YouTube Studio. Firefox itself is ~80 MB, fetched on
+# demand the first time `python -m playwright install firefox` runs. We
+# install ONLY when the user opts in via $env:CLIPFORGE_INSTALL_BROWSER_UPLOAD.
+if ($env:CLIPFORGE_INSTALL_BROWSER_UPLOAD -eq "1") {
+    Write-Host ""
+    Write-Host "[+] Verifying ytb-up (YouTube Playwright uploader)..." -ForegroundColor Yellow
+    & $pip install "ytb-up>=0.1.15" --quiet
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[!] ytb-up install failed - browser-based YouTube upload won't work." -ForegroundColor Yellow
+    } else {
+        Write-Host "[OK] ytb-up installed" -ForegroundColor Green
+        try {
+            & $python -m playwright install firefox
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "[OK] Firefox binary downloaded for browser upload" -ForegroundColor Green
+            } else {
+                Write-Host "[!] Firefox download failed - run 'python -m playwright install firefox' manually." -ForegroundColor Yellow
+            }
+        } catch {
+            Write-Host "[!] Playwright not yet importable; will retry on first publish." -ForegroundColor Yellow
+        }
+    }
+} else {
+    Write-Host "[skip] Browser-based YouTube upload (set CLIPFORGE_INSTALL_BROWSER_UPLOAD=1 to enable)" -ForegroundColor DarkGray
+}
+
+# -- 10. Directories ---------------------------------------------
 Write-Host ""
 Write-Host "[+] Creating workspace directories..." -ForegroundColor Yellow
 @("workspace\downloads", "workspace\output", "workspace\temp", "models") | ForEach-Object {
@@ -194,7 +235,7 @@ Write-Host "[+] Creating workspace directories..." -ForegroundColor Yellow
 }
 Write-Host "[OK] Directories created" -ForegroundColor Green
 
-# -- 10. Database migration --------------------------------------
+# -- 11. Database migration -------------------------------------
 Write-Host ""
 Write-Host "[+] Running database migration..." -ForegroundColor Yellow
 & $python backend\migrate_gpu_fields.py
