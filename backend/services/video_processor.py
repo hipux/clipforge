@@ -122,24 +122,63 @@ async def process_clip(
     else:
         filters.append("[v2]null[v3]")
     
-    # 4. Subtitles (if enabled)
-    subtitle_file = None
+    # 4. Subtitles (if enabled). Two renderers are supported:
+    #   (a) Pillow-based bonus path — PNGs rasterised with real TrueType
+    #       anti-aliasing, Gaussian-blur glow, and per-word karaoke
+    #       highlight. The output looks ~notably~ cleaner on dark or
+    #       noisy footage than ffmpeg-libass. Default ON.
+    #   (b) Classic libass path — burns a single .ass file via the
+    #       ffmpeg `ass=` filter. Same chain as before, kept as a
+    #       fallback if Pillow is unavailable or operator wants to
+    #       A/B the output.
+    #
+    # The toggle is CLIPFORGE_PILLOW_SUBS. Default = 1 (use Pillow).
+    subtitle_pngs = None     # list[str]
+    subtitle_overlay_filter = None
+    subtitle_style = effects.subtitle_style or "karaoke"
+    use_pillow = (
+        effects.subtitles
+        and os.environ.get("CLIPFORGE_PILLOW_SUBS", "1") == "1"
+    )
     if effects.subtitles:
         if progress_callback:
-            progress_callback(0.2, "Generating subtitles...")
-        
-        subtitle_file = temp_dir / "subtitles.ass"
-        subtitle_style = effects.subtitle_style or "karaoke"
-        success = generate_subtitles_file(input_path, str(subtitle_file), style=subtitle_style)
-        
-        if success:
-            # Escape path for FFmpeg filter (ASS filter uses forward slashes, escape drive colon on Windows)
-            subtitle_path_str = str(subtitle_file).replace('\\', '/').replace(':', '\\:')
-            # Use 'ass=' filter for ASS files - all styling is baked into the .ass file
-            filters.append(f"[v3]ass='{subtitle_path_str}'[v4]")
+            progress_callback(0.2, "Rendering subtitles with Pillow...")
+
+        if use_pillow:
+            try:
+                from backend.services.subtitle_overlay import (
+                    generate_pillow_subtitles,
+                    compose_overlay_filter,
+                )
+                subs_dir = temp_dir / "subtitles_pillow"
+                overlays = generate_pillow_subtitles(
+                    input_path, subs_dir, subtitle_style,
+                )
+                if overlays:
+                    subtitle_pngs = [str(o.png_path) for o in overlays]
+                    # Reserve ffmpeg input index 2 for the first PNG. If
+                    # a banner is also being composited it'd go in input 1
+                    # above; no overlap.
+                    sub_first_idx = 2
+                    subtitle_overlay_filter = compose_overlay_filter(
+                        overlays, first_input_idx=sub_first_idx,
+                    )
+                else:
+                    print("Pillow subtitle render returned no overlays, falling back to null")
+            except Exception as e:
+                print(f"Pillow subtitle render failed ({e}), falling back to null")
         else:
-            print("Subtitle generation failed, skipping subtitles")
+            # Legacy libass path kept for A/B comparison.
+            subtitle_file = temp_dir / "subtitles.ass"
+            success = generate_subtitles_file(input_path, str(subtitle_file), style=subtitle_style)
+            if success:
+                subtitle_path_str = str(subtitle_file).replace('\\', '/').replace(':', '\\:')
+                subtitle_overlay_filter = f"[v3]ass='{subtitle_path_str}'[v4]"
+
+        if subtitle_overlay_filter is None:
             filters.append("[v3]null[v4]")
+        else:
+            filters.append(subtitle_overlay_filter)
     else:
         filters.append("[v3]null[v4]")
     
@@ -207,6 +246,20 @@ async def process_clip(
             cmd.extend(['-ignore_loop', '0', '-i', banner_input])
         else:
             cmd.extend(['-i', banner_input])
+
+    # Add Pillow-rendered subtitle PNG inputs (one -i per chunk).
+    # They are referenced as [2:v], [3:v], ... in compose_overlay_filter;
+    # we built the filter chain with first_input_idx=2 already.
+    # The Pillow path is mutually exclusive with the libass path here —
+    # it has already written the overlays into subtitle_overlay_filter if
+    # the render succeeded.
+    # Note: the legacy 'subtitle_file' (.ass) flow does NOT need extra
+    # inputs (it goes through the ass= filter), so we only push the
+    # PNGs onto cmd here when we have them.
+    # Use distinct sentinels so we don't double-add the same path
+    # for a banner that happens to also be a PNG.
+    for png_path in subtitle_pngs or []:
+        cmd.extend(['-loop', '1', '-i', png_path])
     
     cmd.extend([
         '-filter_complex', filter_complex,
